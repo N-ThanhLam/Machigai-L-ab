@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>まなびサポート</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
+
+    const SYSTEM_PROMPT = `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを軸に、子どもの学力を最大化することが使命です。
+
+【問題作成の絶対ルール】
+1. 英語の問題を作成する場合、問題文（どういう問題かという指示や状況説明）は必ず「日本語」にしてください。（例：「次の英文の正しい意味を選びなさい」など。問題文すべてを英語にすることは禁止です）
+2. テキストだけで完全に解ける問題にしてください。画像、図、表、マークなどの視覚情報がないと解けない問題（例：「このマークの意味は？」「右の図で…」）は絶対に作成しないでください。
+
+必ずJSON形式の配列のみで回答してください。余分なテキスト・マークダウン不可。一度に指定された数（基本10問）の問題を生成し、以下のオブジェクトを要素とする配列 [ { }, { }, ... ] を返してください。
+
+出力フォーマット（配列の1要素）:
+{
+  "start_message": "導入メッセージ（1文、子どもの興味を引く）",
+  "question": "問題文",
+  "choices": ["A", "B", "C", "D"],
+  "answer": 0,
+  "hint": "考え方のヒント（答えは言わない）",
+  "correct_feedback": "正解時フィードバック。①具体的にどの部分を正確に理解できていたか褒める ②さらに深い学びにつながる一言（別解・応用・関連知識）③やる気が続く締めの一言。合計2〜3文。",
+  "incorrect_feedback": "不正解時フィードバック。①どこで引っかかりやすいかを優しく指摘 ②正しい考え方・解き方を具体的に示す ③次は絶対できるという確信を与える一言。合計2〜3文。",
+  "learning_tip": "この問題から得られる最も重要な学習ポイント（1文、記憶に残る言い方で）",
+  "topic_tag": "問題のテーマを短く（例：分数の足し算、接続詞、江戸時代）"
+}
+
+条件: answerは0〜3、学習指導要領準拠、正解は1つ、学年と科目とレベルに完全準拠`;
+
+    function calcGrade(birth) {
+      if (!birth) return "一般";
+      const b = new Date(birth), now = new Date();
+      let sy = now.getFullYear();
+      if (now.getMonth() < 3) sy--;
+      let ent = b.getFullYear() + 7;
+      if (b.getMonth() < 3) ent--;
+      const y = sy - ent + 1;
+      if (y >= 1 && y <= 6) return `小学${y}年生`;
+      if (y >= 7 && y <= 9) return `中学${y - 6}年生`;
+      if (y >= 10 && y <= 12) return `高校${y - 9}年生`;
+      return "一般";
+    }
+
+    function today() { return new Date().toISOString().slice(0, 10); }
+
+    function calcRecent100Rate(recentHistory) {
+      if (!recentHistory || recentHistory.length === 0) return null;
+      const last100 = recentHistory.slice(-100);
+      const correct = last100.filter(r => r.correct).length;
+      return { rate: Math.round(correct / last100.length * 100), count: last100.length };
+    }
+
+    function calcRecentSubjectRates(recentHistory) {
+      if (!recentHistory || recentHistory.length === 0) return {};
+      const last100 = recentHistory.slice(-100);
+      const map = {};
+      for (const r of last100) {
+        if (!map[r.subject]) map[r.subject] = { q: 0, c: 0 };
+        map[r.subject].q++;
+        if (r.correct) map[r.subject].c++;
+      }
+      return map;
+    }
+
+    const qBankKey = "manabi_qbank_v3";
+    const saveToQBank = (qs) => {
+      try {
+        const existing = JSON.parse(localStorage.getItem(qBankKey) || "[]");
+        const merged = [...existing, ...qs].slice(-200); 
+        localStorage.setItem(qBankKey, JSON.stringify(merged));
+      } catch {}
+    };
+   // --- もともと入っている削除用の関数 ---
+const consumeFromQBank = (targetQ) => {
+  try {
+    const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
+    const targetIdx = allBank.findIndex(q => q._subject === targetQ._subject && q.question === targetQ.question);
+    if (targetIdx !== -1) {
+      allBank.splice(targetIdx, 1);
+      localStorage.setItem(qBankKey, JSON.stringify(allBank));
+    }
+  } catch {}
+};
+
+// --- ここから下を追加！ (検索用の関数) ---
+const getFromQBank = (subj) => {
+  try {
+    const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
+    return allBank.filter(q => q._subject === subj);
+  } catch {
+    return [];
+  }
+};
+
+    const BADGES = [
+      { id: "first",      label: "はじめの一歩",   desc: "初めて問題を解いた",       icon: "🌱", cond: s => s.totalQ >= 1 },
+      { id: "streak3",    label: "3連続！",         desc: "3問連続正解",              icon: "🔥", cond: s => s.bestStreak >= 3 },
+      { id: "perfect5",   label: "完璧な5問",       desc: "5問連続正解",              icon: "✨", cond: s => s.bestStreak >= 5 },
+      { id: "q10",        label: "10問達成",        desc: "合計10問を解いた",         icon: "📖", cond: s => s.totalQ >= 10 },
+      { id: "streak7",    label: "7連続！！",       desc: "7問連続正解",              icon: "⚡", cond: s => s.bestStreak >= 7 },
+      { id: "q50",        label: "50問の壁",        desc: "合計50問を解いた",         icon: "🏆", cond: s => s.totalQ >= 50 },
+      { id: "allsubject", label: "全科目制覇",      desc: "5科目すべてを経験",        icon: "🌈", cond: s => Object.keys(s.subjectStats || {}).length >= 5 },
+      { id: "day3",       label: "3日連続",         desc: "3日連続で学習した",        icon: "📅", cond: s => s.loginStreak >= 3 },
+      { id: "recent80",   label: "直近80%超え",     desc: "直近100問で正解率80%以上", icon: "🎯", cond: s => { const r = calcRecent100Rate(s.recentHistory); return r && r.count >= 100 && r.rate >= 80; } },
+      { id: "genius",     label: "努力の天才",      desc: "累計300問を達成",          icon: "👑", cond: s => s.totalQ >= 300 },
+      { id: "runner",     label: "不屈のランナー",   desc: "累計365日学習した",        icon: "⏳", cond: s => Object.keys(s.dailyLog || {}).length >= 365 },
+      { id: "legend",     label: "レジェンド",      desc: "直近100問で正解率100%",    icon: "💎", cond: s => { const r = calcRecent100Rate(s.recentHistory); return r && r.count >= 100 && r.rate === 100; } },
+    ];
+
+    const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#f0f4ff;font-family:'Nunito','M PLUS Rounded 1c',sans-serif;color:#1e1e3a}
+    .root{min-height:100vh;background:linear-gradient(135deg,#f0f4ff 0%,#fdf0ff 100%);padding:12px}
+    .card{background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;box-shadow:0 2px 12px rgba(100,80,200,.08)}
+    .tabs{display:flex;gap:0;background:#ede9ff;border-radius:14px;padding:4px;margin-bottom:14px}
+    .tab{flex:1;padding:9px 0;border:none;background:transparent;border-radius:10px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:all .2s;color:#8880bb}
+    .tab.active{background:#fff;color:#5b3ff8;box-shadow:0 2px 8px rgba(91,63,248,.15)}
+    .btn{border:none;border-radius:14px;padding:13px 20px;font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;width:100%;transition:all .18s}
+    .btn-primary{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff}
+    .btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 20px rgba(91,63,248,.3)}
+    .btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none;background:#ccc}
+    .btn-ghost{background:#f0edff;color:#5b3ff8;border:none}
+    .btn-ghost:hover:not(:disabled){background:#e4dfff}
+    .btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+    .choice{background:#f8f7ff;border:2px solid #e8e3ff;border-radius:14px;padding:14px 16px;font-size:14px;font-weight:700;font-family:inherit;color:#1e1e3a;cursor:pointer;width:100%;text-align:left;transition:all .18s;margin-bottom:9px;display:flex;align-items:center;gap:11px}
+    .choice:hover:not(:disabled){border-color:#5b3ff8;background:#f0edff;transform:translateX(3px)}
+    .choice:disabled{cursor:not-allowed}
+    .choice.correct{border-color:#22c55e;background:#f0fdf4;color:#166534}
+    .choice.wrong{border-color:#ef4444;background:#fef2f2;color:#991b1b}
+    .choice.dim{opacity:.35}
+    .num{min-width:26px;height:26px;border-radius:8px;background:#ede9ff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;color:#5b3ff8}
+    .stat{background:#f8f7ff;border-radius:12px;padding:10px 8px;text-align:center;flex:1}
+    .stat-n{font-size:20px;font-weight:900}
+    .stat-l{font-size:11px;color:#9990cc;margin-top:1px}
+    .pill{border-radius:20px;padding:4px 13px;font-size:12px;font-weight:800;display:inline-block}
+    .pill-lv{background:#ede9ff;color:#5b3ff8}
+    .pill-review{background:#fff3cd;color:#856404}
+    .start-msg{background:#f0edff;border-left:3px solid #5b3ff8;border-radius:0 10px 10px 0;padding:10px 14px;font-size:13px;color:#5b3ff8;margin-bottom:16px;font-weight:600}
+    .hint{background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 10px 10px 0;padding:10px 14px;font-size:13px;color:#92400e;margin-bottom:16px;font-weight:600}
+    .fb{border-radius:16px;padding:18px;margin-bottom:14px}
+    .fb.ok{background:#f0fdf4;border:1.5px solid #86efac}
+    .fb.ng{background:#fff7ed;border:1.5px solid #fed7aa}
+    .tip-box{background:#f0edff;border-radius:12px;padding:12px 14px;margin-top:10px;font-size:13px;color:#5b3ff8;font-weight:600;display:flex;gap:8px;align-items:flex-start}
+    .spin{width:44px;height:44px;border:3px solid #ede9ff;border-top-color:#5b3ff8;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    input[type=date], input[type=password]{background:#f8f7ff;border:2px solid #e8e3ff;border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit;color:#1e1e3a;width:100%;outline:none;margin-bottom:12px;color-scheme:light}
+    input[type=date]:focus, input[type=password]:focus{border-color:#5b3ff8}
+    .err{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:11px 14px;font-size:13px;color:#b91c1c;margin-bottom:12px;font-weight:600}
+    .bar-wrap{background:#f0edff;border-radius:8px;height:10px;overflow:hidden;margin-top:5px}
+    .bar{height:100%;border-radius:8px;transition:width .4s}
+    .badge-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+    .badge{border-radius:14px;padding:12px 8px;text-align:center;background:#f8f7ff;border:2px solid #e8e3ff}
+    .badge.earned{background:#f0edff;border-color:#c4b5fd}
+    .badge-icon{font-size:24px;margin-bottom:4px}
+    .badge-name{font-size:11px;font-weight:800;color:#5b3ff8}
+    .badge-desc{font-size:10px;color:#9990cc;margin-top:2px}
+    .badge.locked .badge-icon{filter:grayscale(1) opacity(.4)}
+    .badge.locked .badge-name{color:#bbb}
+    .day-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0edff;font-size:13px}
+    .subj-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+    .subj-name{font-size:13px;font-weight:700;min-width:40px;color:#5b3ff8}
+    .subj-rate{font-size:12px;color:#9990cc;margin-left:auto;min-width:36px;text-align:right}
+    .row2{display:flex;gap:8px}
+    .row2 .btn{flex:1}
+    .section-title{font-size:13px;font-weight:800;color:#9990cc;margin-bottom:10px;letter-spacing:.03em}
+    .login-streak{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-radius:16px;padding:16px;color:#fff;text-align:center;margin-bottom:14px}
+    .recent-rate-card{border-radius:16px;padding:18px;margin-bottom:14px;border:2px solid}
+    .rate-note{font-size:11px;opacity:.7;margin-top:4px}
+    `;
+
+    const initLogs = () => ({
+      subjectStats: {},
+      dailyLog: {},
+      totalQ: 0,
+      totalCorrect: 0,
+      bestStreak: 0,
+      loginStreak: 0,
+      lastLogin: "",
+      earnedBadges: [],
+      reviewQueue: [],
+      recentHistory: [],
+    });
+
+    function ManabiV3() {
+      const [screen, setScreen] = useState("start");
+      const [tab, setTab] = useState("learn");
+      const [apiKey, setApiKey] = useState("");
+      const [birthday, setBirthday] = useState("");
+      const [grade, setGrade] = useState("");
+      const [subject, setSubject] = useState("");
+      const [gs, setGs] = useState({ lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] });
+      
+      const [qQueue, setQQueue] = useState([]); 
+      const [quiz, setQuiz] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [isCooldown, setIsCooldown] = useState(false); 
+      const [answered, setAnswered] = useState(null);
+      const [error, setError] = useState("");
+      const [showSubjectSelect, setShowSubjectSelect] = useState(false);
+
+      const [logs, setLogs] = useState(initLogs());
+      const [isReview, setIsReview] = useState(false);
+      const [newBadges, setNewBadges] = useState([]);
+      const storageKey = "manabi_logs_v3";
+      const profileKey = "manabi_profile_v2";
+
+      const logsRef = useRef(logs);
+      const gsRef = useRef(gs);
+      const fetchLockRef = useRef(false);
+      // ★追加: 通信中の科目ズレを検知するための参照
+      const subjectRef = useRef(subject); 
+
+      useEffect(() => { logsRef.current = logs; }, [logs]);
+      useEffect(() => { gsRef.current = gs; }, [gs]);
+      useEffect(() => { subjectRef.current = subject; }, [subject]); // ★追加
+
+      useEffect(() => {
+        try {
+          const p = localStorage.getItem(profileKey);
+          if (p) { 
+            const d = JSON.parse(p); 
+            setBirthday(d.birthday || ""); 
+            setApiKey(d.apiKey || "");
+          }
+        } catch {}
+        loadLogs();
+      }, []);
+
+      const loadLogs = async () => {
+        try {
+          const r = localStorage.getItem(storageKey);
+          if (r) setLogs(JSON.parse(r));
+        } catch {}
+      };
+
+      const saveLogs = async (newLogs) => {
+        try { localStorage.setItem(storageKey, JSON.stringify(newLogs)); } catch {}
+      };
+
+      const updateLogs = (correct, subj, wrongItem, newBest) => {
+        setLogs(prev => {
+          const next = JSON.parse(JSON.stringify(prev));
+          const td = today();
+
+          if (!next.subjectStats[subj]) next.subjectStats[subj] = { q: 0, c: 0 };
+          next.subjectStats[subj].q++;
+          if (correct) next.subjectStats[subj].c++;
+
+          if (!next.dailyLog[td]) next.dailyLog[td] = { q: 0, c: 0, subjects: [] };
+          next.dailyLog[td].q++;
+          if (correct) next.dailyLog[td].c++;
+          if (!next.dailyLog[td].subjects.includes(subj)) next.dailyLog[td].subjects.push(subj);
+
+          next.totalQ++;
+          if (correct) next.totalCorrect++;
+
+          if (newBest !== undefined) {
+            next.bestStreak = Math.max(next.bestStreak || 0, newBest);
+          }
+
+          if (!next.recentHistory) next.recentHistory = [];
+          next.recentHistory.push({ correct, subject: subj, date: td });
+          if (next.recentHistory.length > 200) next.recentHistory = next.recentHistory.slice(-200);
+
+          if (!correct && wrongItem) {
+            if (!next.reviewQueue) next.reviewQueue = [];
+            if (next.reviewQueue.length < 20) next.reviewQueue.push(wrongItem);
+          }
+
+          if (next.lastLogin !== td) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yStr = yesterday.toISOString().slice(0, 10);
+            next.loginStreak = (next.lastLogin === yStr) ? (next.loginStreak || 0) + 1 : 1;
+            next.lastLogin = td;
+          }
+
+          const earned = BADGES.filter(b => !next.earnedBadges.includes(b.id) && b.cond(next));
+          if (earned.length > 0) {
+            next.earnedBadges = [...next.earnedBadges, ...earned.map(b => b.id)];
+            setNewBadges(earned);
+            setTimeout(() => setNewBadges([]), 3500);
+          }
+
+          saveLogs(next);
+          return next;
+        });
+      };
+
+      const pickSubject = (currentLogs) => {
+        const recentRates = calcRecentSubjectRates(currentLogs.recentHistory);
+        const rates = SUBJECTS.map(s => {
+          const rt = recentRates[s];
+          if (!rt || rt.q < 3) return { s, w: 3 };
+          const rate = rt.c / rt.q;
+          return { s, w: rate < 0.5 ? 4 : rate < 0.7 ? 2 : 1 };
+        });
+        const total = rates.reduce((a, b) => a + b.w, 0);
+        let r = Math.random() * total;
+        for (const item of rates) { r -= item.w; if (r <= 0) return item.s; }
+        return SUBJECTS[0];
+      };
+
+      const buildBatchPrompt = (g, subj, s, review, reviewItem, currentLogs) => {
+        const recentRates = calcRecentSubjectRates(currentLogs.recentHistory);
+        const weakSubjects = SUBJECTS.filter(sub => {
+          const rt = recentRates[sub];
+          return rt && rt.q >= 3 && rt.c / rt.q < 0.6;
+        });
+
+        let instruction = `学年: ${g}\n科目: ${subj}\nレベル: ${s.lv}（1=やさしい、2=ふつう、3=むずかしい）\n`;
+        instruction += `直近テーマ（重複避ける）: ${s.used.slice(-3).join("、") || "なし"}\n`;
+        instruction += `直近100問での苦手科目: ${weakSubjects.join("、") || "なし"}\n`;
+
+        if (review && reviewItem) {
+          instruction += `【重要】今回は復習モードです。過去に間違えたテーマ: ${reviewItem.topic} を中心に、類似問題を10問生成してください。`;
+        } else {
+          instruction += `様々な単元から、合計10問生成してください。`;
+        }
+        return instruction;
+      };
+
+      const fetchQuestionsBatch = useCallback(async (s, g, subj, review, reviewItem) => {
+        if (fetchLockRef.current) return;
+        fetchLockRef.current = true;
+
+        setLoading(true); setQuiz(null); setAnswered(null); setError("");
+        
+        const models = ["gemini-2.5-flash"];
+        const currentLogs = logsRef.current;
+
+        const tryFetch = async (modelIdx, currentRetry) => {
+          // モデルのリストを使い切ったら（API制限時）、ストックから出す
+          if (modelIdx >= models.length) {
+            const bank = getFromQBank(subj);
+            if (bank.length > 0) {
+              setIsCooldown(true);
+              const picked = bank[Math.floor(Math.random() * bank.length)];
+              setQuiz(picked);
+              consumeFromQBank(picked); // これ1行で削除まで完結します
+              return true;
+            }
+            // ストックもない場合
+            throw new Error("API制限中で、ストック問題もありません。少し休憩してから試してね。");
+          }
+
+          const model = models[modelIdx];
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                system_instruction: { parts: { text: SYSTEM_PROMPT } },
+                contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
+                generationConfig: { responseMimeType: "application/json" }
+              })
+            });
+
+            if (res.status === 429) {
+              if (currentRetry < 2) {
+                const waitTime = Math.pow(2, currentRetry) * 10000; 
+                setIsCooldown(true); 
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                return await tryFetch(modelIdx, currentRetry + 1);
+              } else {
+                return await tryFetch(modelIdx + 1, 0);
+              }
+            }
+
+            if (!res.ok) return await tryFetch(modelIdx + 1, 0);
+
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message);
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) throw new Error("レスポンスが空です");
+            
+            let parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+            if (!Array.isArray(parsed)) parsed = [parsed];
+
+            if (parsed.length > 0) {
+              setIsCooldown(false);
+              const enriched = parsed.map(q => ({ ...q, _subject: subj }));
+              saveToQBank(enriched);
+
+              // ★修正: API取得中に科目が変わっていたら、表示を更新せずに終了（ストックに保存されるのでAPIは無駄になりません）
+              if (subj !== subjectRef.current) {
+                return true; 
+              }
+
+              const firstQ = enriched.shift();
+setQuiz(firstQ);
+consumeFromQBank(firstQ); // ★解いたので消す
+setQQueue(enriched);
+              setGs(prev => {
+                const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
+                if (used.length > 5) used.shift();
+                return { ...prev, used };
+              });
+              return true;
+            } else {
+              return await tryFetch(modelIdx + 1, 0);
+            }
+          } catch (e) {
+            return await tryFetch(modelIdx + 1, 0);
+          }
+        };
+
+        try {
+          await tryFetch(0, 0);
+        } catch (e) {
+          setError(e.message);
+        } finally { 
+          setLoading(false); 
+          fetchLockRef.current = false;
+        }
+      }, [apiKey]);
+
+      const resetAndFetch = useCallback((subj, specificGrade) => {
+        const initGs = {
+          lv: 2,
+          streak: 0,
+          best: 0,
+          wrong: 0,
+          qNum: 1,
+          retry: false,
+          used: []
+        };
+
+        setAnswered(null);
+        setQuiz(null);
+        setQQueue([]);
+        setGs(initGs);
+        setSubject(subj);
+
+        const targetGrade = specificGrade || grade;
+
+        requestAnimationFrame(() => {
+          fetchQuestionsBatch(initGs, targetGrade, subj, false, null);
+        });
+      }, [grade, fetchQuestionsBatch]);
+
+
+      const handleStart = () => {
+        if (!apiKey) { setError("APIキーを入力してください"); return; }
+        if (!birthday) { setError("生年月日を入力してください"); return; }
+        try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKey })); } catch {}
+        
+        const g = calcGrade(birthday);
+        setGrade(g);
+        setScreen("app");
+        setTab("learn");
+        
+        const subj = pickSubject(logsRef.current);
+        resetAndFetch(subj, g);
+      };
+
+      const handleSubjectSelect = (newSubj) => {
+        setShowSubjectSelect(false);
+        resetAndFetch(newSubj);
+      };
+
+      const handleWeakSubject = () => {
+        const currentLogs = logsRef.current;
+        const recentRates = calcRecentSubjectRates(currentLogs.recentHistory);
+
+        const untouched = SUBJECTS.filter(s => !recentRates[s] || recentRates[s].q === 0);
+        if (untouched.length > 0 && Math.random() < 0.7) {
+          const weakSubj = untouched[Math.floor(Math.random() * untouched.length)];
+          resetAndFetch(weakSubj);
+          return;
+        }
+
+        let weakSubj = SUBJECTS[0];
+        let minRate = Infinity;
+        let found = false;
+        for (const s of SUBJECTS) {
+          const rt = recentRates[s];
+          if (rt && rt.q >= 3) {
+            const rate = rt.c / rt.q;
+            if (rate < minRate) {
+              minRate = rate;
+              weakSubj = s;
+              found = true;
+            }
+          }
+        }
+
+        if (!found) {
+          const qCounts = SUBJECTS.map(s => ({ s, q: recentRates[s]?.q || 0 }));
+          qCounts.sort((a, b) => a.q - b.q);
+          weakSubj = qCounts[0].s;
+        }
+
+        resetAndFetch(weakSubj);
+      };
+
+      const handleAnswer = (idx) => {
+        if (answered !== null || !quiz) return;
+        setAnswered(idx);
+        const correct = idx === quiz.answer;
+        const wrongItem = !correct ? { topic: quiz.topic_tag || quiz.question.slice(0, 20), subject } : null;
+        
+        const currentStreak = gsRef.current.streak;
+        const currentBest = gsRef.current.best;
+        
+        const nextStreak = correct ? currentStreak + 1 : 0;
+        const newBest = Math.max(currentBest, nextStreak);
+        
+        updateLogs(correct, subject, wrongItem, newBest);
+        
+        setGs(prev => ({
+          ...prev,
+          streak: nextStreak,
+          best: newBest,
+          wrong: correct ? prev.wrong : prev.wrong + 1,
+          lv: correct ? Math.min(3, prev.lv + 1) : Math.max(1, prev.lv - 1),
+          retry: !correct,
+          qNum: correct ? prev.qNum + 1 : prev.qNum,
+        }));
+      };
+
+      const handleNext = () => {
+        const currentLogs = logsRef.current;
+        const isQueueEmpty = qQueue.length === 0;
+        const hasReview = isQueueEmpty && currentLogs.reviewQueue?.length > 0;
+        
+        if (!isQueueEmpty && !hasReview) {
+          const nextQ = qQueue[0];
+
+          // ★修正: キューに残っている問題の科目が、今の画面の科目と合っているかをチェック
+          if (nextQ._subject !== subject) {
+            setQQueue([]); // 違ったらキューを破棄して新しく取得し直す
+            fetchQuestionsBatch(gsRef.current, grade, subject, false, null);
+            return;
+          }
+
+          setQQueue(prev => prev.slice(1));
+          setQuiz(nextQ);
+          consumeFromQBank(nextQ);
+          setAnswered(null);
+          setIsReview(false);
+          setGs(prev => {
+            const used = [...prev.used, (nextQ.question || "").slice(0, 20)];
+            if (used.length > 5) used.shift();
+            return { ...prev, used };
+          });
+          return;
+        }
+
+        if (hasReview) {
+          const item = currentLogs.reviewQueue[0];
+          setLogs(prev => { const n = { ...prev, reviewQueue: prev.reviewQueue.slice(1) }; saveLogs(n); return n; });
+          setIsReview(true);
+          fetchQuestionsBatch(gsRef.current, grade, subject, true, item);
+        } else {
+          setIsReview(false);
+          const nextSubj = gsRef.current.qNum % 3 === 0 ? pickSubject(currentLogs) : subject;
+          if (nextSubj !== subject) setSubject(nextSubj);
+          fetchQuestionsBatch(gsRef.current, grade, nextSubj, false, null);
+        }
+      };
+
+      const recent100 = calcRecent100Rate(logs.recentHistory);
+      const recentSubjectRates = calcRecentSubjectRates(logs.recentHistory);
+      const subjectRates = SUBJECTS.map(s => {
+        const rt = recentSubjectRates[s];
+        if (!rt || rt.q === 0) return { s, rate: null, q: 0 };
+        return { s, rate: Math.round(rt.c / rt.q * 100), q: rt.q };
+      });
+
+      const recentDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() - (6 - i));
+        const key = d.toISOString().slice(0, 10);
+        const log = logs.dailyLog?.[key];
+        return { key, label: `${d.getMonth() + 1}/${d.getDate()}`, q: log?.q || 0, c: log?.c || 0 };
+      });
+
+      const rateColor = recent100 ? (recent100.rate >= 80 ? "#22c55e" : recent100.rate >= 60 ? "#f59e0b" : "#ef4444") : "#9990cc";
+      const rateBg = recent100 ? (recent100.rate >= 80 ? "#f0fdf4" : recent100.rate >= 60 ? "#fffbeb" : "#fff7f7") : "#f8f7ff";
+      const rateBorder = recent100 ? (recent100.rate >= 80 ? "#86efac" : recent100.rate >= 60 ? "#fde68a" : "#fca5a5") : "#e8e3ff";
+
+      return (
+        <React.Fragment>
+          <style>{css}</style>
+          <div className="root">
+            {newBadges.length > 0 && (
+              <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 999, background: "#5b3ff8", color: "#fff", borderRadius: 16, padding: "12px 20px", fontWeight: 800, fontSize: 14, boxShadow: "0 4px 20px rgba(91,63,248,.4)", textAlign: "center", whiteSpace: "nowrap" }}>
+                🏆 新しいバッジ: {newBadges.map(b => b.icon + b.label).join(" · ")}
+              </div>
+            )}
+
+            {screen === "start" && (
+              <div style={{ maxWidth: 440, margin: "40px auto" }}>
+                <div className="card" style={{ textAlign: "center", padding: "32px 24px" }}>
+                  <div style={{ fontSize: 48, marginBottom: 10 }}>📚</div>
+                  <h1 style={{ fontSize: 26, fontWeight: 900, color: "#5b3ff8", marginBottom: 4 }}>まなびサポート</h1>
+                  <p style={{ color: "#9990cc", fontSize: 13, marginBottom: 28 }}>AIが苦手を分析して最適な問題を出すよ</p>
+                  {error && <div className="err">{error}</div>}
+                  
+                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー</label>
+                  <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIzaSy..." />
+
+                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>生年月日</label>
+                  <input type="date" value={birthday} onChange={e => setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" />
+                  
+                  <button className="btn btn-primary" onClick={handleStart}>学習をはじめる →</button>
+                </div>
+              </div>
+            )}
+
+            {screen === "app" && (
+              <div style={{ maxWidth: 500, margin: "0 auto" }}>
+                <div className="card" style={{ padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#9990cc", fontWeight: 700 }}>{grade}</div>
+                      <div style={{ fontSize: 20, fontWeight: 900 }}>
+                        {subject}
+                        {isReview && <span className="pill pill-review" style={{ marginLeft: 8, fontSize: 11 }}>復習</span>}
+                      </div>
+                    </div>
+                    <span className="pill pill-lv">Lv.{gs.lv}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <div className="stat"><div className="stat-n" style={{ color: "#f59e0b" }}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
+                    <div className="stat"><div className="stat-n" style={{ color: "#5b3ff8" }}>{gs.best}</div><div className="stat-l">最高</div></div>
+                    <div className="stat"><div className="stat-n" style={{ color: "#ef4444" }}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
+                    <div className="stat"><div className="stat-n">#{gs.qNum}</div><div className="stat-l">問題</div></div>
+                  </div>
+                </div>
+
+                <div className="tabs">
+                  <button className={`tab${tab === "learn" ? " active" : ""}`} onClick={() => setTab("learn")}>📚 学習</button>
+                  <button className={`tab${tab === "log"   ? " active" : ""}`} onClick={() => setTab("log")}>📊 きろく</button>
+                  <button className={`tab${tab === "badge" ? " active" : ""}`} onClick={() => setTab("badge")}>🏆 実績</button>
+                </div>
+
+                {tab === "learn" && (
+                  <React.Fragment>
+                    {loading && (
+                      <div className="card" style={{ textAlign: "center", padding: "36px 20px" }}>
+                        <div className="spin" style={{ marginBottom: 14 }}></div>
+                        <div style={{ color: "#9990cc", fontSize: 14, fontWeight: 700 }}>
+                          {isCooldown ? "AIが休憩中です。少し待ってね... ☕" : "最適な問題を考え中..."}
+                        </div>
+                      </div>
+                    )}
+                    {error && !loading && (
+                      <div className="card">
+                        <div className="err">{error}</div>
+                        <button className="btn btn-primary" onClick={handleNext}>もう一度</button>
+                      </div>
+                    )}
+                    
+                    {!loading && quiz && isCooldown && (
+                      <div style={{ background: "#fffbeb", borderLeft: "3px solid #f59e0b", padding: "10px 14px", marginBottom: "16px", borderRadius: "0 10px 10px 0", fontSize: 13, color: "#92400e", fontWeight: 700 }}>
+                        ☕ AIが休憩中のため、過去のストックから出題しています。
+                      </div>
+                    )}
+
+                    {quiz && !loading && (
+                      <div className="card">
+                        <div className="start-msg">{quiz.start_message}</div>
+                        {gs.retry && <div className="hint">💡 {quiz.hint}</div>}
+                        <p style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.75, marginBottom: 18 }}>{quiz.question}</p>
+                        <div>
+                          {quiz.choices.map((c, i) => {
+                            let cls = "choice";
+                            if (answered !== null) {
+                              if (i === quiz.answer) cls += " correct";
+                              else if (i === answered) cls += " wrong";
+                              else cls += " dim";
+                            }
+                            return (
+                              <button key={i} className={cls} onClick={() => handleAnswer(i)} disabled={answered !== null}>
+                                <span className="num">{i + 1}</span>{c}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {answered !== null && (
+                          <React.Fragment>
+                            <div className={`fb ${answered === quiz.answer ? "ok" : "ng"}`}>
+                              <div style={{ fontWeight: 900, fontSize: 17, marginBottom: 8, color: answered === quiz.answer ? "#166534" : "#9a3412" }}>
+                                {answered === quiz.answer ? "🎉 正解！" : "🌱 もう少し！"}
+                              </div>
+                              <div style={{ fontSize: 14, lineHeight: 1.85, color: "#374151" }}>
+                                {answered === quiz.answer ? quiz.correct_feedback : quiz.incorrect_feedback}
+                              </div>
+                            </div>
+                            {quiz.learning_tip && (
+                              <div className="tip-box">
+                                <span style={{ fontSize: 16 }}>💡</span>
+                                <span>{quiz.learning_tip}</span>
+                              </div>
+                            )}
+                            <div style={{ height: 12 }}></div>
+                            <button className="btn btn-primary" onClick={handleNext}>次の問題へ →</button>
+                          </React.Fragment>
+                        )}
+                      </div>
+                    )}
+                    
+                    {showSubjectSelect ? (
+                      <div className="card" style={{ marginTop: 4, padding: "16px", background: "#f8f7ff" }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "#5b3ff8", marginBottom: 10, textAlign: "center" }}>勉強したい科目を選んでね！</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                          {SUBJECTS.map(s => (
+                            <button key={s} className="btn btn-primary" style={{ padding: "10px 8px", fontSize: 14 }} onClick={() => handleSubjectSelect(s)} disabled={loading}>{s}</button>
+                          ))}
+                          <button className="btn btn-ghost" style={{ padding: "10px 8px", fontSize: 14, background: "#e8e3ff" }} onClick={() => setShowSubjectSelect(false)} disabled={loading}>もどる</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="row2" style={{ marginTop: 4 }}>
+                        <button className="btn btn-ghost" onClick={() => setShowSubjectSelect(true)} disabled={loading}>科目選択</button>
+                        <button className="btn btn-ghost" onClick={handleWeakSubject} disabled={loading}>苦手科目</button>
+                        <button className="btn btn-ghost" onClick={() => setScreen("start")} disabled={loading}>設定変更</button>
+                      </div>
+                    )}
+                  </React.Fragment>
+                )}
+
+                {tab === "log" && (
+                  <React.Fragment>
+                    <div className="login-streak">
+                      <div style={{ fontSize: 28, fontWeight: 900 }}>{logs.loginStreak || 0}日連続</div>
+                      <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>学習中！この調子で続けよう 🔥</div>
+                    </div>
+
+                    <div className="recent-rate-card" style={{ background: rateBg, borderColor: rateBorder }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: "#9990cc", marginBottom: 4 }}>過去直近100問の正解率</div>
+                          {recent100 ? (
+                            <React.Fragment>
+                              <div style={{ fontSize: 38, fontWeight: 900, color: rateColor, lineHeight: 1 }}>{recent100.rate}%</div>
+                              <div className="rate-note" style={{ color: rateColor }}>
+                                {recent100.count < 100 ? `（まだ${recent100.count}問分のデータ）` : "直近100問の結果"}
+                              </div>
+                            </React.Fragment>
+                          ) : (
+                            <div style={{ fontSize: 20, fontWeight: 800, color: "#9990cc" }}>まだデータなし</div>
+                          )}
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 11, color: "#9990cc", marginBottom: 4 }}>累計</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: "#5b3ff8" }}>{logs.totalQ}問</div>
+                          <div style={{ fontSize: 11, color: "#9990cc", marginTop: 4 }}>最高連続</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: "#f59e0b" }}>{logs.bestStreak}問</div>
+                        </div>
+                      </div>
+                      {recent100 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div className="bar-wrap" style={{ height: 12 }}>
+                            <div className="bar" style={{ width: `${recent100.rate}%`, background: rateColor }}></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="card">
+                      <div className="section-title">科目別 正解率（直近100問より）</div>
+                      {subjectRates.map(({ s, rate, q }) => (
+                        <div key={s} className="subj-row">
+                          <span className="subj-name">{s}</span>
+                          <div style={{ flex: 1 }}>
+                            <div className="bar-wrap">
+                              <div className="bar" style={{
+                                width: rate !== null ? `${rate}%` : "0%",
+                                background: rate >= 70 ? "#22c55e" : rate >= 50 ? "#f59e0b" : "#ef4444"
+                              }}></div>
+                            </div>
+                          </div>
+                          <span className="subj-rate">{rate !== null ? `${rate}%` : "未挑戦"}</span>
+                          <span style={{ fontSize: 11, color: "#bbb", minWidth: 30, textAlign: "right" }}>{q > 0 ? `${q}問` : ""}</span>
+                        </div>
+                      ))}
+                      <div style={{ fontSize: 11, color: "#bbb", marginTop: 8 }}>※ 直近100問の中での科目別集計</div>
+                    </div>
+
+                    <div className="card">
+                      <div className="section-title">直近7日間</div>
+                      {recentDays.map(d => (
+                        <div key={d.key} className="day-row">
+                          <span style={{ fontWeight: 800, minWidth: 40, color: d.q > 0 ? "#5b3ff8" : "#bbb" }}>{d.label}</span>
+                          <div style={{ flex: 1 }}>
+                            <div className="bar-wrap">
+                              <div className="bar" style={{ width: d.q > 0 ? `${Math.min(100, d.q * 5)}%` : "0%", background: "#5b3ff8" }}></div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 12, color: "#9990cc", minWidth: 50, textAlign: "right" }}>
+                            {d.q > 0 ? `${d.c}/${d.q}問` : "お休み"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {logs.reviewQueue?.length > 0 && (
+                      <div className="card" style={{ background: "#fffbeb", border: "1.5px solid #fde68a" }}>
+                        <div style={{ fontWeight: 800, color: "#92400e", marginBottom: 6 }}>📝 復習キュー: {logs.reviewQueue.length}件</div>
+                        <div style={{ fontSize: 13, color: "#78350f" }}>次の学習で自動的に復習問題が出るよ</div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                )}
+
+                {tab === "badge" && (
+                  <div className="card">
+                    <div className="section-title">獲得バッジ {logs.earnedBadges?.length || 0} / {BADGES.length}</div>
+                    <div className="badge-grid">
+                      {BADGES.map(b => {
+                        const earned = logs.earnedBadges?.includes(b.id);
+                        return (
+                          <div key={b.id} className={`badge ${earned ? "earned" : "locked"}`}>
+                            <div className="badge-icon">{b.icon}</div>
+                            <div className="badge-name">{b.label}</div>
+                            <div className="badge-desc">{b.desc}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </React.Fragment>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ManabiV3 />);
+  </script>
+</body>	
+</html>
