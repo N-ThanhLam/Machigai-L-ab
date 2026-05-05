@@ -485,6 +485,12 @@
         resetAndFetch(subj, g);
       };
 
+        const handleForceUpdate = () => {
+        const baseUrl = window.location.origin + window.location.pathname;
+        const cacheBuster = new Date().getTime();
+        window.location.href = `${baseUrl}?update=${cacheBuster}`;
+      };
+
       const handleSubjectSelect = (newSubj) => {
         setShowSubjectSelect(false);
         resetAndFetch(newSubj);
@@ -627,6 +633,13 @@
                   <input type="date" value={birthday} onChange={e => setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" />
                   
                   <button className="btn btn-primary" onClick={handleStart} style={{ marginTop: 12 }}>学習をはじめる →</button>
+                  <button 
+                    className="btn btn-ghost" 
+                    onClick={handleForceUpdate} 
+                    style={{ marginTop: 12, fontSize: 12, color: "#ef4444", background: "transparent" }}
+                  >
+                    ↻ システムを最新に更新する
+                  </button>
                 </div>
               </div>
             )}
