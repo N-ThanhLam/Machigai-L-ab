@@ -18,9 +18,10 @@
     const SYSTEM_PROMPT = `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを軸に、子どもの学力を最大化することが使命です。
 
 【問題作成の絶対ルール】
-1. 英語の問題を作成する場合、問題文（どういう問題かという指示や状況説明）は必ず「日本語」にしてください。（例：「次の英文の正しい意味を選びなさい」など。問題文すべてを英語にすることは禁止です）
-2. テキストだけで完全に解ける問題にしてください。画像、図、表、マークなどの視覚情報がないと解けない問題（例：「このマークの意味は？」「右の図で…」）は絶対に作成しないでください。
-
+1. 英語の問題を作成する場合、問題文（指示や説明）は必ず「日本語」にしてください。
+2. テキストだけで完全に解ける問題にしてください。画像や図が必要な問題は禁止です。
+3. 漢字の使用制限：指定された「学年」で未習の漢字は絶対に使わず、ひらがなで表記してください（特に1年生向けは「問題」「次」「答え」なども「もんだい」「つぎ」「こたえ」とすること）。
+4. 文字化け防止：特殊な記号、絵文字、機種依存文字（①以外の囲み文字や複雑な装飾記号など）は使用禁止です。箇条書きなどは標準的な「・」や「ー」を使用してください。
 必ずJSON形式の配列のみで回答してください。余分なテキスト・マークダウン不可。一度に指定された数（基本10問）の問題を生成し、以下のオブジェクトを要素とする配列 [ { }, { }, ... ] を返してください。
 
 出力フォーマット（配列の1要素）:
@@ -36,7 +37,13 @@
   "topic_tag": "問題のテーマを短く（例：分数の足し算、接続詞、江戸時代）"
 }
 
-条件: answerは0〜3、学習指導要領準拠、正解は1つ、学年と科目とレベルに完全準拠`;
+条件: answerは0〜3、学習指導要領準拠、正解は1つ、学年と科目とレベルに完全準拠
+
+【ハルシネーション防止ルール】
+- 学習指導要領に明確に記載されている知識のみ使用すること。曖昧・不確かな知識は使用禁止。
+- 答えが1つに定まらない問題、解釈が分かれる問題は作成禁止。
+- 「〜とも言われる」「〜の場合もある」など曖昧な表現を含む問題は禁止。
+- 問題を生成したあと、必ず自分で解いて正解を確認すること。確信が持てない問題は別の問題に差し替えること。`;
 
     function calcGrade(birth) {
       if (!birth) return "一般";
@@ -81,27 +88,26 @@
         localStorage.setItem(qBankKey, JSON.stringify(merged));
       } catch {}
     };
-   // --- もともと入っている削除用の関数 ---
-const consumeFromQBank = (targetQ) => {
-  try {
-    const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
-    const targetIdx = allBank.findIndex(q => q._subject === targetQ._subject && q.question === targetQ.question);
-    if (targetIdx !== -1) {
-      allBank.splice(targetIdx, 1);
-      localStorage.setItem(qBankKey, JSON.stringify(allBank));
-    }
-  } catch {}
-};
 
-// --- ここから下を追加！ (検索用の関数) ---
-const getFromQBank = (subj) => {
-  try {
-    const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
-    return allBank.filter(q => q._subject === subj);
-  } catch {
-    return [];
-  }
-};
+    const consumeFromQBank = (targetQ) => {
+      try {
+        const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
+        const targetIdx = allBank.findIndex(q => q._subject === targetQ._subject && q.question === targetQ.question);
+        if (targetIdx !== -1) {
+          allBank.splice(targetIdx, 1);
+          localStorage.setItem(qBankKey, JSON.stringify(allBank));
+        }
+      } catch {}
+    };
+
+    const getFromQBank = (subj) => {
+      try {
+        const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
+        return allBank.filter(q => q._subject === subj);
+      } catch {
+        return [];
+      }
+    };
 
     const BADGES = [
       { id: "first",      label: "はじめの一歩",   desc: "初めて問題を解いた",       icon: "🌱", cond: s => s.totalQ >= 1 },
@@ -196,7 +202,8 @@ const getFromQBank = (subj) => {
     function ManabiV3() {
       const [screen, setScreen] = useState("start");
       const [tab, setTab] = useState("learn");
-      const [apiKey, setApiKey] = useState("");
+      // ★ APIキーを4つ管理するように変更
+      const [apiKeys, setApiKeys] = useState(["", "", "", ""]);
       const [birthday, setBirthday] = useState("");
       const [grade, setGrade] = useState("");
       const [subject, setSubject] = useState("");
@@ -219,12 +226,11 @@ const getFromQBank = (subj) => {
       const logsRef = useRef(logs);
       const gsRef = useRef(gs);
       const fetchLockRef = useRef(false);
-      // ★追加: 通信中の科目ズレを検知するための参照
       const subjectRef = useRef(subject); 
 
       useEffect(() => { logsRef.current = logs; }, [logs]);
       useEffect(() => { gsRef.current = gs; }, [gs]);
-      useEffect(() => { subjectRef.current = subject; }, [subject]); // ★追加
+      useEffect(() => { subjectRef.current = subject; }, [subject]);
 
       useEffect(() => {
         try {
@@ -232,7 +238,12 @@ const getFromQBank = (subj) => {
           if (p) { 
             const d = JSON.parse(p); 
             setBirthday(d.birthday || ""); 
-            setApiKey(d.apiKey || "");
+            // 過去のデータ形式からの移行対応
+            if (d.apiKeys && Array.isArray(d.apiKeys)) {
+              setApiKeys(d.apiKeys);
+            } else if (d.apiKey) {
+              setApiKeys([d.apiKey, "", "", ""]);
+            }
           }
         } catch {}
         loadLogs();
@@ -340,53 +351,64 @@ const getFromQBank = (subj) => {
         
         const models = ["gemini-2.5-flash"];
         const currentLogs = logsRef.current;
+        // ★ 有効なAPIキーだけを抽出
+        const validKeys = apiKeys.filter(k => k.trim());
 
         const tryFetch = async (modelIdx, currentRetry) => {
-          // モデルのリストを使い切ったら（API制限時）、ストックから出す
-          if (modelIdx >= models.length) {
+          if (modelIdx >= models.length || validKeys.length === 0) {
             const bank = getFromQBank(subj);
             if (bank.length > 0) {
               setIsCooldown(true);
               const picked = bank[Math.floor(Math.random() * bank.length)];
               setQuiz(picked);
-              consumeFromQBank(picked); // これ1行で削除まで完結します
+              consumeFromQBank(picked); 
               return true;
             }
-            // ストックもない場合
-            throw new Error("API制限中で、ストック問題もありません。少し休憩してから試してね。");
+            throw new Error(validKeys.length === 0 ? "APIキーが入力されていません。" : "API制限中で、ストック問題もありません。少し休憩してから試してね。");
           }
 
           const model = models[modelIdx];
           try {
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                system_instruction: { parts: { text: SYSTEM_PROMPT } },
-                contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
-                generationConfig: { responseMimeType: "application/json" }
+            const bodyObj = {
+              systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+              contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0.3 }
+            };
+
+            // ★ 最強：並列レースロジックの実装
+            const controller = new AbortController();
+            const requests = validKeys.map(key =>
+              fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(bodyObj),
+                signal: controller.signal
+              }).then(async res => {
+                if (res.status === 429) throw new Error("429");
+                if (!res.ok) throw new Error("Fetch failed");
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message);
+                return data;
               })
-            });
+            );
 
-            if (res.status === 429) {
-              if (currentRetry < 2) {
-                const waitTime = Math.pow(2, currentRetry) * 10000; 
-                setIsCooldown(true); 
-                await new Promise(resolve => setTimeout(resolve, waitTime));
-                return await tryFetch(modelIdx, currentRetry + 1);
-              } else {
-                return await tryFetch(modelIdx + 1, 0);
-              }
-            }
+            // 一番早く返ってきたものを採用（エラーの場合は全体がAggregateErrorになる）
+            const data = await Promise.any(requests);
+            controller.abort(); 
 
-            if (!res.ok) return await tryFetch(modelIdx + 1, 0);
-
-            const data = await res.json();
-            if (data.error) throw new Error(data.error.message);
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) throw new Error("レスポンスが空です");
             
-            let parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+            // 正規表現エラーを回避する安全な置換
+            const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
+            let parsed;
+            try {
+              parsed = JSON.parse(jsonText);
+            } catch (e) {
+              console.error("JSON Parse Error:", jsonText);
+              throw new Error("データの解析に失敗しました。もう一度試してね。");
+            }
+
             if (!Array.isArray(parsed)) parsed = [parsed];
 
             if (parsed.length > 0) {
@@ -394,15 +416,14 @@ const getFromQBank = (subj) => {
               const enriched = parsed.map(q => ({ ...q, _subject: subj }));
               saveToQBank(enriched);
 
-              // ★修正: API取得中に科目が変わっていたら、表示を更新せずに終了（ストックに保存されるのでAPIは無駄になりません）
               if (subj !== subjectRef.current) {
                 return true; 
               }
 
               const firstQ = enriched.shift();
-setQuiz(firstQ);
-consumeFromQBank(firstQ); // ★解いたので消す
-setQQueue(enriched);
+              setQuiz(firstQ);
+              consumeFromQBank(firstQ);
+              setQQueue(enriched);
               setGs(prev => {
                 const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
                 if (used.length > 5) used.shift();
@@ -413,7 +434,15 @@ setQQueue(enriched);
               return await tryFetch(modelIdx + 1, 0);
             }
           } catch (e) {
-            return await tryFetch(modelIdx + 1, 0);
+            // AggregateError（全てのキーが失敗・制限）の場合のリトライ
+            if (currentRetry < 2) {
+              const waitTime = Math.pow(2, currentRetry) * 10000; 
+              setIsCooldown(true); 
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              return await tryFetch(modelIdx, currentRetry + 1);
+            } else {
+              return await tryFetch(modelIdx + 1, 0);
+            }
           }
         };
 
@@ -425,27 +454,16 @@ setQQueue(enriched);
           setLoading(false); 
           fetchLockRef.current = false;
         }
-      }, [apiKey]);
+      }, [apiKeys]); // apiKeysが変更されたら関数を更新
 
       const resetAndFetch = useCallback((subj, specificGrade) => {
-        const initGs = {
-          lv: 2,
-          streak: 0,
-          best: 0,
-          wrong: 0,
-          qNum: 1,
-          retry: false,
-          used: []
-        };
-
+        const initGs = { lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] };
         setAnswered(null);
         setQuiz(null);
         setQQueue([]);
         setGs(initGs);
         setSubject(subj);
-
         const targetGrade = specificGrade || grade;
-
         requestAnimationFrame(() => {
           fetchQuestionsBatch(initGs, targetGrade, subj, false, null);
         });
@@ -453,9 +471,10 @@ setQQueue(enriched);
 
 
       const handleStart = () => {
-        if (!apiKey) { setError("APIキーを入力してください"); return; }
+        const validKeys = apiKeys.filter(k => k.trim());
+        if (validKeys.length === 0) { setError("APIキーを1つ以上入力してください"); return; }
         if (!birthday) { setError("生年月日を入力してください"); return; }
-        try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKey })); } catch {}
+        try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKeys })); } catch {}
         
         const g = calcGrade(birthday);
         setGrade(g);
@@ -474,35 +493,24 @@ setQQueue(enriched);
       const handleWeakSubject = () => {
         const currentLogs = logsRef.current;
         const recentRates = calcRecentSubjectRates(currentLogs.recentHistory);
-
         const untouched = SUBJECTS.filter(s => !recentRates[s] || recentRates[s].q === 0);
         if (untouched.length > 0 && Math.random() < 0.7) {
-          const weakSubj = untouched[Math.floor(Math.random() * untouched.length)];
-          resetAndFetch(weakSubj);
+          resetAndFetch(untouched[Math.floor(Math.random() * untouched.length)]);
           return;
         }
-
-        let weakSubj = SUBJECTS[0];
-        let minRate = Infinity;
-        let found = false;
+        let weakSubj = SUBJECTS[0], minRate = Infinity, found = false;
         for (const s of SUBJECTS) {
           const rt = recentRates[s];
           if (rt && rt.q >= 3) {
             const rate = rt.c / rt.q;
-            if (rate < minRate) {
-              minRate = rate;
-              weakSubj = s;
-              found = true;
-            }
+            if (rate < minRate) { minRate = rate; weakSubj = s; found = true; }
           }
         }
-
         if (!found) {
           const qCounts = SUBJECTS.map(s => ({ s, q: recentRates[s]?.q || 0 }));
           qCounts.sort((a, b) => a.q - b.q);
           weakSubj = qCounts[0].s;
         }
-
         resetAndFetch(weakSubj);
       };
 
@@ -511,23 +519,16 @@ setQQueue(enriched);
         setAnswered(idx);
         const correct = idx === quiz.answer;
         const wrongItem = !correct ? { topic: quiz.topic_tag || quiz.question.slice(0, 20), subject } : null;
-        
-        const currentStreak = gsRef.current.streak;
-        const currentBest = gsRef.current.best;
-        
-        const nextStreak = correct ? currentStreak + 1 : 0;
-        const newBest = Math.max(currentBest, nextStreak);
+        const nextStreak = correct ? gsRef.current.streak + 1 : 0;
+        const newBest = Math.max(gsRef.current.best, nextStreak);
         
         updateLogs(correct, subject, wrongItem, newBest);
         
         setGs(prev => ({
-          ...prev,
-          streak: nextStreak,
-          best: newBest,
+          ...prev, streak: nextStreak, best: newBest,
           wrong: correct ? prev.wrong : prev.wrong + 1,
           lv: correct ? Math.min(3, prev.lv + 1) : Math.max(1, prev.lv - 1),
-          retry: !correct,
-          qNum: correct ? prev.qNum + 1 : prev.qNum,
+          retry: !correct, qNum: correct ? prev.qNum + 1 : prev.qNum,
         }));
       };
 
@@ -538,14 +539,11 @@ setQQueue(enriched);
         
         if (!isQueueEmpty && !hasReview) {
           const nextQ = qQueue[0];
-
-          // ★修正: キューに残っている問題の科目が、今の画面の科目と合っているかをチェック
           if (nextQ._subject !== subject) {
-            setQQueue([]); // 違ったらキューを破棄して新しく取得し直す
+            setQQueue([]); 
             fetchQuestionsBatch(gsRef.current, grade, subject, false, null);
             return;
           }
-
           setQQueue(prev => prev.slice(1));
           setQuiz(nextQ);
           consumeFromQBank(nextQ);
@@ -609,13 +607,26 @@ setQQueue(enriched);
                   <p style={{ color: "#9990cc", fontSize: 13, marginBottom: 28 }}>AIが苦手を分析して最適な問題を出すよ</p>
                   {error && <div className="err">{error}</div>}
                   
-                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー</label>
-                  <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIzaSy..." />
+                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー（最大4つ・並列レース処理）</label>
+                  
+                  {apiKeys.map((key, i) => (
+                    <input
+                      key={i}
+                      type="password"
+                      value={key}
+                      onChange={e => {
+                        const newKeys = [...apiKeys];
+                        newKeys[i] = e.target.value;
+                        setApiKeys(newKeys);
+                      }}
+                      placeholder={`APIキー ${i + 1}${i === 0 ? " (必須)" : " (任意)"}`}
+                    />
+                  ))}
 
-                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>生年月日</label>
+                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, marginTop: 8, fontWeight: 700 }}>生年月日</label>
                   <input type="date" value={birthday} onChange={e => setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" />
                   
-                  <button className="btn btn-primary" onClick={handleStart}>学習をはじめる →</button>
+                  <button className="btn btn-primary" onClick={handleStart} style={{ marginTop: 12 }}>学習をはじめる →</button>
                 </div>
               </div>
             )}
@@ -653,7 +664,7 @@ setQQueue(enriched);
                       <div className="card" style={{ textAlign: "center", padding: "36px 20px" }}>
                         <div className="spin" style={{ marginBottom: 14 }}></div>
                         <div style={{ color: "#9990cc", fontSize: 14, fontWeight: 700 }}>
-                          {isCooldown ? "AIが休憩中です。少し待ってね... ☕" : "最適な問題を考え中..."}
+                          {isCooldown ? "AIが休憩中です。少し待ってね... ☕" : "複数のAIが問題を考え中... 🚀"}
                         </div>
                       </div>
                     )}
@@ -842,7 +853,7 @@ setQQueue(enriched);
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<ManabiV3 />);
+    root.render(<ManabiV3/>);
   </script>
 </body>	
 </html>
