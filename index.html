@@ -379,14 +379,7 @@
 const bodyObj = {
               systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
               contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
-              tools: [{
-                google_search_retrieval: {
-                  dynamic_retrieval_config: {
-                    mode: "unspecified", 
-                    dynamic_threshold: 0.3,
-                  }
-                }
-              }],
+      
               generationConfig: { 
                 responseMimeType: "application/json", 
                 temperature: 0.0,
