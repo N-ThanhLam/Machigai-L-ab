@@ -15,7 +15,7 @@
 
     const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
 
-    const SYSTEM_PROMPT = `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを軸に、子どもの学力を最大化することが使命です。
+    const getSystemPrompt = (grade) => `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを軸に、子どもの学力を最大化することが使命です。
 
 【問題作成の絶対ルール】
 1. 英語の問題を作成する場合、問題文（指示や説明）は必ず「日本語」にしてください。
@@ -26,6 +26,7 @@
 
 出力フォーマット（配列の1要素）:
 {
+  "self_check_fact": "【最重要】問題を作る前に、その知識が日本の学習指導要領や事実に即しているか、以下のステップで確認してください。1. テーマに関する事実を確認 2. 漢字の字面だけで判断していないか検証 3. 視覚情報（記号など）がテキストだけで正しく伝わるか判断。不適切な場合は別の問題に切り替えてください。",
   "start_message": "導入メッセージ（1文、子どもの興味を引く）",
   "question": "問題文",
   "choices": ["A", "B", "C", "D"],
@@ -40,10 +41,16 @@
 条件: answerは0〜3、学習指導要領準拠、正解は1つ、学年と科目とレベルに完全準拠
 
 【ハルシネーション防止ルール】
-- 学習指導要領に明確に記載されている知識のみ使用すること。曖昧・不確かな知識は使用禁止。
-- 答えが1つに定まらない問題、解釈が分かれる問題は作成禁止。
-- 「〜とも言われる」「〜の場合もある」など曖昧な表現を含む問題は禁止。
-- 問題を生成したあと、必ず自分で解いて正解を確認すること。確信が持てない問題は別の問題に差し替えること。`;
+- 日本の学習指導要領（文部科学省）に完全に準拠すること。
+- 漢字の字面から推測して事実を捏造することを厳禁とする（例：交番の記号を『交』とする、消防署の記号を『消』とする等はすべて誤り）。
+- 地図記号、都道府県の形、天体の位置関係など、視覚情報がメインとなる問題は、テキストによる解説が困難なため作成を避けること。
+- 歴史上の人物の行動や年号、理科の実験結果など、数字や固有名詞を含む場合は、生成後に必ず仮想的な「検算」を行い、自信がない場合は一般的な語彙問題などに差し替えること。
+
+【重要：検索結果の利用に関する絶対遵守事項】
+1. 検索結果をそのまま回答（解説）に引用してはなりません。必ず「学習者の学年（${grade}）」に合わせた語彙と漢字制限に翻訳してください。
+2. 検索結果に含まれる「（[1]のような）引用番号」は、JSONのパースエラーを引き起こすため、出力に含めることを厳禁とします。
+3. 検索によって得た知識であっても、必ず「JSON形式の配列のみ」で回答してください。「検索結果によると〜」といった前置きは一切不要です。
+4. 検索結果が学習指導要領と矛盾する場合は、学習指導要領（教科書的な知識）を優先してください。`;
 
     function calcGrade(birth) {
       if (!birth) return "一般";
@@ -369,10 +376,23 @@
 
           const model = models[modelIdx];
           try {
-            const bodyObj = {
+const bodyObj = {
               systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
               contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0.3 }
+              tools: [{
+                google_search_retrieval: {
+                  dynamic_retrieval_config: {
+                    mode: "unspecified", 
+                    dynamic_threshold: 0.3,
+                  }
+                }
+              }],
+              generationConfig: { 
+                responseMimeType: "application/json", 
+                temperature: 0.0,
+                topP: 0.1,
+                topK: 1
+              }
             };
 
             // ★ 最強：並列レースロジックの実装
@@ -396,17 +416,24 @@
             const data = await Promise.any(requests);
             controller.abort(); 
 
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("レスポンスが空です");
-            
-            // 正規表現エラーを回避する安全な置換
-            const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
+            const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawText) throw new Error("レスポンスが空です");
+
+            // --- 強化ポイント：JSONの [ ] の外側にある余計な文字をすべて無視する ---
+            const jsonMatch = rawText.match(/\[[\s\S]*\]/); 
+            const jsonText = jsonMatch ? jsonMatch[0] : rawText;
+
+            // さらに、検索の引用番号（ [1] や [2] など）がJSONを壊すので、強引に消去する
+            const cleanJsonText = jsonText.replace(/\[\d+\]/g, "").trim();
+
             let parsed;
             try {
-              parsed = JSON.parse(jsonText);
+            // 念のため、マークダウンの枠組みも消してからパースする
+            const finalJson = cleanJsonText.replace(/```json/g, "").replace(/```/g, "").trim();
+            parsed = JSON.parse(finalJson);
             } catch (e) {
-              console.error("JSON Parse Error:", jsonText);
-              throw new Error("データの解析に失敗しました。もう一度試してね。");
+            console.error("JSON Parse Error. Raw text was:", rawText);
+            throw new Error("データの解析に失敗しました。もう一度試してね。");
             }
 
             if (!Array.isArray(parsed)) parsed = [parsed];
@@ -730,6 +757,23 @@
                                 <span>{quiz.learning_tip}</span>
                               </div>
                             )}
+                            
+                            <button 
+  className="btn btn-ghost" 
+  style={{ marginTop: 12, color: "#ef4444", fontSize: 11, background: "rgba(239, 68, 68, 0.05)" }}
+  onClick={() => {
+    setLogs(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      // 間違った知識の「復習」を防ぐため、キューから削除
+      next.reviewQueue = next.reviewQueue.filter(q => q.topic !== (quiz.topic_tag || quiz.question.slice(0, 20)));
+      saveLogs(next);
+      return next;
+    });
+    alert("「この問題はおかしい」と報告しました。復習リストから削除されます。");
+  }}
+>
+  ⚠️ 問題の内容がまちがっている
+</button>
                             <div style={{ height: 12 }}></div>
                             <button className="btn btn-primary" onClick={handleNext}>次の問題へ →</button>
                           </React.Fragment>
