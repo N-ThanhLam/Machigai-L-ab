@@ -47,11 +47,11 @@
 
     // =====================================================================
     // ダム（在庫管理）システム
-    // 5科目 × 3レベル = 15バケット、各100問、合計1500問
+    // 5科目 × 3レベル = 15バケット、各50問、合計750問
     // =====================================================================
     const DAM_KEY = "manabi_dam_v1";
-    const DAM_MAX_PER_BUCKET = 100;
-    const DAM_REFILL_BATCH = 20;
+    const DAM_MAX_PER_BUCKET = 50;
+    const DAM_REFILL_BATCH = 10;
 
     const getDam = () => {
       try { return JSON.parse(localStorage.getItem(DAM_KEY) || "{}"); } catch { return {}; }
@@ -110,7 +110,7 @@
       for (const subj of SUBJECTS) {
         for (const lv of LEVELS) {
           const cnt = (dam[damBKey(subj, lv)] || []).length;
-          // 80問以下（空きが補充量以上の時）のみ補充
+          // 40問以下（空きが補充量以上の時）のみ補充
           if (cnt <= (DAM_MAX_PER_BUCKET - DAM_REFILL_BATCH) && cnt < lowestCnt) {
             lowestCnt = cnt;
             target = { subj, lv, cnt };
@@ -744,36 +744,41 @@
 
       const handleNext = () => {
         const currentLogs = logsRef.current;
-        const isQueueEmpty = qQueue.length === 0;
-        const hasReview = isQueueEmpty && currentLogs.reviewQueue?.length > 0;
-
-        if (!isQueueEmpty && !hasReview) {
-          const nextQ = qQueue[0];
-          if (nextQ._subject !== subject) {
-            setQQueue([]);
-            fetchQuestionsBatch(gsRef.current, grade, subject, false, null);
-            return;
-          }
-          setQQueue(prev => prev.slice(1));
-          setQuiz(nextQ);
-          setAnswered(null);
-          setIsReview(false);
-          setGs(prev => {
-            const used = [...prev.used, (nextQ.question || "").slice(0, 20)];
-            if (used.length > 5) used.shift();
-            return { ...prev, used };
+        
+        // 1. 復習が必要な問題があるか確認
+        const hasReview = currentLogs.reviewQueue?.length > 0;
+        if (hasReview) {
+          const item = currentLogs.reviewQueue[0];
+          setLogs(prev => { 
+            const n = { ...prev, reviewQueue: prev.reviewQueue.slice(1) }; 
+            saveLogs(n); 
+            return n; 
           });
+          setIsReview(true);
+          // 復習は「似た問題」をその場で作る必要があるため、AIを呼びます
+          fetchQuestionsBatch(gsRef.current, grade, subject, true, item);
           return;
         }
 
-        if (hasReview) {
-          const item = currentLogs.reviewQueue[0];
-          setLogs(prev => { const n = { ...prev, reviewQueue: prev.reviewQueue.slice(1) }; saveLogs(n); return n; });
-          setIsReview(true);
-          fetchQuestionsBatch(gsRef.current, grade, subject, true, item);
-        } else {
+        // 2. 通常の問題：まずはダム（在庫）から1問取り出す
+        const nextSubj = gsRef.current.qNum % 3 === 0 ? pickSubject(currentLogs) : subject;
+        const nextFromDam = popBatchFromDam(nextSubj, gsRef.current.lv, 1);
+        
+        if (nextFromDam.length > 0) {
+          // ストックがあれば、それを使って即座に表示
+          const nextQ = nextFromDam[0];
+          if (nextSubj !== subject) setSubject(nextSubj);
+          setQuiz(nextQ);
+          setAnswered(null);
           setIsReview(false);
-          const nextSubj = gsRef.current.qNum % 3 === 0 ? pickSubject(currentLogs) : subject;
+          setDamStats(getDamStats());
+          setGs(prev => ({
+            ...prev,
+            used: [...prev.used, (nextQ.question || "").slice(0, 20)].slice(-5)
+          }));
+        } else {
+          // ストックが空の時だけ、AIに直接お願いする（保険の動き）
+          setIsReview(false);
           if (nextSubj !== subject) setSubject(nextSubj);
           fetchQuestionsBatch(gsRef.current, grade, nextSubj, false, null);
         }
@@ -1076,7 +1081,7 @@
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {isRefilling && <span className="dam-refill-dot"></span>}
                           <span style={{ fontSize: 12, fontWeight: 900, color: damTotal > 300 ? "#22c55e" : damTotal > 100 ? "#f59e0b" : "#ef4444" }}>
-                            {damTotal} / 1500問
+                            {damTotal} / 750問
                           </span>
                         </div>
                       </div>
@@ -1099,7 +1104,7 @@
                               return (
                                 <div key={lv} className="dam-bucket">
                                   <div className="dam-lv-label">Lv.{lv}</div>
-                                  <div className="dam-count" style={{ color }}>{cnt}<span style={{ fontSize: 9, color: "#bbb" }}>/100</span></div>
+                                  <div className="dam-count" style={{ color }}>{cnt}<span style={{ fontSize: 9, color: "#bbb" }}>/50</span></div>
                                   <div className="dam-minibar">
                                     <div className="dam-minibar-fill" style={{ width: `${pct}%`, background: color }}></div>
                                   </div>
