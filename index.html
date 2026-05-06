@@ -542,9 +542,9 @@
         // ② ダム在庫なし → API にフォールバック
         setLoading(true); setQuiz(null);
 
-        const models = ["gemini-2.5-flash"];
+        const models = ["gemini-2.0-flash"]; // モデル名を確認
         const currentLogs = logsRef.current;
-        const validKeys = apiKeys.filter(k => k.trim());
+        const validKeys = apiKeysRef.current.filter(k => k.trim()); // Refから取得
 
         const tryFetch = async (modelIdx, currentRetry) => {
           if (modelIdx >= models.length || validKeys.length === 0) {
@@ -610,24 +610,21 @@
             try {
               parsed = JSON.parse(jsonText);
             } catch (e) {
-              console.error("JSON Parse Error:", jsonText);
-              throw new Error("データの解析に失敗しました。もう一度試してね。");
+              throw new Error("データの解析に失敗しました。");
             }
 
             if (!Array.isArray(parsed)) parsed = [parsed];
-            parsed = parsed.filter(q => {
-              if (!q.choices || !Array.isArray(q.choices) || q.choices.length !== 4) return false;
-              return new Set(q.choices.map(c => String(c).trim())).size === 4;
-            });
+            parsed = parsed.filter(q => q.choices && q.choices.length === 4);
 
             if (parsed.length > 0) {
               setIsCooldown(false);
               const enriched = parsed.map(q => ({ ...q, _subject: subj, _level: s.lv }));
-
               if (subj !== subjectRef.current) return true;
 
               const firstQ = enriched[0];
               setQuiz(firstQ);
+
+              // 2問目以降をダムに保存
               if (enriched.length > 1) {
                 addToDam(subj, s.lv, enriched.slice(1));
                 setDamStats(getDamStats());
@@ -639,7 +636,16 @@
                 return { ...prev, used };
               });
               return true;
+            } else {
+              return await tryFetch(modelIdx + 1, 0);
             }
+          } catch (e) {
+            if (e.message === "429" || e.name === "AggregateError") {
+              return await tryFetch(modelIdx + 1, 0);
+            }
+            throw e;
+          }
+        };
 
         try {
           await tryFetch(0, 0);
