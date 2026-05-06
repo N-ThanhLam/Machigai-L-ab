@@ -110,7 +110,7 @@
       for (const subj of SUBJECTS) {
         for (const lv of LEVELS) {
           const cnt = (dam[damBKey(subj, lv)] || []).length;
-          // 40問以下（空きが補充量以上の時）のみ補充　
+          // 40問以下（空きが補充量以上の時）のみ補充
           if (cnt <= (DAM_MAX_PER_BUCKET - DAM_REFILL_BATCH) && cnt < lowestCnt) {
             lowestCnt = cnt;
             target = { subj, lv, cnt };
@@ -542,7 +542,7 @@
         // ② ダム在庫なし → API にフォールバック
         setLoading(true); setQuiz(null);
 
-        const models = ["gemini-2.0-flash"]; // モデル名を確認
+        const models = ["gemini-2.5-flash"]; // モデル名を確認
         const currentLogs = logsRef.current;
         const validKeys = apiKeysRef.current.filter(k => k.trim()); // Refから取得
 
