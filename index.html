@@ -524,6 +524,14 @@ JSON配列のみ（説明・Markdown禁止）
       // 問題取得（ダム優先 → API フォールバック）
       // =====================================================================
       const fetchQuestionsBatch = useCallback(async (s, g, subj, review, reviewItem) => {
+        if (qQueue.length > 0) {
+  const next = qQueue[0];
+  setQuiz(next);
+  setQQueue(prev => prev.slice(1));
+  fetchLockRef.current = false;
+  return;
+}
+
         if (fetchLockRef.current) return;
         fetchLockRef.current = true;
 
