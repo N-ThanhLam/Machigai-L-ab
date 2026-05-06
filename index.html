@@ -14,45 +14,118 @@
     const { useState, useEffect, useCallback, useRef } = React;
 
     const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
+    const LEVELS = [1, 2, 3];
 
-    const SYSTEM_PROMPT = `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを軸に、子どもの学力を最大化することが使命です。
+    const SYSTEM_PROMPT = `あなたは日本の最優秀AI学習コーチです。Growth Mindsetを体現し、子どもの学力を最大化することが使命です。
 
 【問題作成の絶対ルール】
-1. 英語の問題を作成する場合、問題文（指示や説明）は必ず「日本語」にしてください。
-2. テキストだけで完全に解ける問題にしてください。画像や図が必要な問題は禁止です。
-3. 漢字の使用制限：指定された「学年」で未習の漢字は絶対に使わず、ひらがなで表記してください（特に1年生向けは「問題」「次」「答え」なども「もんだい」「つぎ」「こたえ」とすること）。
-4. 文字化け防止：特殊な記号、絵文字、機種依存文字（①以外の囲み文字や複雑な装飾記号など）は使用禁止です。箇条書きなどは標準的な「・」や「ー」を使用してください。
-5. 選択肢の重複禁止：すべての選択肢は必ずユニーク（一意的）にしてください。全く同じ内容の選択肢が複数存在することは厳禁です。
-6. 質の高い不正解（ディストラクター）：不正解の選択肢は、単なるデタラメではなく、その学年で間違いやすい「納得感のある間違い」にしてください。
-   - 漢字の問題：形が似ている漢字、読みが同じ別の漢字、送り仮名のミスなど。
-   - 算数の問題：計算手順の勘違い（足し算と引き算を間違えるなど）で導き出される数字。
-   - 英語の問題：時制のミスや、綴りが似ている単語など。
+1. 学年・科目・レベル・日本の学習指導要領（文部科学省）に完全準拠すること。
+2. テキストのみで完結すること。視覚情報（地図記号、図形、都道府県の形、天体の位置関係など）が必要な問題は作成禁止。
+3. 未習漢字の使用禁止。指定学年で習っていない漢字は必ずひらがなで表記すること（例：小1なら「もんだい」「つぎ」）。
+4. 特殊記号・絵文字・機種依存文字は使用禁止（箇条書きは「・」や「ー」を使用）。
+5. 選択肢は4つで必ず重複なくユニークにし、正解は必ず1つのみとすること。
+6. 文章完成問題の場合、正解を入れた文は自然な日本語になり、不正解を入れた文は明確に不自然になるよう内部で検証すること。複数の選択肢で自然な文になる問題は禁止。
+7. 英語の問題を作成する場合、問題文（指示や説明）は必ず「日本語」にすること。
+8. 高品質なディストラクター：不正解はデタラメではなく、その学年で間違いやすい「納得感のある間違い（似た漢字、計算手順の勘違い、時制ミスなど）」にすること。
+9. 出力前に内部検算（事実確認、字面での事実捏造防止、数字・固有名詞の裏付け）を必ず行い、不確かな場合やテキスト解説が困難な場合は、一般的な語彙問題などに差し替えること。
 
-必ずJSON形式の配列のみで回答してください。余分なテキスト・マークダウン不可。一度に指定された数（基本10問）の問題を生成し、以下のオブジェクトを要素とする配列 [ { }, { }, ... ] を返してください。
+必ず以下のJSON形式の配列のみで回答してください。Markdownのコードブロックや余分なテキストは一切不要です。一度に指定された数の問題を生成し、[ { }, { }, ... ] の形で返してください。
 
 出力フォーマット（配列の1要素）:
 {
-  "self_check_fact": "【最重要】問題を作る前に、その知識が日本の学習指導要領や事実に即しているか、以下のステップで確認してください。1. テーマに関する事実を確認 2. 漢字の字面だけで判断していないか検証 3. 視覚情報（記号など）がテキストだけで正しく伝わるか判断。不適切な場合は別の問題に切り替えてください。",
-  "start_message": "...",
-  "question": "...",  
-  "start_message": "導入メッセージ（1文、子どもの興味を引く）",
+  "self_check_fact": "テーマの事実確認、視覚情報への依存有無、内部検算の結果を短く記載。",
+  "start_message": "導入メッセージ（Growth Mindsetで1文）",
   "question": "問題文",
   "choices": ["A", "B", "C", "D"],
   "answer": 0,
-  "hint": "考え方のヒント（答えは言わない）",
-  "correct_feedback": "正解時フィードバック。①具体的にどの部分を正確に理解できていたか褒める ②さらに深い学びにつながる一言（別解・応用・関連知識）③やる気が続く締めの一言。合計2〜3文。",
-  "incorrect_feedback": "不正解時フィードバック。①どこで引っかかりやすいかを優しく指摘 ②正しい考え方・解き方を具体的に示す ③次は絶対できるという確信を与える一言。合計2〜3文。",
-  "learning_tip": "この問題から得られる最も重要な学習ポイント（1文、記憶に残る言い方で）",
-  "topic_tag": "問題のテーマを短く（例：分数の足し算、接続詞、江戸時代）"
-}
+  "hint": "Growth Mindsetでヒント（答えは直接言わない）",
+  "correct_feedback": "Growth Mindsetによる正解時フィードバック。（合計2〜3文）",
+  "incorrect_feedback": "Growth Mindsetによる不正解時フィードバック。（合計2〜3文）",
+  "learning_tip": "この問題から得られる最も重要な学習ポイント（1文で記憶に残るように）",
+  "topic_tag": "問題のテーマ（例：分数の足し算、接続詞、江戸時代）"
+}`;
 
-条件: answerは0〜3、学習指導要領準拠、正解は1つ、学年と科目とレベルに完全準拠
+    // =====================================================================
+    // ダム（在庫管理）システム
+    // 5科目 × 3レベル = 15バケット、各50問、合計750問
+    // =====================================================================
+    const DAM_KEY = "manabi_dam_v1";
+    const DAM_MAX_PER_BUCKET = 50;
+    const DAM_REFILL_BATCH = 10;
 
-【ハルシネーション防止ルール】
-- 日本の学習指導要領（文部科学省）に完全に準拠すること[cite: 1]。
-- 漢字の字面から推測して事実を捏造することを厳禁とする（例：交番の記号を『交』とする、消防署の記号を『消』とする等はすべて誤り）。
-- 地図記号、都道府県の形、天体の位置関係など、視覚情報がメインとなる問題は、テキストによる解説が困難なため作成を避けること。
-- 歴史上の人物の行動や年号、理科の実験結果など、数字や固有名詞を含む場合は、生成後に必ず仮想的な「検算」を行い、自信がない場合は一般的な語彙問題などに差し替えること。`;
+    const getDam = () => {
+      try { return JSON.parse(localStorage.getItem(DAM_KEY) || "{}"); } catch { return {}; }
+    };
+    const saveDam = (d) => {
+      try { localStorage.setItem(DAM_KEY, JSON.stringify(d)); } catch {}
+    };
+    const damBKey = (subj, lv) => `${subj}_${lv}`;
+
+    /** 問題をバケットへ追加（重複排除つき） */
+    const addToDam = (subj, lv, questions) => {
+      const dam = getDam();
+      const bk = damBKey(subj, lv);
+      const existing = dam[bk] || [];
+      const existKeys = new Set(existing.map(q => (q.question || "").slice(0, 30)));
+      const fresh = questions.filter(q => !existKeys.has((q.question || "").slice(0, 30)));
+      dam[bk] = [...existing, ...fresh].slice(0, DAM_MAX_PER_BUCKET);
+      saveDam(dam);
+    };
+
+    /** バケットからcount件ポップ（隣レベルへのフォールバックあり） */
+    const popBatchFromDam = (subj, lv, count = 10) => {
+      const dam = getDam();
+      const lvOrder = lv === 1 ? [1, 2, 3] : lv === 2 ? [2, 1, 3] : [3, 2, 1];
+      const result = [];
+      for (const l of lvOrder) {
+        if (result.length >= count) break;
+        const bk = damBKey(subj, l);
+        const bucket = dam[bk] || [];
+        const take = Math.min(count - result.length, bucket.length);
+        if (take > 0) {
+          result.push(...bucket.slice(0, take).map(q => ({ ...q, _level: l })));
+          dam[bk] = bucket.slice(take);
+        }
+      }
+      if (result.length > 0) saveDam(dam);
+      return result;
+    };
+
+    /** 全15バケットの在庫数を返す */
+    const getDamStats = () => {
+      const dam = getDam();
+      return SUBJECTS.reduce((acc, subj) => {
+        acc[subj] = LEVELS.reduce((la, lv) => {
+          la[lv] = (dam[damBKey(subj, lv)] || []).length;
+          return la;
+        }, {});
+        return acc;
+      }, {});
+    };
+
+    /** 在庫率が最低のバケットを返す（補充エンジン用） */
+    const findLowestBucket = () => {
+      const dam = getDam();
+      let target = null, lowestCnt = Infinity;
+      for (const subj of SUBJECTS) {
+        for (const lv of LEVELS) {
+          const cnt = (dam[damBKey(subj, lv)] || []).length;
+          if (cnt < DAM_MAX_PER_BUCKET && cnt < lowestCnt) {
+            lowestCnt = cnt;
+            target = { subj, lv, cnt };
+          }
+        }
+      }
+      return target;
+    };
+
+    /** 全在庫合計 */
+    const getDamTotal = () => {
+      const dam = getDam();
+      return SUBJECTS.reduce((total, subj) =>
+        total + LEVELS.reduce((t, lv) => t + (dam[damBKey(subj, lv)] || []).length, 0), 0);
+    };
+    // =====================================================================
 
     function calcGrade(birth) {
       if (!birth) return "一般";
@@ -88,35 +161,6 @@
       }
       return map;
     }
-
-    const qBankKey = "manabi_qbank_v3";
-    const saveToQBank = (qs) => {
-      try {
-        const existing = JSON.parse(localStorage.getItem(qBankKey) || "[]");
-        const merged = [...existing, ...qs].slice(-200); 
-        localStorage.setItem(qBankKey, JSON.stringify(merged));
-      } catch {}
-    };
-
-    const consumeFromQBank = (targetQ) => {
-      try {
-        const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
-        const targetIdx = allBank.findIndex(q => q._subject === targetQ._subject && q.question === targetQ.question);
-        if (targetIdx !== -1) {
-          allBank.splice(targetIdx, 1);
-          localStorage.setItem(qBankKey, JSON.stringify(allBank));
-        }
-      } catch {}
-    };
-
-    const getFromQBank = (subj) => {
-      try {
-        const allBank = JSON.parse(localStorage.getItem(qBankKey) || "[]");
-        return allBank.filter(q => q._subject === subj);
-      } catch {
-        return [];
-      }
-    };
 
     const BADGES = [
       { id: "first",      label: "はじめの一歩",   desc: "初めて問題を解いた",       icon: "🌱", cond: s => s.totalQ >= 1 },
@@ -193,6 +237,14 @@
     .login-streak{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-radius:16px;padding:16px;color:#fff;text-align:center;margin-bottom:14px}
     .recent-rate-card{border-radius:16px;padding:18px;margin-bottom:14px;border:2px solid}
     .rate-note{font-size:11px;opacity:.7;margin-top:4px}
+    .dam-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:4px}
+    .dam-bucket{background:#f8f7ff;border-radius:8px;padding:5px 4px;text-align:center}
+    .dam-lv-label{font-size:9px;color:#9990cc;font-weight:700}
+    .dam-count{font-size:12px;font-weight:900}
+    .dam-minibar{height:4px;border-radius:4px;margin-top:3px;background:#e8e3ff;overflow:hidden}
+    .dam-minibar-fill{height:100%;border-radius:4px;transition:width .4s}
+    .dam-refill-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;margin-right:6px;animation:damPulse 1.5s ease-in-out infinite}
+    @keyframes damPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
     `;
 
     const initLogs = () => ({
@@ -211,20 +263,21 @@
     function ManabiV3() {
       const [screen, setScreen] = useState("start");
       const [tab, setTab] = useState("learn");
-      // ★ APIキーを4つ管理するように変更
       const [apiKeys, setApiKeys] = useState(["", "", "", ""]);
       const [birthday, setBirthday] = useState("");
       const [grade, setGrade] = useState("");
       const [subject, setSubject] = useState("");
       const [gs, setGs] = useState({ lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] });
-      
-      const [qQueue, setQQueue] = useState([]); 
+
+      const [qQueue, setQQueue] = useState([]);
       const [quiz, setQuiz] = useState(null);
       const [loading, setLoading] = useState(false);
-      const [isCooldown, setIsCooldown] = useState(false); 
+      const [isCooldown, setIsCooldown] = useState(false);
       const [answered, setAnswered] = useState(null);
       const [error, setError] = useState("");
       const [showSubjectSelect, setShowSubjectSelect] = useState(false);
+      const [damStats, setDamStats] = useState(() => getDamStats());
+      const [isRefilling, setIsRefilling] = useState(false);
 
       const [logs, setLogs] = useState(initLogs());
       const [isReview, setIsReview] = useState(false);
@@ -232,22 +285,31 @@
       const storageKey = "manabi_logs_v3";
       const profileKey = "manabi_profile_v2";
 
+      // refs for stale-closure防止
       const logsRef = useRef(logs);
       const gsRef = useRef(gs);
       const fetchLockRef = useRef(false);
-      const subjectRef = useRef(subject); 
+      const subjectRef = useRef(subject);
+      const apiKeysRef = useRef(apiKeys);
+      const gradeRef = useRef(grade);
+      const birthdayRef = useRef(birthday);
+      const refillLockRef = useRef(false);
+      const screenRef = useRef(screen);
 
       useEffect(() => { logsRef.current = logs; }, [logs]);
       useEffect(() => { gsRef.current = gs; }, [gs]);
       useEffect(() => { subjectRef.current = subject; }, [subject]);
+      useEffect(() => { apiKeysRef.current = apiKeys; }, [apiKeys]);
+      useEffect(() => { gradeRef.current = grade; }, [grade]);
+      useEffect(() => { birthdayRef.current = birthday; }, [birthday]);
+      useEffect(() => { screenRef.current = screen; }, [screen]);
 
       useEffect(() => {
         try {
           const p = localStorage.getItem(profileKey);
-          if (p) { 
-            const d = JSON.parse(p); 
-            setBirthday(d.birthday || ""); 
-            // 過去のデータ形式からの移行対応
+          if (p) {
+            const d = JSON.parse(p);
+            setBirthday(d.birthday || "");
             if (d.apiKeys && Array.isArray(d.apiKeys)) {
               setApiKeys(d.apiKeys);
             } else if (d.apiKey) {
@@ -256,6 +318,7 @@
           }
         } catch {}
         loadLogs();
+        setDamStats(getDamStats());
       }, []);
 
       const loadLogs = async () => {
@@ -352,44 +415,173 @@
         return instruction;
       };
 
+      // =====================================================================
+      // 補充エンジン（リフィル・エンジン）
+      // バックグラウンドで最低在庫バケットを自動補充する
+      // =====================================================================
+      useEffect(() => {
+        if (screen !== "app") return;
+        let cancelled = false;
+
+        const doRefill = async () => {
+          if (cancelled || refillLockRef.current) return false;
+          const validKeys = apiKeysRef.current.filter(k => k.trim());
+          if (validKeys.length === 0) return false;
+
+          const target = findLowestBucket();
+          if (!target) return true; // 全バケット満タン
+
+          refillLockRef.current = true;
+          setIsRefilling(true);
+          try {
+            const g = gradeRef.current || calcGrade(birthdayRef.current);
+            const { subj, lv } = target;
+
+            const bodyObj = {
+              systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+              contents: [{
+                role: "user",
+                parts: [{ text: `学年: ${g}\n科目: ${subj}\nレベル: ${lv}（1=やさしい、2=ふつう、3=むずかしい）\n様々な単元から、合計${DAM_REFILL_BATCH}問生成してください。` }]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0.4,
+                topP: 0.9,
+                topK: 20
+              }
+            };
+
+            const controller = new AbortController();
+            const requests = validKeys.map(key =>
+              fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(bodyObj),
+                signal: controller.signal
+              }).then(async res => {
+                if (!res.ok) throw new Error(String(res.status));
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message);
+                return data;
+              })
+            );
+
+            const data = await Promise.any(requests);
+            controller.abort();
+
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) return false;
+
+            const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
+            let parsed;
+            try { parsed = JSON.parse(jsonText); } catch { return false; }
+            if (!Array.isArray(parsed)) parsed = [parsed];
+
+            const valid = parsed.filter(q =>
+              q.choices && Array.isArray(q.choices) && q.choices.length === 4 &&
+              new Set(q.choices.map(c => String(c).trim())).size === 4
+            );
+
+            if (valid.length > 0) {
+              addToDam(subj, lv, valid.map(q => ({ ...q, _subject: subj, _level: lv })));
+              if (!cancelled) setDamStats(getDamStats());
+              return true; // 成功
+            }
+          } catch (_e) {
+            // 503/429 はサイレント無視 → タイマーリセットして次回待機
+          } finally {
+            refillLockRef.current = false;
+            if (!cancelled) setIsRefilling(false);
+          }
+          return false;
+        };
+
+        // 成功報酬型ループ：成功→120秒待機、失敗→90秒待機
+        const loop = async (delay) => {
+          await new Promise(r => setTimeout(r, delay));
+          if (cancelled) return;
+          const success = await doRefill();
+          if (!cancelled) loop(success ? 120000 : 90000);
+        };
+
+        loop(15000); // 起動15秒後に初回補充開始
+
+        return () => { cancelled = true; };
+      }, [screen]); // screen が "app" になったら起動
+
+      // =====================================================================
+      // 問題取得（ダム優先 → API フォールバック）
+      // =====================================================================
       const fetchQuestionsBatch = useCallback(async (s, g, subj, review, reviewItem) => {
         if (fetchLockRef.current) return;
         fetchLockRef.current = true;
 
-        setLoading(true); setQuiz(null); setAnswered(null); setError("");
-        
+        setAnswered(null); setError("");
+
+        // ① ダムに在庫があれば即座に提供（ローディング不要）
+        if (!review) {
+          const batch = popBatchFromDam(subj, s.lv);
+          if (batch.length > 0) {
+            setIsCooldown(false);
+            setQuiz(null);
+            const firstQ = batch[0];
+            setQuiz(firstQ);
+            setQQueue(batch.slice(1));
+            setGs(prev => {
+              const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
+              if (used.length > 5) used.shift();
+              return { ...prev, used };
+            });
+            setDamStats(getDamStats());
+            fetchLockRef.current = false;
+            return;
+          }
+        }
+
+        // ② ダム在庫なし → API にフォールバック
+        setLoading(true); setQuiz(null);
+
         const models = ["gemini-2.5-flash"];
         const currentLogs = logsRef.current;
-        // ★ 有効なAPIキーだけを抽出
         const validKeys = apiKeys.filter(k => k.trim());
 
         const tryFetch = async (modelIdx, currentRetry) => {
           if (modelIdx >= models.length || validKeys.length === 0) {
-            const bank = getFromQBank(subj);
-            if (bank.length > 0) {
+            // API 全滅 → ダムの残り（クールダウン表示）
+            const fallback = popBatchFromDam(subj, s.lv);
+            if (fallback.length > 0) {
               setIsCooldown(true);
-              const picked = bank[Math.floor(Math.random() * bank.length)];
-              setQuiz(picked);
-              consumeFromQBank(picked); 
+              const firstQ = fallback[0];
+              setQuiz(firstQ);
+              setQQueue(fallback.slice(1));
+              setGs(prev => {
+                const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
+                if (used.length > 5) used.shift();
+                return { ...prev, used };
+              });
+              setDamStats(getDamStats());
               return true;
             }
-            throw new Error(validKeys.length === 0 ? "APIキーが入力されていません。" : "API制限中で、ストック問題もありません。少し休憩してから試してね。");
+            throw new Error(
+              validKeys.length === 0
+                ? "APIキーが入力されていません。"
+                : "API制限中で、ストック問題もありません。少し休憩してから試してね。"
+            );
           }
 
           const model = models[modelIdx];
           try {
             const bodyObj = {
-  systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-  contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
-  generationConfig: { 
-    responseMimeType: "application/json",
-    temperature: 0.3, 
-    topP: 0.9,        
-    topK: 20     
-  }
-};
+              systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+              contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0.3,
+                topP: 0.9,
+                topK: 20
+              }
+            };
 
-            // ★ 最強：並列レースロジックの実装
             const controller = new AbortController();
             const requests = validKeys.map(key =>
               fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
@@ -406,14 +598,12 @@
               })
             );
 
-            // 一番早く返ってきたものを採用（エラーの場合は全体がAggregateErrorになる）
             const data = await Promise.any(requests);
-            controller.abort(); 
+            controller.abort();
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) throw new Error("レスポンスが空です");
-            
-            // 正規表現エラーを回避する安全な置換
+
             const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
             let parsed;
             try {
@@ -423,33 +613,21 @@
               throw new Error("データの解析に失敗しました。もう一度試してね。");
             }
 
-            // --- ここから合体・整理したロジック ---
-            // 1. まず「必ず配列である」状態にする（1行目の役割）
             if (!Array.isArray(parsed)) parsed = [parsed];
-
-            // 2. その上で、中身を検閲する
             parsed = parsed.filter(q => {
-              // 選択肢が正しく4つあるかチェック
               if (!q.choices || !Array.isArray(q.choices) || q.choices.length !== 4) return false;
-              
-              // 重複をチェック（「お茶」が複数あれば除外）
-              const uniqueChoices = new Set(q.choices.map(c => String(c).trim()));
-              return uniqueChoices.size === 4; 
+              return new Set(q.choices.map(c => String(c).trim())).size === 4;
             });
 
             if (parsed.length > 0) {
               setIsCooldown(false);
-              const enriched = parsed.map(q => ({ ...q, _subject: subj }));
-              saveToQBank(enriched);
+              const enriched = parsed.map(q => ({ ...q, _subject: subj, _level: s.lv }));
 
-              if (subj !== subjectRef.current) {
-                return true; 
-              }
+              if (subj !== subjectRef.current) return true;
 
-              const firstQ = enriched.shift();
+              const firstQ = enriched[0];
               setQuiz(firstQ);
-              consumeFromQBank(firstQ);
-              setQQueue(enriched);
+              setQQueue(enriched.slice(1));
               setGs(prev => {
                 const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
                 if (used.length > 5) used.shift();
@@ -460,10 +638,9 @@
               return await tryFetch(modelIdx + 1, 0);
             }
           } catch (e) {
-            // AggregateError（全てのキーが失敗・制限）の場合のリトライ
             if (currentRetry < 2) {
-              const waitTime = Math.pow(2, currentRetry) * 10000; 
-              setIsCooldown(true); 
+              const waitTime = Math.pow(2, currentRetry) * 10000;
+              setIsCooldown(true);
               await new Promise(resolve => setTimeout(resolve, waitTime));
               return await tryFetch(modelIdx, currentRetry + 1);
             } else {
@@ -476,11 +653,11 @@
           await tryFetch(0, 0);
         } catch (e) {
           setError(e.message);
-        } finally { 
-          setLoading(false); 
+        } finally {
+          setLoading(false);
           fetchLockRef.current = false;
         }
-      }, [apiKeys]); // apiKeysが変更されたら関数を更新
+      }, [apiKeys]);
 
       const resetAndFetch = useCallback((subj, specificGrade) => {
         const initGs = { lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] };
@@ -495,23 +672,23 @@
         });
       }, [grade, fetchQuestionsBatch]);
 
-
       const handleStart = () => {
         const validKeys = apiKeys.filter(k => k.trim());
         if (validKeys.length === 0) { setError("APIキーを1つ以上入力してください"); return; }
         if (!birthday) { setError("生年月日を入力してください"); return; }
         try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKeys })); } catch {}
-        
+
         const g = calcGrade(birthday);
         setGrade(g);
         setScreen("app");
         setTab("learn");
-        
+        setDamStats(getDamStats());
+
         const subj = pickSubject(logsRef.current);
         resetAndFetch(subj, g);
       };
 
-        const handleForceUpdate = () => {
+      const handleForceUpdate = () => {
         const baseUrl = window.location.origin + window.location.pathname;
         const cacheBuster = new Date().getTime();
         window.location.href = `${baseUrl}?update=${cacheBuster}`;
@@ -553,9 +730,9 @@
         const wrongItem = !correct ? { topic: quiz.topic_tag || quiz.question.slice(0, 20), subject } : null;
         const nextStreak = correct ? gsRef.current.streak + 1 : 0;
         const newBest = Math.max(gsRef.current.best, nextStreak);
-        
+
         updateLogs(correct, subject, wrongItem, newBest);
-        
+
         setGs(prev => ({
           ...prev, streak: nextStreak, best: newBest,
           wrong: correct ? prev.wrong : prev.wrong + 1,
@@ -568,17 +745,16 @@
         const currentLogs = logsRef.current;
         const isQueueEmpty = qQueue.length === 0;
         const hasReview = isQueueEmpty && currentLogs.reviewQueue?.length > 0;
-        
+
         if (!isQueueEmpty && !hasReview) {
           const nextQ = qQueue[0];
           if (nextQ._subject !== subject) {
-            setQQueue([]); 
+            setQQueue([]);
             fetchQuestionsBatch(gsRef.current, grade, subject, false, null);
             return;
           }
           setQQueue(prev => prev.slice(1));
           setQuiz(nextQ);
-          consumeFromQBank(nextQ);
           setAnswered(null);
           setIsReview(false);
           setGs(prev => {
@@ -602,6 +778,7 @@
         }
       };
 
+      // === 派生値 ===
       const recent100 = calcRecent100Rate(logs.recentHistory);
       const recentSubjectRates = calcRecentSubjectRates(logs.recentHistory);
       const subjectRates = SUBJECTS.map(s => {
@@ -621,6 +798,8 @@
       const rateBg = recent100 ? (recent100.rate >= 80 ? "#f0fdf4" : recent100.rate >= 60 ? "#fffbeb" : "#fff7f7") : "#f8f7ff";
       const rateBorder = recent100 ? (recent100.rate >= 80 ? "#86efac" : recent100.rate >= 60 ? "#fde68a" : "#fca5a5") : "#e8e3ff";
 
+      const damTotal = getDamTotal();
+
       return (
         <React.Fragment>
           <style>{css}</style>
@@ -638,9 +817,9 @@
                   <h1 style={{ fontSize: 26, fontWeight: 900, color: "#5b3ff8", marginBottom: 4 }}>まなびサポート</h1>
                   <p style={{ color: "#9990cc", fontSize: 13, marginBottom: 28 }}>AIが苦手を分析して最適な問題を出すよ</p>
                   {error && <div className="err">{error}</div>}
-                  
+
                   <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー（最大4つ・並列レース処理）</label>
-                  
+
                   {apiKeys.map((key, i) => (
                     <input
                       key={i}
@@ -657,11 +836,11 @@
 
                   <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, marginTop: 8, fontWeight: 700 }}>生年月日</label>
                   <input type="date" value={birthday} onChange={e => setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" />
-                  
+
                   <button className="btn btn-primary" onClick={handleStart} style={{ marginTop: 12 }}>学習をはじめる →</button>
-                  <button 
-                    className="btn btn-ghost" 
-                    onClick={handleForceUpdate} 
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleForceUpdate}
                     style={{ marginTop: 12, fontSize: 12, color: "#ef4444", background: "transparent" }}
                   >
                     ↻ システムを最新に更新する
@@ -681,7 +860,14 @@
                         {isReview && <span className="pill pill-review" style={{ marginLeft: 8, fontSize: 11 }}>復習</span>}
                       </div>
                     </div>
-                    <span className="pill pill-lv">Lv.{gs.lv}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {isRefilling && (
+                        <div style={{ fontSize: 10, color: "#9990cc", display: "flex", alignItems: "center" }}>
+                          <span className="dam-refill-dot"></span>補充中
+                        </div>
+                      )}
+                      <span className="pill pill-lv">Lv.{gs.lv}</span>
+                    </div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <div className="stat"><div className="stat-n" style={{ color: "#f59e0b" }}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
@@ -713,10 +899,10 @@
                         <button className="btn btn-primary" onClick={handleNext}>もう一度</button>
                       </div>
                     )}
-                    
+
                     {!loading && quiz && isCooldown && (
                       <div style={{ background: "#fffbeb", borderLeft: "3px solid #f59e0b", padding: "10px 14px", marginBottom: "16px", borderRadius: "0 10px 10px 0", fontSize: 13, color: "#92400e", fontWeight: 700 }}>
-                        ☕ AIが休憩中のため、過去のストックから出題しています。
+                        ☕ AIが休憩中のため、ストックから出題しています。
                       </div>
                     )}
 
@@ -756,31 +942,30 @@
                                 <span>{quiz.learning_tip}</span>
                               </div>
                             )}
-                            
-                            <button 
-  className="btn btn-ghost" 
-  style={{ marginTop: 12, color: "#ef4444", fontSize: 11, background: "rgba(239, 68, 68, 0.05)" }}
-  onClick={() => {
-    setLogs(prev => {
-      const next = JSON.parse(JSON.stringify(prev));
-      // 間違った知識の「復習」を防ぐため、キューから削除
-      next.reviewQueue = next.reviewQueue.filter(q => q.topic !== (quiz.topic_tag || quiz.question.slice(0, 20)));
-      saveLogs(next);
-      return next;
-    });
-    alert("「この問題はおかしい」と報告しました。復習リストから削除されます。");
-  }}
->
-  ⚠️ 問題の内容がまちがっている
-</button>
-                            
+
+                            <button
+                              className="btn btn-ghost"
+                              style={{ marginTop: 12, color: "#ef4444", fontSize: 11, background: "rgba(239, 68, 68, 0.05)" }}
+                              onClick={() => {
+                                setLogs(prev => {
+                                  const next = JSON.parse(JSON.stringify(prev));
+                                  next.reviewQueue = next.reviewQueue.filter(q => q.topic !== (quiz.topic_tag || quiz.question.slice(0, 20)));
+                                  saveLogs(next);
+                                  return next;
+                                });
+                                alert("「この問題はおかしい」と報告しました。復習リストから削除されます。");
+                              }}
+                            >
+                              ⚠️ 問題の内容がまちがっている
+                            </button>
+
                             <div style={{ height: 12 }}></div>
                             <button className="btn btn-primary" onClick={handleNext}>次の問題へ →</button>
                           </React.Fragment>
                         )}
                       </div>
                     )}
-                    
+
                     {showSubjectSelect ? (
                       <div className="card" style={{ marginTop: 4, padding: "16px", background: "#f8f7ff" }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: "#5b3ff8", marginBottom: 10, textAlign: "center" }}>勉強したい科目を選んでね！</div>
@@ -882,6 +1067,51 @@
                         <div style={{ fontSize: 13, color: "#78350f" }}>次の学習で自動的に復習問題が出るよ</div>
                       </div>
                     )}
+
+                    {/* ダム在庫ウィジェット */}
+                    <div className="card" style={{ background: "#f8f7ff" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div className="section-title" style={{ margin: 0 }}>📦 問題ストック（ダム在庫）</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {isRefilling && <span className="dam-refill-dot"></span>}
+                          <span style={{ fontSize: 12, fontWeight: 900, color: damTotal > 300 ? "#22c55e" : damTotal > 100 ? "#f59e0b" : "#ef4444" }}>
+                            {damTotal} / 750問
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 6 }}>
+                        <div className="bar-wrap" style={{ height: 8 }}>
+                          <div className="bar" style={{
+                            width: `${Math.min(100, (damTotal / 750) * 100)}%`,
+                            background: damTotal > 300 ? "#22c55e" : damTotal > 100 ? "#f59e0b" : "#ef4444"
+                          }}></div>
+                        </div>
+                      </div>
+                      {SUBJECTS.map(subj => (
+                        <div key={subj} style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: "#5b3ff8", marginBottom: 3 }}>{subj}</div>
+                          <div className="dam-grid">
+                            {LEVELS.map(lv => {
+                              const cnt = damStats[subj]?.[lv] || 0;
+                              const pct = Math.min(100, (cnt / DAM_MAX_PER_BUCKET) * 100);
+                              const color = pct > 60 ? "#22c55e" : pct > 30 ? "#f59e0b" : "#ef4444";
+                              return (
+                                <div key={lv} className="dam-bucket">
+                                  <div className="dam-lv-label">Lv.{lv}</div>
+                                  <div className="dam-count" style={{ color }}>{cnt}<span style={{ fontSize: 9, color: "#bbb" }}>/50</span></div>
+                                  <div className="dam-minibar">
+                                    <div className="dam-minibar-fill" style={{ width: `${pct}%`, background: color }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ fontSize: 10, color: "#bbb", marginTop: 4, textAlign: "center" }}>
+                        {isRefilling ? "⚡ バックグラウンドで補充中..." : "✓ 自動補充エンジン稼働中（90秒間隔）"}
+                      </div>
+                    </div>
                   </React.Fragment>
                 )}
 
@@ -912,5 +1142,5 @@
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<ManabiV3/>);
   </script>
-</body>	
+</body>
 </html>
