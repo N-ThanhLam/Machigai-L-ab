@@ -628,27 +628,18 @@
 
               const firstQ = enriched[0];
               setQuiz(firstQ);
-              setQQueue(enriched.slice(1));
+              if (enriched.length > 1) {
+                addToDam(subj, s.lv, enriched.slice(1));
+                setDamStats(getDamStats());
+              }
+
               setGs(prev => {
                 const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
                 if (used.length > 5) used.shift();
                 return { ...prev, used };
               });
               return true;
-            } else {
-              return await tryFetch(modelIdx + 1, 0);
             }
-          } catch (e) {
-            if (currentRetry < 2) {
-              const waitTime = Math.pow(2, currentRetry) * 10000;
-              setIsCooldown(true);
-              await new Promise(resolve => setTimeout(resolve, waitTime));
-              return await tryFetch(modelIdx, currentRetry + 1);
-            } else {
-              return await tryFetch(modelIdx + 1, 0);
-            }
-          }
-        };
 
         try {
           await tryFetch(0, 0);
@@ -674,7 +665,7 @@
       }, [grade, fetchQuestionsBatch]);
 
       const handleStart = () => {
-        const validKeys = apiKeys.filter(k => k.trim());
+        const validKeys = apiKeysRef.current.filter(k => k.trim());
         if (validKeys.length === 0) { setError("APIキーを1つ以上入力してください"); return; }
         if (!birthday) { setError("生年月日を入力してください"); return; }
         try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKeys })); } catch {}
