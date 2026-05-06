@@ -520,7 +520,7 @@
 
         // ① ダムに在庫があれば即座に提供（ローディング不要）
         if (!review) {
-          const batch = popBatchFromDam(subj, s.lv, 1);
+          const batch = popBatchFromDam(subj, s.lv);
           if (batch.length > 0) {
             setIsCooldown(false);
             setQuiz(null);
