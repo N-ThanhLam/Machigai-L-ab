@@ -47,11 +47,11 @@
 
     // =====================================================================
     // ダム（在庫管理）システム
-    // 5科目 × 3レベル = 15バケット、各50問、合計750問
+    // 5科目 × 3レベル = 15バケット、各100問、合計1500問
     // =====================================================================
     const DAM_KEY = "manabi_dam_v1";
-    const DAM_MAX_PER_BUCKET = 50;
-    const DAM_REFILL_BATCH = 10;
+    const DAM_MAX_PER_BUCKET = 100;
+    const DAM_REFILL_BATCH = 20;
 
     const getDam = () => {
       try { return JSON.parse(localStorage.getItem(DAM_KEY) || "{}"); } catch { return {}; }
@@ -73,7 +73,7 @@
     };
 
     /** バケットからcount件ポップ（隣レベルへのフォールバックあり） */
-    const popBatchFromDam = (subj, lv, count = 10) => {
+    const popBatchFromDam = (subj, lv, count = 1) => {
       const dam = getDam();
       const lvOrder = lv === 1 ? [1, 2, 3] : lv === 2 ? [2, 1, 3] : [3, 2, 1];
       const result = [];
@@ -110,7 +110,8 @@
       for (const subj of SUBJECTS) {
         for (const lv of LEVELS) {
           const cnt = (dam[damBKey(subj, lv)] || []).length;
-          if (cnt < DAM_MAX_PER_BUCKET && cnt < lowestCnt) {
+          // 80問以下（空きが補充量以上の時）のみ補充
+          if (cnt <= (DAM_MAX_PER_BUCKET - DAM_REFILL_BATCH) && cnt < lowestCnt) {
             lowestCnt = cnt;
             target = { subj, lv, cnt };
           }
@@ -408,9 +409,9 @@
         instruction += `直近100問での苦手科目: ${weakSubjects.join("、") || "なし"}\n`;
 
         if (review && reviewItem) {
-          instruction += `【重要】今回は復習モードです。過去に間違えたテーマ: ${reviewItem.topic} を中心に、類似問題を10問生成してください。`;
+          instruction += `【重要】今回は復習モードです。過去に間違えたテーマ: ${reviewItem.topic} を中心に、類似問題を1問生成してください。`;
         } else {
-          instruction += `様々な単元から、合計10問生成してください。`;
+          instruction += `様々な単元から、合計1問生成してください。`;
         }
         return instruction;
       };
@@ -1075,7 +1076,7 @@
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {isRefilling && <span className="dam-refill-dot"></span>}
                           <span style={{ fontSize: 12, fontWeight: 900, color: damTotal > 300 ? "#22c55e" : damTotal > 100 ? "#f59e0b" : "#ef4444" }}>
-                            {damTotal} / 750問
+                            {damTotal} / 1500問
                           </span>
                         </div>
                       </div>
@@ -1098,7 +1099,7 @@
                               return (
                                 <div key={lv} className="dam-bucket">
                                   <div className="dam-lv-label">Lv.{lv}</div>
-                                  <div className="dam-count" style={{ color }}>{cnt}<span style={{ fontSize: 9, color: "#bbb" }}>/50</span></div>
+                                  <div className="dam-count" style={{ color }}>{cnt}<span style={{ fontSize: 9, color: "#bbb" }}>/100</span></div>
                                   <div className="dam-minibar">
                                     <div className="dam-minibar-fill" style={{ width: `${pct}%`, background: color }}></div>
                                   </div>
