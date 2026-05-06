@@ -462,23 +462,24 @@ JSON配列のみ（説明・Markdown禁止）
               }
             };
 
-            const controller = new AbortController();
-            const requests = validKeys.map(key =>
-              fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(bodyObj),
-                signal: controller.signal
-              }).then(async res => {
-                if (!res.ok) throw new Error(String(res.status));
-                const data = await res.json();
-                if (data.error) throw new Error(data.error.message);
-                return data;
-              })
-            );
-
-            const data = await Promise.any(requests);
-            controller.abort();
+            let data = null;
+            for (const key of validKeys) {
+              try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(bodyObj)
+                });
+                if (!res.ok) continue;
+                const json = await res.json();
+                if (json.error) continue;
+                data = json; 
+                break; // 成功したので次のキーは試さない
+              } catch (e) {
+                continue;
+              }
+            }
+            if (!data) return false;
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) return false;
@@ -601,24 +602,24 @@ JSON配列のみ（説明・Markdown禁止）
               }
             };
 
-            const controller = new AbortController();
-            const requests = validKeys.map(key =>
-              fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(bodyObj),
-                signal: controller.signal
-              }).then(async res => {
-                if (res.status === 429) throw new Error("429");
-                if (!res.ok) throw new Error("Fetch failed");
-                const data = await res.json();
-                if (data.error) throw new Error(data.error.message);
-                return data;
-              })
-            );
-
-            const data = await Promise.any(requests);
-            controller.abort();
+            let data = null;
+            for (const key of validKeys) {
+              try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(bodyObj)
+                });
+                if (!res.ok) continue;
+                const json = await res.json();
+                if (json.error) continue;
+                data = json;
+                break; // 成功したので次のキーは試さない
+              } catch (e) {
+                continue;
+              }
+            }
+            if (!data) throw new Error("429");
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) throw new Error("レスポンスが空です");
