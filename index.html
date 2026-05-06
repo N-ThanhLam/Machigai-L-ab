@@ -29,6 +29,7 @@
 ・4択で正解は1つのみ（重複禁止）
 ・不正解はよくあるミスにする（計算ミス・意味取り違い等）
 ・英語問題でも指示文は日本語
+・5教科（国語・算数・理科・社会・英語）の出題比率が偏らないように厳密に分散し、同一教科・同一単元の連続出題は禁止すること。
 
 【フィードバック（最重要）】
 ・correct_feedback：
@@ -39,9 +40,11 @@
   - 簡単な再質問（1文）
 ・すべて簡潔（合計2〜3文以内）
 
-【品質】
-・事実確認済みの内容のみ
-・曖昧な場合は一般的な基礎問題に置き換える
+【思考プロセス】
+1. 指定された条件に合致する事実を脳内で検索する
+2. 誤りがないか内部で厳格にセルフチェックを行う
+3. チェックを通過した確実な内容のみを以下の形式で出力する
+※思考プロセスやチェック結果をテキストとして出力してはいけません。
 
 【出力形式】
 JSON配列のみ（説明・Markdown禁止）
@@ -52,7 +55,8 @@ JSON配列のみ（説明・Markdown禁止）
   "choices": ["A","B","C","D"],
   "answer": 0,
   "correct_feedback": "理由を1文で",
-  "incorrect_feedback": "ミス指摘→考え方→再質問"
+  "incorrect_feedback": "ミス指摘→考え方→再質問",
+  "topic_tag": "単元名（例：分数の足し算）"
 }`;
 
     // =====================================================================
@@ -152,7 +156,38 @@ JSON配列のみ（説明・Markdown禁止）
       return "一般";
     }
 
-    function today() { return new Date().toISOString().slice(0, 10); }
+      function today() { return new Date().toISOString().slice(0, 10); }
+
+const shuffleQuestion = (q) => {
+  const indexed = q.choices.map((c, i) => ({ c, i }));
+
+  for (let i = indexed.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indexed[i], indexed[j]] = [indexed[j], indexed[i]];
+  }
+
+  return {
+    ...q,
+    choices: indexed.map(x => x.c),
+    answer: indexed.findIndex(x => x.i === q.answer)
+  };
+};
+
+// ▼ここに追加
+let lastAnswer = null;
+
+const shuffleWithBalance = (q) => {
+  let newQ;
+  let tries = 0;
+
+  do {
+    newQ = shuffleQuestion(q);
+    tries++;
+  } while (newQ.answer === lastAnswer && tries < 5);
+
+  lastAnswer = newQ.answer;
+  return newQ;
+};
 
     function calcRecent100Rate(recentHistory) {
       if (!recentHistory || recentHistory.length === 0) return null;
@@ -495,7 +530,9 @@ JSON配列のみ（説明・Markdown禁止）
             );
 
             if (valid.length > 0) {
-              addToDam(subj, lv, valid.map(q => ({ ...q, _subject: subj, _level: lv })));
+             addToDam(subj, lv, valid.map(q => 
+  shuffleWithBalance({ ...q, _subject: subj, _level: lv })
+));
               if (!cancelled) setDamStats(getDamStats());
               return true; // 成功
             }
@@ -529,34 +566,48 @@ JSON配列のみ（説明・Markdown禁止）
   const next = qQueue[0];
   setQuiz(next);
   setQQueue(prev => prev.slice(1));
-  fetchLockRef.current = false;
+  
   return;
 }
 
         if (fetchLockRef.current) return;
-        fetchLockRef.current = true;
+fetchLockRef.current = true;
 
-        setAnswered(null); setError("");
+setAnswered(null);
+setError("");
 
-        // ① ダムに在庫があれば即座に提供（ローディング不要）
-        if (!review) {
-          const batch = popBatchFromDam(subj, s.lv);
-          if (batch.length > 0) {
-            setIsCooldown(false);
-            setQuiz(null);
-            const firstQ = batch[0];
-            setQuiz(firstQ);
-            setQQueue(batch.slice(1));
-            setGs(prev => {
-              const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
-              if (used.length > 5) used.shift();
-              return { ...prev, used };
-            });
-            setDamStats(getDamStats());
-            fetchLockRef.current = false;
-            return;
-          }
-        }
+try {
+
+  // ① ダム
+  if (!review) {
+    const batch = popBatchFromDam(subj, s.lv);
+    if (batch.length > 0) {
+      setIsCooldown(false);
+      const firstQ = batch[0];
+      setQuiz(firstQ);
+      setQQueue(batch.slice(1));
+      setGs(prev => {
+        const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
+        if (used.length > 5) used.shift();
+        return { ...prev, used };
+      });
+      setDamStats(getDamStats());
+      return;
+    }
+  }
+
+  // ② API
+  setLoading(true);
+  setQuiz(null);
+
+  // ↓ここに今のAPI処理そのまま入れる（tryFetchとか）
+
+} catch (e) {
+  setError(e.message);
+} finally {
+  setLoading(false);
+  fetchLockRef.current = false;
+}
 
         // ② ダム在庫なし → API にフォールバック
         setLoading(true); setQuiz(null);
@@ -637,7 +688,10 @@ JSON配列のみ（説明・Markdown禁止）
 
             if (parsed.length > 0) {
               setIsCooldown(false);
-              const enriched = parsed.map(q => ({ ...q, _subject: subj, _level: s.lv }));
+              const enriched = parsed.map(q => 
+  shuffleWithBalance({ ...q, _subject: subj, _level: s.lv })
+);
+
               if (subj !== subjectRef.current) return true;
 
               const firstQ = enriched[0];
@@ -672,7 +726,7 @@ JSON配列のみ（説明・Markdown禁止）
           setError(e.message);
         } finally {
           setLoading(false);
-          fetchLockRef.current = false;
+       
         }
       }, [apiKeys]);
 
@@ -929,9 +983,7 @@ JSON配列のみ（説明・Markdown禁止）
                     )}
 
                     {quiz && !loading && (
-                      <div className="card">
-                        <div className="start-msg">{quiz.start_message}</div>
-                        {gs.retry && <div className="hint">💡 {quiz.hint}</div>}
+                      <div className="card">            
                         <p style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.75, marginBottom: 18 }}>{quiz.question}</p>
                         <div>
                           {quiz.choices.map((c, i) => {
