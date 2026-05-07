@@ -52,6 +52,8 @@
 JSON配列のみ（説明・Markdown禁止）
 
 {
+  "subject": "科目名（国語, 算数, 英語, 社会, 理科から厳密に選択）",
+  "level": "指定されたレベル（1, 2, 3の数値）",
   "self_check_fact": "事実確認と制約チェック結果",
   "question": "問題文",
   "choices": ["A","B","C","D"],
@@ -558,7 +560,16 @@ ${month}月時点で未習の内容は禁止。
             );
 
             if (valid.length > 0) {
-              addToDam(subj, lv, valid.map(q => shuffleWithBalance({ ...q, _subject: subj, _level: lv })));
+              valid.forEach(q => {
+                // AIが自己申告した科目が正しいかチェックし、不正ならリクエスト時のsubjを適用
+                const actualSubj = SUBJECTS.includes(q.subject) ? q.subject : subj;
+                const actualLv = LEVELS.includes(Number(q.level)) ? Number(q.level) : lv;
+                
+                // 正しい科目とレベルのバケットに1問ずつ仕分けして投入
+                addToDam(actualSubj, actualLv, [
+                  shuffleWithBalance({ ...q, _subject: actualSubj, _level: actualLv })
+                ]);
+              });
               if (!cancelled) setDamStats(getDamStats());
               return true;
             }
