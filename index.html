@@ -599,14 +599,14 @@ for (let i = 0; i < validKeys.length; i++) {
     continue;
   }
 }
-            if (!data) return false;
+            if (!data) return true;
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) return false;
+            if (!text) return true;
 
             const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
             let parsed;
-            try { parsed = JSON.parse(jsonText); } catch { return false; }
+            try { parsed = JSON.parse(jsonText); } catch { return true; }
             if (!Array.isArray(parsed)) parsed = [parsed];
 
             const valid = parsed.filter(q =>
