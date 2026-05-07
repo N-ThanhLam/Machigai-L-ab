@@ -345,6 +345,8 @@ const shuffleWithBalance = (q) => {
       const birthdayRef = useRef(birthday);
       const refillLockRef = useRef(false);
       const screenRef = useRef(screen);
+      const nextLockRef = useRef(false);
+      const latestRequestIdRef = useRef(null);
 
       useEffect(() => { logsRef.current = logs; }, [logs]);
       useEffect(() => { gsRef.current = gs; }, [gs]);
@@ -649,10 +651,10 @@ ${month}月時点で未習の内容は禁止。
   const requestId = Date.now() + Math.random();
 
   // 最新リクエストID保持
-  fetchQuestionsBatch.latestRequestId = requestId;
+  latestRequestIdRef.current = requestId;
 
   const isStale = () =>
-    fetchQuestionsBatch.latestRequestId !== requestId;
+  latestRequestIdRef.current !== requestId;
 
   try {
 
@@ -1013,47 +1015,144 @@ const initGs = {
     null
   );
 };
-      const handleNext = () => {
-        const currentLogs = logsRef.current;
-        
-        // 1. 復習が必要な問題があるか確認
-        const hasReview = currentLogs.reviewQueue?.length > 0;
-        if (hasReview) {
-          const item = currentLogs.reviewQueue[0];
-          setLogs(prev => { 
-            const n = { ...prev, reviewQueue: prev.reviewQueue.slice(1) }; 
-            saveLogs(n); 
-            return n; 
-          });
-          setIsReview(true);
-          // 復習は「似た問題」をその場で作る必要があるため、AIを呼びます
-          fetchQuestionsBatch(gsRef.current, grade, subject, true, item);
-          return;
-        }
+      const handleNext = async () => {
 
-        // 2. 通常の問題：まずはダム（在庫）から1問取り出す
-        const nextSubj = gsRef.current.qNum % 3 === 0 ? pickSubject(currentLogs) : subject;
-        const nextFromDam = popBatchFromDam(nextSubj, gsRef.current.lv, 1);
-        
-        if (nextFromDam.length > 0) {
-          // ストックがあれば、それを使って即座に表示
-          const nextQ = nextFromDam[0];
-          if (nextSubj !== subject) setSubject(nextSubj);
-          setQuiz(nextQ);
-          setAnswered(null);
-          setIsReview(false);
-          setDamStats(getDamStats());
-          setGs(prev => ({
-            ...prev,
-            used: [...prev.used, (nextQ.question || "").slice(0, 20)].slice(-5)
-          }));
-        } else {
-          // ストックが空の時だけ、AIに直接お願いする（保険の動き）
-          setIsReview(false);
-          if (nextSubj !== subject) setSubject(nextSubj);
-          fetchQuestionsBatch(gsRef.current, grade, nextSubj, false, null);
+  // 二重実行防止
+  if (nextLockRef.current) return;
+
+  nextLockRef.current = true;
+
+  try {
+
+    const currentLogs = logsRef.current;
+
+    // =========================
+    // 復習モード
+    // =========================
+    const hasReview =
+      currentLogs.reviewQueue?.length > 0;
+
+    if (hasReview) {
+
+      const item = currentLogs.reviewQueue[0];
+
+      setLogs(prev => {
+
+        const n = {
+          ...prev,
+          reviewQueue: prev.reviewQueue.slice(1)
+        };
+
+        saveLogs(n);
+
+        return n;
+
+      });
+
+      setIsReview(true);
+
+      await fetchQuestionsBatch(
+        gsRef.current,
+        gradeRef.current,
+        subjectRef.current,
+        true,
+        item
+      );
+
+      return;
+    }
+
+    // =========================
+    // 次の科目決定とダムからの取得（フォールバック付き）
+    // =========================
+    // 科目候補を決める
+    const candidateSubj =
+      gsRef.current.qNum % 5 === 0
+        ? pickSubject(currentLogs)
+        : subjectRef.current;
+
+    // ① 候補科目のダムを確認
+    let nextFromDam = popBatchFromDam(candidateSubj, gsRef.current.lv, 1);
+    let nextSubj = candidateSubj;
+
+    // ② 候補科目が空なら、現在科目でも試みる（科目切替タイミングのフォールバック）
+    if (nextFromDam.length === 0 && candidateSubj !== subjectRef.current) {
+      const fallback = popBatchFromDam(subjectRef.current, gsRef.current.lv, 1);
+      if (fallback.length > 0) {
+        nextFromDam = fallback;
+        nextSubj = subjectRef.current; // 科目切替を見送る
+      }
+    }
+
+    // ③ それでも空なら全科目横断で探す
+    if (nextFromDam.length === 0) {
+      for (const s of SUBJECTS) {
+        if (s === candidateSubj || s === subjectRef.current) continue;
+        const any = popBatchFromDam(s, gsRef.current.lv, 1);
+        if (any.length > 0) {
+          nextFromDam = any;
+          nextSubj = s;
+          break;
         }
-      };
+      }
+    }
+
+    // =========================
+    // ストックがある
+    // =========================
+    if (nextFromDam.length > 0) {
+
+      const nextQ = nextFromDam[0];
+
+      if (nextSubj !== subjectRef.current) {
+        setSubject(nextSubj);
+      }
+
+      setQuiz(nextQ);
+
+      setAnswered(null);
+
+      setIsReview(false);
+
+      setDamStats(getDamStats());
+
+      setGs(prev => ({
+        ...prev,
+        used: [
+          ...prev.used,
+          (nextQ.question || "").slice(0, 20)
+        ].slice(-5)
+      }));
+
+      return;
+    }
+
+    // =========================
+    // ストック空 → API
+    // =========================
+    setIsReview(false);
+
+    if (nextSubj !== subjectRef.current) {
+      setSubject(nextSubj);
+    }
+
+    await fetchQuestionsBatch(
+      gsRef.current,
+      gradeRef.current,
+      nextSubj,
+      false,
+      null
+    );
+
+  } finally {
+
+    // 少し遅らせて解除
+    setTimeout(() => {
+      nextLockRef.current = false;
+    }, 150);
+
+  }
+};
 
       // === 派生値 ===
       const recent100 = calcRecent100Rate(logs.recentHistory);
@@ -1260,7 +1359,13 @@ const initGs = {
                             </button>
 
                             <div style={{ height: 12 }}></div>
-                            <button className="btn btn-primary" onClick={handleNext}>次の問題へ →</button>
+                           <button
+  className="btn btn-primary"
+  onClick={handleNext}
+  disabled={loading || nextLockRef.current}
+>
+  次へ →
+</button>
                           </React.Fragment>
                         )}
                       </div>
