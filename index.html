@@ -31,7 +31,7 @@
 ・4択で正解は1つのみ（重複禁止）
 ・不正解はよくあるミスにする（計算ミス・意味取り違い等）
 ・英語問題でも指示文は日本語
-・5教科（国語・算数・理科・社会・英語）の出題比率が偏らないように厳密に分散し、同一教科・同一単元の連続出題は禁止すること。
+・【重要】必ず指定された科目の問題のみを作成してください。複数の科目を混ぜてはいけません。
 
 【フィードバック（最重要）】
 ・correct_feedback：
@@ -58,6 +58,7 @@ JSON配列のみ（説明・Markdown禁止）
   "correct_feedback": "理由を1文で",
   "incorrect_feedback": "ミス指摘→考え方→再質問",
   "topic_tag": "単元名（例：分数の足し算）"
+  "subject": "科目名（例：算数）"
 }`;
 
     // =====================================================================
@@ -532,10 +533,10 @@ ${month}月時点で未習の内容は禁止。
         instruction += `直近100問での苦手科目: ${weakSubjects.join("、") || "なし"}\n`;
 
         if (review && reviewItem) {
-          instruction += `【重要】今回は復習モードです。過去に間違えたテーマ: ${reviewItem.topic} を中心に、類似問題を1問生成してください。`;
-        } else {
-          instruction += `様々な単元から、合計1問生成してください。`;
-        }
+          instruction += `【重要】今回は復習モードです。科目は必ず「${subj}」とし、過去に間違えたテーマ: ${reviewItem.topic} を中心に、類似問題を1問生成してください。`;
+           } else {
+            instruction += `科目は必ず「${subj}」とし、様々な単元から合計1問生成してください。`;
+             }
         return instruction;
       };
 
@@ -565,7 +566,7 @@ ${month}月時点で未習の内容は禁止。
               systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
               contents: [{
                 role: "user",
-                parts: [{ text: `学年: ${g}\n科目: ${subj}\nレベル: ${lv}（1=やさしい、2=ふつう、3=むずかしい）\n様々な単元から、合計${DAM_REFILL_BATCH}問生成してください。` }]
+                parts: [{ text: `【重要：科目固定】今回は「${subj}」の問題だけを必ず${DAM_REFILL_BATCH}問生成してください。他の科目は一切含めないでください。\n学年: ${g}\nレベル: ${lv}` }]
               }],
               generationConfig: {
                 responseMimeType: "application/json",
@@ -603,9 +604,12 @@ ${month}月時点で未習の内容は禁止。
             if (!Array.isArray(parsed)) parsed = [parsed];
 
             const valid = parsed.filter(q =>
-              q.choices && Array.isArray(q.choices) && q.choices.length === 4 &&
-              new Set(q.choices.map(c => String(c).trim())).size === 4
-            );
+  q.choices && 
+  Array.isArray(q.choices) && 
+  q.choices.length === 4 &&
+  new Set(q.choices.map(c => String(c).trim())).size === 4 && // ここまでは元のまま
+  q.subject === subj // ← これを最後に追加する
+);
 
             if (valid.length > 0) {
              addToDam(subj, lv, valid.map(q => 
