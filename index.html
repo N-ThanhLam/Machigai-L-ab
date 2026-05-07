@@ -1014,8 +1014,8 @@ ${month}月時点で未習の内容は禁止。
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 11, color: "#9990cc", fontWeight: 700 }}>{grade}</div>
-                      <div style={{ fontSize: 20, fontWeight: 900 }}>
-                        {subject}
+                        <div style={{ fontSize: 20, fontWeight: 900 }}>
+                        {quiz?._subject || subject}
                         {isReview && <span className="pill pill-review" style={{ marginLeft: 8, fontSize: 11 }}>復習</span>}
                       </div>
                     </div>
