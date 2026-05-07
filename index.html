@@ -84,7 +84,7 @@ JSON配列のみ（説明・Markdown禁止）
       const existing = dam[bk] || [];
       const existKeys = new Set(existing.map(q => (q.question || "").slice(0, 30)));
       const fresh = questions.filter(q => !existKeys.has((q.question || "").slice(0, 30)));
-      dam[bk] = [...existing, ...fresh].slice(0, DAM_MAX_PER_BUCKET);
+      dam[bk] = [...existing, ...fresh].slice(-DAM_MAX_PER_BUCKET);
       saveDam(dam);
     };
 
@@ -121,20 +121,18 @@ JSON配列のみ（説明・Markdown禁止）
 
     /** 在庫率が最低のバケットを返す（補充エンジン用） */
     const findLowestBucket = () => {
-      const dam = getDam();
-      let target = null, lowestCnt = Infinity;
-      for (const subj of SUBJECTS) {
-        for (const lv of LEVELS) {
-          const cnt = (dam[damBKey(subj, lv)] || []).length;
-          // 40問以下（空きが補充量以上の時）のみ補充
-          if (cnt <= (DAM_MAX_PER_BUCKET - DAM_REFILL_BATCH) && cnt < lowestCnt) {
-            lowestCnt = cnt;
-            target = { subj, lv, cnt };
-          }
-        }
-      }
-      return target;
-    };
+  const dam = getDam();
+  let candidates = [], lowestCnt = Infinity;
+  for (const subj of SUBJECTS) {
+    for (const lv of LEVELS) {
+      const cnt = (dam[damBKey(subj, lv)] || []).length;
+      if (cnt < lowestCnt) { lowestCnt = cnt; candidates = [{ subj, lv, cnt }]; }
+      else if (cnt === lowestCnt) { candidates.push({ subj, lv, cnt }); }
+    }
+  }
+  if (candidates.length === 0) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+};
 
     /** 全在庫合計 */
     const getDamTotal = () => {
@@ -176,6 +174,13 @@ const shuffleQuestion = (q) => {
 };
 
 // ▼ここに追加
+let keyIndex = 0;
+const pickKey = (keys) => {
+  const k = keys[keyIndex % keys.length];
+  keyIndex++;
+  return k;
+};
+
 let lastAnswer = null;
 
 const shuffleWithBalance = (q) => {
@@ -316,8 +321,6 @@ const shuffleWithBalance = (q) => {
       const [grade, setGrade] = useState("");
       const [subject, setSubject] = useState("");
       const [gs, setGs] = useState({ lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] });
-
-      const [qQueue, setQQueue] = useState([]);
       const [quiz, setQuiz] = useState(null);
       const [loading, setLoading] = useState(false);
       const [isCooldown, setIsCooldown] = useState(false);
@@ -554,7 +557,7 @@ ${month}月時点で未習の内容は禁止。
           if (validKeys.length === 0) return false;
 
           const target = findLowestBucket();
-          if (!target) return true; // 全バケット満タン
+          
 
           refillLockRef.current = true;
           setIsRefilling(true);
@@ -570,29 +573,32 @@ ${month}月時点で未習の内容は禁止。
               }],
               generationConfig: {
                 responseMimeType: "application/json",
-                temperature: 0.4,
+                temperature: 0.3,
                 topP: 0.9,
                 topK: 20
               }
             };
 
             let data = null;
-            for (const key of validKeys) {
-              try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(bodyObj)
-                });
-                if (!res.ok) continue;
-                const json = await res.json();
-                if (json.error) continue;
-                data = json; 
-                break; // 成功したので次のキーは試さない
-              } catch (e) {
-                continue;
-              }
-            }
+
+for (let i = 0; i < validKeys.length; i++) {
+  const key = pickKey(validKeys);
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bodyObj)
+    });
+    if (res.status === 429) { await new Promise(r => setTimeout(r, 300000)); continue; }
+    if (!res.ok) continue;
+    const json = await res.json();
+    if (json.error) continue;
+    data = json;
+    break;
+  } catch (e) {
+    continue;
+  }
+}
             if (!data) return false;
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -624,7 +630,7 @@ ${month}月時点で未習の内容は禁止。
             refillLockRef.current = false;
             if (!cancelled) setIsRefilling(false);
           }
-          return false;
+          return true;
         };
 
         // 成功報酬型ループ：成功→120秒待機、失敗→90秒待機
@@ -703,23 +709,17 @@ ${month}月時点で未習の内容は禁止。
     // =========================================
     // モデル取得
     // =========================================
-    const models = [
-  "gemini-2.5-flash"
-];
-
     let success = false;
 
-    for (const model of models) {
+    for (let i = 0; i < validKeys.length; i++) {
 
       if (success || isStale()) break;
 
-      for (const key of validKeys) {
+      const key = pickKey(validKeys);
 
-        if (success || isStale()) break;
+      try {
 
-        try {
-
-          const bodyObj = {
+        const bodyObj = {
             systemInstruction: {
               parts: [{ text: SYSTEM_PROMPT }]
             },
@@ -745,7 +745,7 @@ ${month}月時点で未習の内容は禁止。
           };
 
           const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
             {
               method: "POST",
               headers: {
@@ -863,9 +863,8 @@ ${month}月時点で未習の内容は禁止。
 
         } catch (e) {
 
-          console.error(e);
+        console.error(e);
 
-        }
       }
     }
 
@@ -926,7 +925,6 @@ const initGs = {
 };
         setAnswered(null);
         setQuiz(null);
-        setQQueue([]);
         setGs(initGs);
         setSubject(subj);
         const targetGrade = specificGrade || grade;
