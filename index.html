@@ -321,6 +321,8 @@ const shuffleWithBalance = (q) => {
       const [grade, setGrade] = useState("");
       const [subject, setSubject] = useState("");
       const [gs, setGs] = useState({ lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] });
+
+      const [qQueue, setQQueue] = useState([]);
       const [quiz, setQuiz] = useState(null);
       const [loading, setLoading] = useState(false);
       const [isCooldown, setIsCooldown] = useState(false);
@@ -557,7 +559,7 @@ ${month}月時点で未習の内容は禁止。
           if (validKeys.length === 0) return false;
 
           const target = findLowestBucket();
-          
+          if (!target) return true; // 全バケット満タン
 
           refillLockRef.current = true;
           setIsRefilling(true);
@@ -580,33 +582,37 @@ ${month}月時点で未習の内容は禁止。
             };
 
             let data = null;
-
 for (let i = 0; i < validKeys.length; i++) {
-  const key = pickKey(validKeys);
+  // ループのたびに次のキーを取得
+  const key = pickKey(validKeys); 
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(bodyObj)
     });
-    if (res.status === 429) { await new Promise(r => setTimeout(r, 300000)); continue; }
+
+    // 429エラーでも「待機」せずに次のキーへ進む
+    if (res.status === 429) continue; 
+
     if (!res.ok) continue;
     const json = await res.json();
     if (json.error) continue;
+
     data = json;
-    break;
+    break; // 成功
   } catch (e) {
     continue;
   }
 }
-            if (!data) return true;
+            if (!data) return false;
 
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) return true;
+            if (!text) return false;
 
             const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
             let parsed;
-            try { parsed = JSON.parse(jsonText); } catch { return true; }
+            try { parsed = JSON.parse(jsonText); } catch { return false; }
             if (!Array.isArray(parsed)) parsed = [parsed];
 
             const valid = parsed.filter(q =>
@@ -630,7 +636,7 @@ for (let i = 0; i < validKeys.length; i++) {
             refillLockRef.current = false;
             if (!cancelled) setIsRefilling(false);
           }
-          return true;
+          return false;
         };
 
         // 成功報酬型ループ：成功→120秒待機、失敗→90秒待機
@@ -709,17 +715,23 @@ for (let i = 0; i < validKeys.length; i++) {
     // =========================================
     // モデル取得
     // =========================================
+    const models = [
+  "gemini-2.5-flash"
+];
+
     let success = false;
 
-    for (let i = 0; i < validKeys.length; i++) {
+    for (const model of models) {
 
       if (success || isStale()) break;
 
-      const key = pickKey(validKeys);
+      for (const key of validKeys) {
 
-      try {
+        if (success || isStale()) break;
 
-        const bodyObj = {
+        try {
+
+          const bodyObj = {
             systemInstruction: {
               parts: [{ text: SYSTEM_PROMPT }]
             },
@@ -745,7 +757,7 @@ for (let i = 0; i < validKeys.length; i++) {
           };
 
           const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
             {
               method: "POST",
               headers: {
@@ -863,8 +875,9 @@ for (let i = 0; i < validKeys.length; i++) {
 
         } catch (e) {
 
-        console.error(e);
+          console.error(e);
 
+        }
       }
     }
 
@@ -925,6 +938,7 @@ const initGs = {
 };
         setAnswered(null);
         setQuiz(null);
+        setQQueue([]);
         setGs(initGs);
         setSubject(subj);
         const targetGrade = specificGrade || grade;
