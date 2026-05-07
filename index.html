@@ -322,7 +322,8 @@ const shuffleWithBalance = (q) => {
       const [loading, setLoading] = useState(false);
       const [isCooldown, setIsCooldown] = useState(false);
       const [answered, setAnswered] = useState(null);
-      const [error, setError] = useState("");
+      const [startError, setStartError] = useState("");
+      const [appError, setAppError] = useState("");
       const [showSubjectSelect, setShowSubjectSelect] = useState(false);
       const [damStats, setDamStats] = useState(() => getDamStats());
       const [isRefilling, setIsRefilling] = useState(false);
@@ -332,6 +333,7 @@ const shuffleWithBalance = (q) => {
       const [newBadges, setNewBadges] = useState([]);
       const storageKey = "manabi_logs_v3";
       const profileKey = "manabi_profile_v2";
+      const sessionKey = "manabi_session_v1";
 
       // refs for stale-closure防止
       const logsRef = useRef(logs);
@@ -351,23 +353,84 @@ const shuffleWithBalance = (q) => {
       useEffect(() => { gradeRef.current = grade; }, [grade]);
       useEffect(() => { birthdayRef.current = birthday; }, [birthday]);
       useEffect(() => { screenRef.current = screen; }, [screen]);
-
       useEffect(() => {
-        try {
-          const p = localStorage.getItem(profileKey);
-          if (p) {
-            const d = JSON.parse(p);
-            setBirthday(d.birthday || "");
-            if (d.apiKeys && Array.isArray(d.apiKeys)) {
-              setApiKeys(d.apiKeys);
-            } else if (d.apiKey) {
-              setApiKeys([d.apiKey, "", "", ""]);
-            }
-          }
-        } catch {}
-        loadLogs();
-        setDamStats(getDamStats());
-      }, []);
+
+  try {
+
+    localStorage.setItem(
+      sessionKey,
+      JSON.stringify({
+        ...gs,
+        savedDate: today()
+      })
+    );
+
+  } catch {}
+
+}, [gs]);
+      
+      useEffect(() => {
+
+  try {
+
+    const p = localStorage.getItem(profileKey);
+
+    if (p) {
+
+      const d = JSON.parse(p);
+
+      setBirthday(d.birthday || "");
+
+      if (d.apiKeys && Array.isArray(d.apiKeys)) {
+        setApiKeys(d.apiKeys);
+      } else if (d.apiKey) {
+        setApiKeys([d.apiKey, "", "", ""]);
+      }
+    }
+
+    // =========================
+    // セッション復元
+    // =========================
+
+    const s = localStorage.getItem(sessionKey);
+
+    if (s) {
+
+      const parsed = JSON.parse(s);
+
+      // 同じ日なら完全復元
+      if (parsed.savedDate === today()) {
+
+        setGs(parsed);
+
+      } else {
+
+        // 日付変わったら best リセット
+        setGs(prev => ({
+          ...prev,
+
+          lv: parsed.lv || 2,
+
+          // 維持
+          streak: parsed.streak || 0,
+
+          // bestだけリセット
+          best: parsed.streak || 0,
+
+          wrong: 0,
+          qNum: 1,
+          retry: false,
+          used: []
+        }));
+      }
+    }
+
+  } catch {}
+
+  loadLogs();
+  setDamStats(getDamStats());
+
+}, []);
 
       const loadLogs = async () => {
         try {
@@ -445,6 +508,8 @@ const shuffleWithBalance = (q) => {
       };
 
       const buildBatchPrompt = (g, subj, s, review, reviewItem, currentLogs) => {
+         let instruction = "";
+        const month = new Date().getMonth() + 1;
         const recentRates = calcRecentSubjectRates(currentLogs.recentHistory);
         const weakSubjects = SUBJECTS.filter(sub => {
           const rt = recentRates[sub];
@@ -592,7 +657,7 @@ ${month}月時点で未習の内容は禁止。
   try {
 
     setAnswered(null);
-    setError("");
+    setAppError("");
 
     // =========================================
     // ① ダム優先
@@ -822,7 +887,7 @@ ${month}月時点で未習の内容は禁止。
   } catch (e) {
 
     if (!isStale()) {
-      setError(e.message || "エラー");
+      setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
 
   } finally {
@@ -838,7 +903,22 @@ ${month}月時点で未習の内容は禁止。
 }, []);
 
       const resetAndFetch = useCallback((subj, specificGrade) => {
-        const initGs = { lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] };
+        const current = gsRef.current;
+
+const initGs = {
+  lv: current.lv,
+
+  // 維持
+  streak: current.streak,
+
+  // 最高記録も維持
+  best: current.best,
+
+  wrong: 0,
+  qNum: 1,
+  retry: false,
+  used: []
+};
         setAnswered(null);
         setQuiz(null);
         setQQueue([]);
@@ -852,8 +932,11 @@ ${month}月時点で未習の内容は禁止。
 
       const handleStart = () => {
         const validKeys = apiKeysRef.current.filter(k => k.trim());
-        if (validKeys.length === 0) { setError("APIキーを1つ以上入力してください"); return; }
-        if (!birthday) { setError("生年月日を入力してください"); return; }
+        if (validKeys.length === 0) {
+  setStartError("APIキーを1つ以上入力してください");
+  return;
+}
+        if (!birthday) { setStartError("生年月日を入力してください"); return; }
         try { localStorage.setItem(profileKey, JSON.stringify({ birthday, apiKeys })); } catch {}
 
         const g = calcGrade(birthday);
@@ -918,7 +1001,18 @@ ${month}月時点で未習の内容は禁止。
           retry: !correct, qNum: correct ? prev.qNum + 1 : prev.qNum,
         }));
       };
+      
+      const retryFetch = () => {
+  setAppError("");
 
+  fetchQuestionsBatch(
+    gsRef.current,
+    grade,
+    subjectRef.current,
+    false,
+    null
+  );
+};
       const handleNext = () => {
         const currentLogs = logsRef.current;
         
@@ -998,10 +1092,29 @@ ${month}月時点で未習の内容は禁止。
                 <div className="card" style={{ textAlign: "center", padding: "32px 24px" }}>
                   <div style={{ fontSize: 48, marginBottom: 10 }}>📚</div>
                   <h1 style={{ fontSize: 26, fontWeight: 900, color: "#5b3ff8", marginBottom: 4 }}>まなびサポート</h1>
+                  <a
+  href="https://aistudio.google.com/apikey"
+  target="_blank"
+  rel="noopener noreferrer"
+  style={{
+    display: "inline-block",
+    marginTop: 4,
+    marginBottom: 12,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#5b3ff8",
+    textDecoration: "none"
+  }}
+>
+  🔑 Googleから無料APIキーを取得する
+</a>
                   <p style={{ color: "#9990cc", fontSize: 13, marginBottom: 28 }}>AIが苦手を分析して最適な問題を出すよ</p>
-                   <div className="err">😅 AIにつながれなかったよ！もう一度おしてみてね</div>
-
-                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー（最大4つ・並列レース処理）</label>
+                  {startError && (
+  <div className="err">
+    😅 {startError}
+  </div>
+)}
+                  <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー（最大4つ・一つずつ順番に実行）</label>
 
                   {apiKeys.map((key, i) => (
                     <input
@@ -1076,10 +1189,16 @@ ${month}月時点で未習の内容は禁止。
                         </div>
                       </div>
                     )}
-                    {error && !loading && (
+                    {appError && !loading && (
                       <div className="card">
-                        <div className="err">😅 {error === "APIキーがありません" ? "APIキーを入れてね！" : "もう一度確認してみてね！"}</div>
-                        <button className="btn btn-primary" onClick={handleNext}>もう一度</button>
+                        <div className="err">
+  😅 {appError.includes("APIキー")
+    ? "APIキーを入れてね！"
+    : "もう一度確認してみてね！"}
+</div>
+                        <button className="btn btn-primary" onClick={retryFetch}>
+  もう一度
+</button>
                       </div>
                     )}
 
