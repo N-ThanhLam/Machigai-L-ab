@@ -262,7 +262,7 @@ const shuffleWithBalance = (q) => {
     @keyframes spin{to{transform:rotate(360deg)}}
     input[type=date], input[type=password]{background:#f8f7ff;border:2px solid #e8e3ff;border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit;color:#1e1e3a;width:100%;outline:none;margin-bottom:12px;color-scheme:light}
     input[type=date]:focus, input[type=password]:focus{border-color:#5b3ff8}
-    .err{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:11px 14px;font-size:13px;color:#b91c1c;margin-bottom:12px;font-weight:600}
+    .err{background:#fff8e1;border:1.5px solid #ffe082;border-radius:12px;padding:11px 14px;font-size:13px;color:#f57f17;margin-bottom:12px;font-weight:600}
     .bar-wrap{background:#f0edff;border-radius:8px;height:10px;overflow:hidden;margin-top:5px}
     .bar{height:100%;border-radius:8px;transition:width .4s}
     .badge-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -562,173 +562,268 @@ const shuffleWithBalance = (q) => {
       // 問題取得（ダム優先 → API フォールバック）
       // =====================================================================
       const fetchQuestionsBatch = useCallback(async (s, g, subj, review, reviewItem) => {
-        if (qQueue.length > 0) {
-  const next = qQueue[0];
-  setQuiz(next);
-  setQQueue(prev => prev.slice(1));
-  
-  return;
-}
 
-        if (fetchLockRef.current) return;
-fetchLockRef.current = true;
+  // =========================================
+  // 二重実行ガード（最重要）
+  // =========================================
+  if (fetchLockRef.current) return;
+  fetchLockRef.current = true;
 
-setAnswered(null);
-setError("");
+  const requestId = Date.now() + Math.random();
 
-try {
+  // 最新リクエストID保持
+  fetchQuestionsBatch.latestRequestId = requestId;
 
-  // ① ダム
-  if (!review) {
-    const batch = popBatchFromDam(subj, s.lv);
-    if (batch.length > 0) {
-      setIsCooldown(false);
-      const firstQ = batch[0];
-      setQuiz(firstQ);
-      setQQueue(batch.slice(1));
-      setGs(prev => {
-        const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
-        if (used.length > 5) used.shift();
-        return { ...prev, used };
-      });
-      setDamStats(getDamStats());
-      return;
+  const isStale = () =>
+    fetchQuestionsBatch.latestRequestId !== requestId;
+
+  try {
+
+    setAnswered(null);
+    setError("");
+
+    // =========================================
+    // ① ダム優先
+    // =========================================
+    if (!review) {
+      const stock = popBatchFromDam(subj, s.lv, 1);
+      if (stock.length > 0) {
+        const nextQ = stock[0];
+        if (!isStale()) {
+          setQuiz(nextQ);
+          setLoading(false);
+          setIsCooldown(false);
+          setDamStats(getDamStats());
+          setGs(prev => ({
+            ...prev,
+            used: [...prev.used, (nextQ.question || "").slice(0, 20)].slice(-5)
+          }));
+        }
+        return; // try内なのでfinallyは必ず通る → lock解放される
+      }
     }
-  }
 
-  // ② API
-  setLoading(true);
-  setQuiz(null);
+    // =========================================
+    // ③ API取得
+    // =========================================
+    if (!isStale()) {
+      setLoading(true);
+      setQuiz(null);
+    }
 
-  // ↓ここに今のAPI処理そのまま入れる（tryFetchとか）
+    const validKeys =
+      apiKeysRef.current.filter(k => k.trim());
 
-} catch (e) {
-  setError(e.message);
-} finally {
-  setLoading(false);
-  fetchLockRef.current = false;
-}
+    if (validKeys.length === 0) {
+      throw new Error("APIキーがありません");
+    }
 
-        // ② ダム在庫なし → API にフォールバック
-        setLoading(true); setQuiz(null);
+    // =========================================
+    // モデル取得
+    // =========================================
+    const models = [
+  "gemini-2.5-flash"
+];
 
-        const models = ["gemini-2.5-flash"]; // モデル名を確認
-        const currentLogs = logsRef.current;
-        const validKeys = apiKeysRef.current.filter(k => k.trim()); // Refから取得
+    let success = false;
 
-        const tryFetch = async (modelIdx, currentRetry) => {
-          if (modelIdx >= models.length || validKeys.length === 0) {
-            // API 全滅 → ダムの残り（クールダウン表示）
-            const fallback = popBatchFromDam(subj, s.lv);
-            if (fallback.length > 0) {
-              setIsCooldown(true);
-              const firstQ = fallback[0];
-              setQuiz(firstQ);
-              setQQueue(fallback.slice(1));
-              setGs(prev => {
-                const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
-                if (used.length > 5) used.shift();
-                return { ...prev, used };
-              });
-              setDamStats(getDamStats());
-              return true;
-            }
-            throw new Error(
-              validKeys.length === 0
-                ? "APIキーが入力されていません。"
-                : "API制限中で、ストック問題もありません。少し休憩してから試してね。"
-            );
-          }
+    for (const model of models) {
 
-          const model = models[modelIdx];
-          try {
-            const bodyObj = {
-              systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-              contents: [{ role: "user", parts: [{ text: buildBatchPrompt(g, subj, s, review, reviewItem, currentLogs) }] }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                temperature: 0.3,
-                topP: 0.9,
-                topK: 20
-              }
-            };
+      if (success || isStale()) break;
 
-            let data = null;
-            for (const key of validKeys) {
-              try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(bodyObj)
-                });
-                if (!res.ok) continue;
-                const json = await res.json();
-                if (json.error) continue;
-                data = json;
-                break; // 成功したので次のキーは試さない
-              } catch (e) {
-                continue;
-              }
-            }
-            if (!data) throw new Error("429");
+      for (const key of validKeys) {
 
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("レスポンスが空です");
-
-            const jsonText = text.replace(/```json/g, "").replace(/```/g, "").trim();
-            let parsed;
-            try {
-              parsed = JSON.parse(jsonText);
-            } catch (e) {
-              throw new Error("データの解析に失敗しました。");
-            }
-
-            if (!Array.isArray(parsed)) parsed = [parsed];
-            parsed = parsed.filter(q => q.choices && q.choices.length === 4);
-
-            if (parsed.length > 0) {
-              setIsCooldown(false);
-              const enriched = parsed.map(q => 
-  shuffleWithBalance({ ...q, _subject: subj, _level: s.lv })
-);
-
-              if (subj !== subjectRef.current) return true;
-
-              const firstQ = enriched[0];
-              setQuiz(firstQ);
-
-              // 2問目以降をダムに保存
-              if (enriched.length > 1) {
-                addToDam(subj, s.lv, enriched.slice(1));
-                setDamStats(getDamStats());
-              }
-
-              setGs(prev => {
-                const used = [...prev.used, (firstQ.question || "").slice(0, 20)];
-                if (used.length > 5) used.shift();
-                return { ...prev, used };
-              });
-              return true;
-            } else {
-              return await tryFetch(modelIdx + 1, 0);
-            }
-          } catch (e) {
-            if (e.message === "429" || e.name === "AggregateError") {
-              return await tryFetch(modelIdx + 1, 0);
-            }
-            throw e;
-          }
-        };
+        if (success || isStale()) break;
 
         try {
-          await tryFetch(0, 0);
+
+          const bodyObj = {
+            systemInstruction: {
+              parts: [{ text: SYSTEM_PROMPT }]
+            },
+            contents: [{
+              role: "user",
+              parts: [{
+                text: buildBatchPrompt(
+                  g,
+                  subj,
+                  s,
+                  review,
+                  reviewItem,
+                  logsRef.current
+                )
+              }]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.3,
+              topP: 0.9,
+              topK: 20
+            }
+          };
+
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(bodyObj)
+            }
+          );
+
+          if (!res.ok) continue;
+
+          const data = await res.json();
+
+          if (data.error) continue;
+
+          const text =
+            data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (!text) continue;
+
+          let parsed;
+
+          try {
+
+            parsed = JSON.parse(
+              text
+                .replace(/```json/g, "")
+                .replace(/```/g, "")
+                .trim()
+            );
+
+          } catch {
+
+            continue;
+
+          }
+
+          if (!Array.isArray(parsed)) {
+            parsed = [parsed];
+          }
+
+          // =========================================
+          // 厳格バリデーション
+          // =========================================
+          parsed = parsed.filter(q => {
+
+            if (!q) return false;
+
+            if (
+              !Array.isArray(q.choices) ||
+              q.choices.length !== 4
+            ) return false;
+
+            if (
+              typeof q.answer !== "number" ||
+              q.answer < 0 ||
+              q.answer > 3
+            ) return false;
+
+            const unique =
+              new Set(q.choices.map(v => String(v).trim()));
+
+            if (unique.size !== 4) return false;
+
+            if (!q.question) return false;
+
+            return true;
+          });
+
+          if (parsed.length === 0) continue;
+
+          const enriched = parsed.map(q =>
+            shuffleWithBalance({
+              ...q,
+              _subject: subj,
+              _level: s.lv
+            })
+          );
+
+          const firstQ = enriched[0];
+          const remain = enriched.slice(1);
+
+          // =========================================
+          // stale request 防止
+          // =========================================
+          if (isStale()) return;
+
+          setQuiz(firstQ);
+
+          setGs(prev => ({
+            ...prev,
+            used: [
+              ...prev.used,
+              (firstQ.question || "").slice(0, 20)
+            ].slice(-5)
+          }));
+
+          // =========================================
+          // 残りはダムへ
+          // =========================================
+          if (remain.length > 0) {
+
+            addToDam(
+              subj,
+              s.lv,
+              remain
+            );
+
+            setDamStats(getDamStats());
+          }
+
+          setIsCooldown(false);
+
+          success = true;
+
         } catch (e) {
-          setError(e.message);
-        } finally {
-          setLoading(false);
-       
+
+          console.error(e);
+
         }
-      }, [apiKeys]);
+      }
+    }
+
+    // =========================================
+    // API全滅時 → ダム fallback
+    // =========================================
+    if (!success && !isStale()) {
+
+      const fallback =
+        popBatchFromDam(subj, s.lv, 1);
+
+      if (fallback.length > 0) {
+
+        setQuiz(fallback[0]);
+        setIsCooldown(true);
+        setDamStats(getDamStats());
+
+        return;
+      }
+
+      throw new Error("問題取得に失敗しました");
+    }
+
+  } catch (e) {
+
+    if (!isStale()) {
+      setError(e.message || "エラー");
+    }
+
+  } finally {
+
+    if (!isStale()) {
+      setLoading(false);
+    }
+
+    fetchLockRef.current = false;
+
+  }
+
+}, []);
 
       const resetAndFetch = useCallback((subj, specificGrade) => {
         const initGs = { lv: 2, streak: 0, best: 0, wrong: 0, qNum: 1, retry: false, used: [] };
@@ -892,7 +987,7 @@ try {
                   <div style={{ fontSize: 48, marginBottom: 10 }}>📚</div>
                   <h1 style={{ fontSize: 26, fontWeight: 900, color: "#5b3ff8", marginBottom: 4 }}>まなびサポート</h1>
                   <p style={{ color: "#9990cc", fontSize: 13, marginBottom: 28 }}>AIが苦手を分析して最適な問題を出すよ</p>
-                  {error && <div className="err">{error}</div>}
+                   <div className="err">😅 AIにつながれなかったよ！もう一度おしてみてね</div>
 
                   <label style={{ fontSize: 13, color: "#9990cc", display: "block", textAlign: "left", marginBottom: 6, fontWeight: 700 }}>Gemini APIキー（最大4つ・並列レース処理）</label>
 
@@ -965,13 +1060,13 @@ try {
                       <div className="card" style={{ textAlign: "center", padding: "36px 20px" }}>
                         <div className="spin" style={{ marginBottom: 14 }}></div>
                         <div style={{ color: "#9990cc", fontSize: 14, fontWeight: 700 }}>
-                          {isCooldown ? "AIが休憩中です。少し待ってね... ☕" : "複数のAIが問題を考え中... 🚀"}
+                          {isCooldown ? "AIが休憩中です。少し待ってね... ☕" : "AIが問題を考え中... 🚀"}
                         </div>
                       </div>
                     )}
                     {error && !loading && (
                       <div className="card">
-                        <div className="err">{error}</div>
+                        <div className="err">😅 {error === "APIキーがありません" ? "APIキーを入れてね！" : "もう一度確認してみてね！"}</div>
                         <button className="btn btn-primary" onClick={handleNext}>もう一度</button>
                       </div>
                     )}
