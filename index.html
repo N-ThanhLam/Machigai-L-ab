@@ -55,6 +55,11 @@ const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。
 ・問題文だけで考えられるようにする
 ・ひっかけ問題にしない
 ・「何を聞かれていたか」を確認できる設問を優先する
+・不正解の選択肢は「惜しいけど違う」レベルにする（明らかに違う選択肢を混ぜない）
+・正解以外の選択肢も、その学年の学習内容として自然な内容にする
+・誤答の理由が複数考えられる場合は、その問題自体を作らない
+・「どちらも正解」になる選択肢の組み合わせを禁止する
+・正解が1つに絞れない設問は作らない
 ・各設問は1つの確認事項だけを問う
 ・正解まで必要以上に遠回りさせない
 ・難しい教育用語や抽象表現は禁止
@@ -89,7 +94,7 @@ analysis_step3:
 
 【出力形式】JSON配列のみ（説明・コードブロック禁止）
 [{
-"question":"問題文（60文字以内）",
+"question":"問題文（学習に必要な長さ・200文字以内）",
 "student_answer":"生徒の誤答",
 "correct_answer":"正解",
 "correct_feedback":"なぜ正しいかを1文で",
@@ -755,7 +760,6 @@ function App(){
                 <div className="stat"><div className="stat-n" style={{color:"#f59e0b"}}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#ef4444"}}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
-                <div className="stat"><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析</div></div>
                 <div className="stat">
                   <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
                   <div className="stat-l">今日</div>
@@ -897,7 +901,7 @@ function App(){
                 )}
 
                 {/* 科目選択 */}
-                {!analysisStep&&(
+                {(!analysisStep||analysisStep==="done")&&(
                   showSubjSel?(
                     <div className="card" style={{padding:14,background:"#f8f7ff"}}>
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
@@ -1178,7 +1182,6 @@ function App(){
                     <div>📚 まなびサポート v6.0</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
-                    <div style={{marginTop:8,fontSize:12}}>ご意見・不具合は問題報告ボタンからどうぞ</div>
                   </div>
                 </div>
               </React.Fragment>
