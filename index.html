@@ -1,4 +1,1149 @@
-<div style={{marginTop:16,padding:"14px 0",borderTop:"1px solid #f0edff"}}>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>まなびサポート</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
+
+// ─── SYSTEM PROMPT ────────────────────────────────────────────────
+const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。
+
+目的は、
+児童・生徒が「どこで間違えたか」に気づき、
+正しい考え方を理解できるよう支援することです。
+
+問題は、
+「ある生徒のよくある誤答」をもとに作成します。
+
+分析問題は、
+難しい推理や抽象的な議論ではなく、
+対象学年に合った自然な学習支援にしてください。
+
+【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
+・現在の学習月に合わせること（未習内容の先取り禁止）
+
+【問題ルール】
+・テキストのみで完結（図・地図・視覚依存禁止）
+・未習漢字はひらがな対応、問題文は60文字以内
+・1問で確認する内容は1つだけにする
+・国語では、不自然な文法分類ゲームにしない
+・英語問題でも指示文は日本語
+・教師が実際の授業で出しそうな自然な問題にする
+・問題文を読めば、何を答える問題か分かるようにする
+・学校の授業で自然に出される問題にする
+
+【誤答の生成】
+・AIが「よくある誤答」を1つ直接生成する（student_answer フィールド）
+・誤答は「よくある思考のズレ・混同」を反映させること
+・正解（correct_answer）も必ず明示すること
+
+【3段階の分析設問（analysis_step1〜3・必須）】
+
+【共通ルール】
+・対象学年で習う内容・言葉だけを使う
+・未習内容や専門用語は禁止
+・問題文だけで考えられるようにする
+・ひっかけ問題にしない
+・「何を聞かれていたか」を確認できる設問を優先する
+・各設問は1つの確認事項だけを問う
+・正解まで必要以上に遠回りさせない
+・難しい教育用語や抽象表現は禁止
+・「大人が感心する難問」にしない
+・1問の中で新しいルールを追加しない
+・答えを間違えた児童・生徒を否定しない
+・「おしい」「ここを見直そう」など学習支援らしい表現を使う
+
+analysis_step1:
+「問題で何を聞かれていたか」を確認する
+
+analysis_step2:
+どんな取り違えだったかを確認する
+
+・mistake_type と一致する内容にする
+・計算ミス
+・読み違い
+・条件見落とし
+・用語混同
+などを自然に扱う
+
+analysis_step3:
+正しい考え方を使って、
+元の問題をもう一度考え直す
+
+各ステップ：
+・4択
+・正解は1つ
+・60文字以内
+・対象学年で自然に読める文にする
+・問題は、学校や塾で実際に使われていても違和感のない自然な品質にする
+
+【出力形式】JSON配列のみ（説明・コードブロック禁止）
+[{
+"question":"問題文（60文字以内）",
+"student_answer":"生徒の誤答",
+"correct_answer":"正解",
+"correct_feedback":"なぜ正しいかを1文で",
+"analysis_step1":{"name":"何を聞かれていた？","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
+"analysis_step2":{"name":"どこで取り違えた？","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
+"analysis_step3":{"name":"正しく考えよう","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
+"topic_tag":"単元名",
+"subject":"科目名",
+"mistake_type":"読み違い・計算ミス・条件見落とし・用語混同など"
+}]`;
+
+// ─── DAM ─────────────────────────────────────────────────────────
+const DAM_KEY="manabi_dam_v3";
+const DAM_MAX=20;
+const DAM_BATCH=5;
+const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}catch(e){return{};}};
+const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
+const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));dam[subj]=[...ex,...qs.filter(q=>!keys.has((q.question||"").slice(0,30)))].slice(-DAM_MAX);saveDam(dam);};
+const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];const take=Math.min(n,b.length);if(!take)return[];const r=b.slice(0,take);dam[subj]=b.slice(take);saveDam(dam);return r;};
+const getDamStats=()=>SUBJECTS.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
+const getDamTotal=()=>SUBJECTS.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
+const lowestBucket=()=>{const dam=getDam();let min=Infinity,cands=[];for(const s of SUBJECTS){const n=(dam[s]||[]).length;if(n<min){min=n;cands=[{subj:s,cnt:n}];}else if(n===min)cands.push({subj:s,cnt:n});}return cands.length?cands[Math.floor(Math.random()*cands.length)]:null;};
+
+// ─── UTILS ───────────────────────────────────────────────────────
+const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
+const today=()=>new Date().toISOString().slice(0,10);
+let _ki=0;
+const pickKey=keys=>{const k=keys[_ki%keys.length];_ki++;return k;};
+
+// ─── STEP SHUFFLE ─────────────────────────────────────────────────
+const shuffleStep=step=>{
+  const ix=step.choices.map((c,i)=>({c,i}));
+  for(let i=ix.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ix[i],ix[j]]=[ix[j],ix[i]];}
+  return{...step,choices:ix.map(x=>x.c),answer:ix.findIndex(x=>x.i===step.answer)};
+};
+const shuffleAllSteps=q=>({
+  ...q,
+  analysis_step1:shuffleStep(q.analysis_step1),
+  analysis_step2:shuffleStep(q.analysis_step2),
+  analysis_step3:shuffleStep(q.analysis_step3),
+});
+
+const hasValidAnalysis=q=>{
+  if(
+  !q ||
+  !q.student_answer ||
+  !q.correct_answer ||
+  !q.question
+)return false;
+  return[1,2,3].every(i=>{const s=q[`analysis_step${i}`];return s&&s.question&&Array.isArray(s.choices)&&s.choices.length===4&&typeof s.answer==="number";});
+};
+
+const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
+const calcSubjRates=h=>{if(!h||!h.length)return{};const m={};for(const r of h.slice(-100)){if(!m[r.subject])m[r.subject]={q:0,c:0};m[r.subject].q++;if(r.correct)m[r.subject].c++;}return m;};
+
+// ─── BADGES ──────────────────────────────────────────────────────
+const BADGES=[
+  // ─ かんたん ─
+  {id:"first",      icon:"🌱",label:"はじめの一歩",    desc:"初めて問題に挑戦した",                  cond:s=>s.totalQ>=1},
+  {id:"debug1",     icon:"💪",label:"弱点克服！",        desc:"苦手科目で初めて正解した",               cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=3&&v.c/v.q<0.5&&v.c>=1);}},
+  {id:"streak3",    icon:"🔥",label:"3連続！",          desc:"3問連続正解",                            cond:s=>s.bestStreak>=3},
+  {id:"q10",        icon:"📖",label:"10問達成",          desc:"合計10問を解いた",                       cond:s=>s.totalQ>=10},
+  {id:"day3",       icon:"📅",label:"3日連続",           desc:"3日連続で学習した",                      cond:s=>s.loginStreak>=3},
+  // ─ ふつう ─
+  {id:"perfect5",   icon:"✨",label:"完璧な5問",         desc:"5問連続正解",                            cond:s=>s.bestStreak>=5},
+  {id:"allsubject", icon:"🌈",label:"全科目制覇",        desc:"5科目すべてを経験",                      cond:s=>Object.keys(s.subjectStats||{}).length>=5},
+  {id:"check10",    icon:"🔎",label:"成長の証",          desc:"25問を解いた",                           cond:s=>s.totalQ>=25},
+  {id:"streak7",    icon:"⚡",label:"7連続！！",          desc:"7問連続正解",                            cond:s=>s.bestStreak>=7},
+  {id:"q50",        icon:"🏆",label:"50問の壁",           desc:"合計50問を解いた",                       cond:s=>s.totalQ>=50},
+  // ─ むずかしい ─
+  {id:"mastery3",   icon:"🗺️",label:"単元マスター",     desc:"3単元を習熟した",                        cond:s=>Object.values(s.topicMastery||{}).filter(t=>t.mastered).length>=3},
+  {id:"debug10",    icon:"⚖️",label:"バランス学習者",    desc:"全科目で正解率50%以上を達成",            cond:s=>{const r=calcSubjRates(s.recentHistory);return SUBJECTS.every(sub=>r[sub]&&r[sub].q>=3&&r[sub].c/r[sub].q>=0.5);}},
+  {id:"debugPerf",  icon:"🧠",label:"完璧な分析",        desc:"分析3ステップをすべて正解した",           cond:s=>(s.debugStats?.perfect||0)>=1},
+  {id:"q100",       icon:"🎖️",label:"100問の山",         desc:"累計100問を解いた",                      cond:s=>s.totalQ>=100},
+  {id:"recent80", icon:"🎯",label:"直近80%超え", desc:"直近100問で正解率80%以上", cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=80;}},
+  // ─ とてもむずかしい ─
+  {id:"debugMaster",icon:"🏅",label:"名コーチ",          desc:"完璧な分析（3問全正解）を10回達成",       cond:s=>(s.debugStats?.perfect||0)>=10},
+  {id:"debug50",    icon:"🎓",label:"科目マスター",      desc:"同じ科目で50問以上挑戦した",             cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=50);}},
+  {id:"genius",     icon:"👑",label:"努力の天才",        desc:"累計300問を達成",                        cond:s=>s.totalQ>=300},
+  {id:"runner",     icon:"⏳",label:"不屈のランナー",   desc:"累計365日学習した",                       cond:s=>Object.keys(s.dailyLog||{}).length>=365},
+  {id:"legend",   icon:"💎",label:"レジェンド",  desc:"直近100問で正解率98%以上",          cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=98;}},
+];
+
+// ─── CSS ─────────────────────────────────────────────────────────
+const css=`
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f0f4ff;font-family:'Nunito','M PLUS Rounded 1c',sans-serif;color:#1e1e3a}
+.root{min-height:100vh;background:linear-gradient(135deg,#f0f4ff 0%,#fdf0ff 100%);padding:12px}
+.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;box-shadow:0 2px 12px rgba(100,80,200,.08)}
+.tabs{display:flex;background:#ede9ff;border-radius:14px;padding:4px;margin-bottom:14px;gap:2px}
+.tab{flex:1;padding:8px 0;border:none;background:transparent;border-radius:10px;font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;transition:all .2s;color:#8880bb;position:relative}
+.tab.active{background:#fff;color:#5b3ff8;box-shadow:0 2px 8px rgba(91,63,248,.15)}
+.tab-badge{position:absolute;top:3px;right:6px;background:#ef4444;color:#fff;border-radius:99px;font-size:9px;font-weight:900;padding:1px 5px;min-width:16px;text-align:center}
+.btn{border:none;border-radius:14px;padding:13px 20px;font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;width:100%;transition:all .18s}
+.btn-primary{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff}
+.btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 20px rgba(91,63,248,.3)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none;background:#ccc}
+.btn-ghost{background:#f0edff;color:#5b3ff8;border:none}
+.btn-ghost:hover:not(:disabled){background:#e4dfff}
+.btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+.btn-green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;width:100%;transition:all .18s}
+.btn-green:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(34,197,94,.3)}
+.stat{background:#f8f7ff;border-radius:12px;padding:10px 6px;text-align:center;flex:1}
+.stat-n{font-size:17px;font-weight:900}
+.stat-l{font-size:10px;color:#9990cc;margin-top:1px}
+.pill{border-radius:20px;padding:3px 10px;font-size:11px;font-weight:800;display:inline-block}
+.pill-review{background:#fff3cd;color:#856404}
+.pill-analysis{background:#ede9ff;color:#5b3ff8}
+.spin{width:44px;height:44px;border:3px solid #ede9ff;border-top-color:#5b3ff8;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+input[type=date],input[type=password],input[type=text]{background:#f8f7ff;border:2px solid #e8e3ff;border-radius:12px;padding:11px 14px;font-size:14px;font-family:inherit;color:#1e1e3a;width:100%;outline:none;margin-bottom:10px;color-scheme:light}
+input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-color:#5b3ff8}
+.err{background:#fff8e1;border:1.5px solid #ffe082;border-radius:12px;padding:10px 14px;font-size:13px;color:#f57f17;margin-bottom:10px;font-weight:600}
+.bar-wrap{background:#f0edff;border-radius:8px;height:10px;overflow:hidden;margin-top:5px}
+.bar{height:100%;border-radius:8px;transition:width .4s}
+.badge-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.badge{border-radius:12px;padding:10px 6px;text-align:center;background:#f8f7ff;border:2px solid #e8e3ff}
+.badge.earned{background:#f0edff;border-color:#c4b5fd}
+.badge-icon{font-size:22px;margin-bottom:3px}
+.badge-name{font-size:10px;font-weight:800;color:#5b3ff8}
+.badge-desc{font-size:9px;color:#9990cc;margin-top:2px}
+.badge.locked .badge-icon{filter:grayscale(1) opacity(.4)}
+.badge.locked .badge-name{color:#bbb}
+.subj-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.subj-name{font-size:13px;font-weight:700;min-width:40px;color:#5b3ff8}
+.row2{display:flex;gap:8px}
+.row2 .btn{flex:1}
+.section-title{font-size:12px;font-weight:800;color:#9990cc;margin-bottom:10px;letter-spacing:.03em;text-transform:uppercase}
+.login-streak{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-radius:16px;padding:16px;color:#fff;text-align:center;margin-bottom:12px}
+.dam-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.dam-label{font-size:12px;font-weight:800;color:#5b3ff8;min-width:32px}
+.dam-bw{flex:1;height:6px;border-radius:4px;background:#e8e3ff;overflow:hidden}
+.dam-bf{height:100%;border-radius:4px;transition:width .4s}
+.refill-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;margin-right:5px;animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+
+/* 週次カレンダー */
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.week-label{text-align:center;font-size:10px;color:#bbb;font-weight:700}
+.week-dot-wrap{display:flex;flex-direction:column;align-items:center;gap:3px}
+.week-dot{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;transition:all .2s}
+.week-dot.empty{background:#f0edff;color:#ccc}
+.week-dot.low{background:#fde68a;color:#92400e}
+.week-dot.mid{background:#86efac;color:#166534}
+.week-dot.high{background:#22c55e;color:#fff;box-shadow:0 2px 8px rgba(34,197,94,.3)}
+
+/* デイリー目標 */
+.daily-goal-card{background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fde68a;border-radius:16px;padding:14px;margin-bottom:12px}
+.daily-goal-card.done{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#86efac}
+.daily-goal-bar-wrap{height:8px;background:rgba(253,230,138,.5);border-radius:4px;overflow:hidden;margin:8px 0 4px}
+.daily-goal-bar{height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:4px;transition:width .5s}
+.daily-goal-bar.done{background:linear-gradient(90deg,#22c55e,#16a34a)}
+
+/* topic mastery */
+.mastery-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.mastery-card{border-radius:12px;padding:10px 12px;border:1.5px solid}
+.mastery-card.fresh{background:#fef9c3;border-color:#fde047;color:#713f12}
+.mastery-card.learning{background:#dbeafe;border-color:#93c5fd;color:#1e40af}
+.mastery-card.mastered{background:#dcfce7;border-color:#86efac;color:#166534}
+.mastery-tag{font-size:10px;font-weight:800;letter-spacing:.04em;margin-bottom:2px}
+.mastery-topic{font-size:12px;font-weight:700}
+.mastery-meta{font-size:10px;opacity:.7;margin-top:2px}
+
+/* 設定タブ */
+.setting-row{border-bottom:1px solid #f0edff;padding:14px 0}
+.setting-label{font-size:12px;font-weight:800;color:#9990cc;margin-bottom:8px;display:block}
+.danger-zone{background:#fff5f5;border:1.5px solid #fecaca;border-radius:14px;padding:16px;margin-top:12px}
+.danger-btn{background:#fee2e2;color:#991b1b;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s}
+.danger-btn:hover{background:#fecaca}
+.danger-btn.secondary{background:#fff;border:1.5px solid #fecaca;color:#dc2626;margin-bottom:0}
+.key-row{display:flex;gap:6px;margin-bottom:6px}
+.key-row input{margin-bottom:0;flex:1}
+.key-status{font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px}
+.key-status.ok{background:#dcfce7;color:#166534}
+.key-status.empty{background:#f0edff;color:#9990cc}
+.report-btn{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:8px;font-size:11px;color:#ef4444;font-weight:700;cursor:pointer;width:100%;font-family:inherit;margin-top:6px}
+.report-btn:hover{background:rgba(239,68,68,.1)}
+
+/* ─── 分析カード（ライトテーマ） ─── */
+.an-card{background:#fff;border:2px solid #ddd6fe;border-radius:20px;padding:18px;margin-bottom:12px;box-shadow:0 2px 16px rgba(91,63,248,.1)}
+.an-qbox{background:#f0edff;border:1px solid #ddd6fe;border-radius:14px;padding:14px;margin-bottom:10px}
+.an-qbox-label{font-size:10px;font-weight:900;color:#7c6fb0;letter-spacing:.06em;margin-bottom:6px}
+.an-qbox-text{font-size:15px;font-weight:800;color:#1e1e3a;line-height:1.75}
+.an-wrong{background:#fff7f7;border:1.5px solid #fca5a5;border-radius:14px;padding:14px;margin-bottom:14px}
+.an-wrong-label{font-size:10px;font-weight:900;color:#ef4444;letter-spacing:.06em;margin-bottom:6px}
+.an-wrong-text{font-size:16px;font-weight:800;color:#991b1b;line-height:1.6}
+.an-stage{font-size:10px;font-weight:900;letter-spacing:.06em;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:8px}
+.an-stage.s1{background:#ede9ff;color:#5b3ff8}
+.an-stage.s2{background:#dbeafe;color:#1d4ed8}
+.an-stage.s3{background:#dcfce7;color:#166534}
+.an-q{background:#f8f7ff;border:1px solid #e8e3ff;border-radius:14px;padding:14px;margin-bottom:12px;font-size:15px;font-weight:800;color:#1e1e3a;line-height:1.75}
+.an-choice{background:#fff;border:2px solid #e8e3ff;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#5b3ff8;cursor:pointer;width:100%;text-align:left;margin-bottom:7px;font-family:inherit;transition:all .18s;display:flex;align-items:center;gap:10px}
+.an-choice:hover:not(:disabled){border-color:#5b3ff8;background:#f0edff}
+.an-choice:disabled{cursor:not-allowed}
+.an-choice.correct{border-color:#22c55e;background:#f0fdf4;color:#166534}
+.an-choice.wrong{border-color:#ef4444;background:#fff7f7;color:#991b1b}
+.an-choice.dim{opacity:.3}
+.an-num{min-width:22px;height:22px;border-radius:6px;background:#ede9ff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#5b3ff8;flex-shrink:0}
+.an-fb{background:#f0edff;border-radius:10px;padding:12px 14px;margin:8px 0;font-size:13px;color:#4c1d95;border-left:3px solid #7c3aed;line-height:1.7;font-weight:600}
+.an-next{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-top:6px;transition:all .18s}
+.an-next:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(91,63,248,.3)}
+.an-skip{background:#f8f7ff;border:1.5px solid #e8e3ff;color:#9990cc;border-radius:10px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;margin-top:6px}
+.an-skip:hover{background:#ede9ff;color:#5b3ff8}
+.an-complete{text-align:center;padding:20px 16px}
+.an-complete-icon{font-size:52px;display:block;margin-bottom:10px;animation:bounce .7s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes bounce{0%{transform:scale(0) rotate(-20deg);opacity:0}60%{transform:scale(1.2) rotate(5deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+.an-score-row{display:flex;justify-content:center;gap:10px;margin-bottom:16px}
+.an-score-dot{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900}
+.an-score-dot.ok{background:#dcfce7;color:#166534}
+.an-score-dot.ng{background:#fee2e2;color:#991b1b}
+.an-stat-row{display:flex;gap:8px;margin-bottom:12px}
+.an-stat{background:#f0edff;border:1px solid #ddd6fe;border-radius:12px;padding:10px 8px;text-align:center;flex:1}
+.an-stat-n{font-size:17px;font-weight:900;color:#5b3ff8}
+.an-stat-l{font-size:10px;color:#7c6fb0;margin-top:2px}
+
+/* 分析履歴 */
+.anhist-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0edff;font-size:12px}
+.anhist-subj{font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;background:#ede9ff;color:#5b3ff8}
+.anhist-score{display:flex;gap:3px}
+.anhist-dot{width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px}
+.anhist-dot.ok{background:#dcfce7;color:#166534}
+.anhist-dot.ng{background:#fee2e2;color:#991b1b}
+`;
+
+// ─── initLogs ────────────────────────────────────────────────────
+const initLogs=()=>({
+  subjectStats:{},dailyLog:{},totalQ:0,totalCorrect:0,
+  bestStreak:0,loginStreak:0,lastLogin:"",
+  earnedBadges:[],reviewQueue:[],recentHistory:[],
+  debugStats:{completed:0,perfect:0},
+  checkStats:{total:0,correct:0},
+  topicMastery:{},
+  debugHistory:[],
+});
+
+// ─── MAIN ────────────────────────────────────────────────────────
+function App(){
+  const [screen,setScreen]=useState("start");
+  const [tab,setTab]=useState("learn");
+  const [apiKeys,setApiKeys]=useState(["","","",""]);
+  const [birthday,setBirthday]=useState("");
+  const [grade,setGrade]=useState("");
+  const [subject,setSubject]=useState("");
+  const [gs,setGs]=useState({streak:0,best:0,wrong:0,qNum:1,used:[]});
+  const [quiz,setQuiz]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [isCooldown,setIsCooldown]=useState(false);
+  const [startError,setStartError]=useState("");
+  const [appError,setAppError]=useState("");
+  const [showSubjSel,setShowSubjSel]=useState(false);
+  const [damStats,setDamStats]=useState(getDamStats);
+  const [isRefilling,setIsRefilling]=useState(false);
+  const [logs,setLogs]=useState(initLogs);
+  const [isReview,setIsReview]=useState(false);
+  const [newBadges,setNewBadges]=useState([]);
+  const [settingsSaved,setSettingsSaved]=useState(false);
+  const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
+  const autoRefillR=useRef(autoRefill);
+  useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
+
+  // ── 誤答分析ステート（フラット） ──
+  const [analysisStep,setAnalysisStep]=useState(null); // null | 1 | 2 | 3 | "done"
+  const [stepAns,setStepAns]=useState(null);
+  const [stepResults,setStepResults]=useState([null,null,null]);
+
+  const STORE="manabi_logs_v4";const PROF="manabi_profile_v2";const SESS="manabi_session_v2";
+
+  const logsR=useRef(logs);const gsR=useRef(gs);const subjR=useRef(subject);
+  const keysR=useRef(apiKeys);const gradeR=useRef(grade);const bdR=useRef(birthday);
+  const refillLk=useRef(false);const fetchLk=useRef(false);const nextLk=useRef(false);const reqId=useRef(null);
+
+  useEffect(()=>{logsR.current=logs;},[logs]);
+  useEffect(()=>{gsR.current=gs;},[gs]);
+  useEffect(()=>{subjR.current=subject;},[subject]);
+  useEffect(()=>{keysR.current=apiKeys;},[apiKeys]);
+  useEffect(()=>{gradeR.current=grade;},[grade]);
+  useEffect(()=>{bdR.current=birthday;},[birthday]);
+  useEffect(()=>{try{localStorage.setItem(SESS,JSON.stringify({...gs,savedDate:today()}));}catch(e){}},[gs]);
+
+  // quiz がセットされたら分析を自動スタート
+  useEffect(()=>{
+    if(!quiz)return;
+    if(hasValidAnalysis(quiz)){
+      setAnalysisStep(1);
+      setStepAns(null);
+      setStepResults([null,null,null]);
+    }
+  },[quiz]);
+
+  useEffect(()=>{
+    try{
+      const p=localStorage.getItem(PROF);
+      if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");if(d.apiKeys&&Array.isArray(d.apiKeys))setApiKeys(d.apiKeys);else if(d.apiKey)setApiKeys([d.apiKey,"","",""]);}
+      const s=localStorage.getItem(SESS);
+      if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:prev.best||0,wrong:0,qNum:1,used:[]}));}
+    }catch(e){}
+    loadLogs();setDamStats(getDamStats());
+  },[]);
+
+  const loadLogs=()=>{
+    try{
+      const r=localStorage.getItem(STORE);
+      if(r){
+        const p=JSON.parse(r);
+        if(!p.debugStats)p.debugStats={completed:0,perfect:0};
+        if(!p.checkStats)p.checkStats={total:0,correct:0};
+        if(!p.topicMastery)p.topicMastery={};
+        if(!p.debugHistory)p.debugHistory=[];
+        setLogs(p);
+      }
+    }catch(e){}
+  };
+  const saveLogs=nl=>{try{localStorage.setItem(STORE,JSON.stringify(nl));}catch(e){}};
+
+  const checkBadges=(next)=>{
+    const earned=BADGES.filter(b=>!next.earnedBadges.includes(b.id)&&b.cond(next));
+    if(earned.length){next.earnedBadges=[...next.earnedBadges,...earned.map(b=>b.id)];setNewBadges(earned);setTimeout(()=>setNewBadges([]),3500);}
+  };
+
+  const updateLogs=(correct,subj,wrongItem,newBest)=>{
+    setLogs(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));const td=today();
+      if(!next.subjectStats[subj])next.subjectStats[subj]={q:0,c:0};
+      next.subjectStats[subj].q++;if(correct)next.subjectStats[subj].c++;
+      if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
+      next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
+      if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
+      next.dailyLog[td].sessions++;
+      if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
+      next.totalQ++;if(correct)next.totalCorrect++;
+      if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
+      if(!next.recentHistory)next.recentHistory=[];
+      next.recentHistory.push({correct,subject:subj,date:td});
+      if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
+      if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
+      if(next.lastLogin!==td){const y=new Date();y.setDate(y.getDate()-1);const ys=y.toISOString().slice(0,10);next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;}
+      const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
+      if(topic){
+        if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
+        const tm=next.topicMastery[topic];tm.attempts++;if(correct)tm.correct++;
+        if(!tm.mastered&&tm.attempts>=5&&tm.correct/tm.attempts>=.8)tm.mastered=true;
+      }
+      checkBadges(next);saveLogs(next);return next;
+    });
+  };
+
+  const updateAnalysisStats=(results,subj)=>{
+    const perfect=results.every(Boolean);
+    setLogs(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));
+      if(!next.debugStats)next.debugStats={completed:0,perfect:0};
+      next.debugStats.completed++;if(perfect)next.debugStats.perfect++;
+      const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
+      if(topic){next.reviewQueue=(next.reviewQueue||[]).filter(q=>q.topic!==topic);}
+      if(topic&&next.topicMastery[topic]){
+      next.topicMastery[topic].debugDone++;
+    }
+      if(!next.debugHistory)next.debugHistory=[];
+      next.debugHistory.unshift({date:today(),subj,topic:topic||"—",results});
+      if(next.debugHistory.length>20)next.debugHistory=next.debugHistory.slice(0,20);
+      checkBadges(next);saveLogs(next);return next;
+    });
+  };
+
+  const pickSubject=cur=>{
+    const rates=calcSubjRates(cur.recentHistory);
+    const ws=SUBJECTS.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
+    const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
+    for(const x of ws){r-=x.w;if(r<=0)return x.s;}return SUBJECTS[0];
+  };
+
+  const buildPrompt=(g,subj,s,review,reviewItem,cur)=>{
+    const mon=new Date().getMonth()+1;
+    const rates=calcSubjRates(cur.recentHistory);
+    const weak=SUBJECTS.filter(sub=>{const r=rates[sub];return r&&r.q>=3&&r.c/r.q<.6;});
+    let p=`\n学年:${g}\n時期:${mon}月\n科目:${subj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
+    p+=`直近テーマ（重複避ける）:${s.used.slice(-3).join("、")||"なし"}\n苦手科目:${weak.join("、")||"なし"}\n`;
+    if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
+    else p+=`科目「${subj}」から1問。`;
+    p+=`\nmistake_type を必ず含めること。`;
+    p+=`\n「誤答付き問題」形式で student_answer・correct_answer・analysis_step1〜3 を必ず含めること。`;
+    return p;
+  };
+
+  const resetState=()=>{
+    setQuiz(null);
+    setAnalysisStep(null);setStepAns(null);setStepResults([null,null,null]);
+  };
+
+  // バックグラウンド補充
+  useEffect(()=>{
+    if(screen!=="app")return;
+    let cancelled=false;
+    const doRefill=async()=>{
+      if(cancelled||refillLk.current)return false;
+      const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
+      const target=lowestBucket();if(!target||(!autoRefillR.current&&target.cnt>=DAM_MAX))return true;
+      refillLk.current=true;setIsRefilling(true);
+      try{
+        const g=gradeR.current||calcGrade(bdR.current);
+        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+        const key=pickKey(keys);
+        const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+        if(!res.ok)return false;
+        const data=await res.json();if(data.error)return false;
+        const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return false;
+        let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return false;}
+        if(!Array.isArray(parsed))parsed=[parsed];
+        const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&q.subject===target.subj&&hasValidAnalysis(q));
+        if(valid.length){addToDam(target.subj,valid.map(q=>
+  shuffleAllSteps({
+    ...q,
+    mistake_type:q.mistake_type||"不明",
+    _subject:target.subj
+  })
+      ));if(!cancelled)setDamStats(getDamStats());return true;}
+      }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
+      return false;
+    };
+    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled)loop(ok?120000:90000);};
+    loop(15000);
+    return()=>{cancelled=true;};
+  },[screen]);
+
+  const fetchQ=useCallback(async(s,g,subj,review,reviewItem)=>{
+    if(fetchLk.current)return;fetchLk.current=true;
+    const rid=Date.now()+Math.random();reqId.current=rid;
+    const stale=()=>reqId.current!==rid;
+    try{
+      if(!stale()){resetState();setAppError("");}
+      if(!review){
+        const st=popFromDam(subj,1);
+        if(st.length){const q=st[0];if(!stale()){setQuiz(q);setLoading(false);setIsCooldown(false);setDamStats(getDamStats());setGs(p=>({...p,used:[...p.used,(q.question||"").slice(0,20)].slice(-5)}));}return;}
+      }
+      if(!stale()){setLoading(true);setQuiz(null);}
+      const keys=keysR.current.filter(k=>k.trim());if(!keys.length)throw new Error("no key");
+      let ok=false;
+      for(const key of keys){
+        if(ok||stale())break;
+        try{
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+          if(!res.ok)continue;const data=await res.json();if(data.error)continue;
+          const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
+          let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
+          if(!Array.isArray(parsed))parsed=[parsed];
+          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q));
+          if(!parsed.length)continue;
+          const enriched=parsed.map(q=>
+          shuffleAllSteps({
+          ...q,
+          mistake_type:q.mistake_type||"不明",
+          _subject:subj
+         })
+       );
+          const[first,...rest]=enriched;
+          if(stale())return;
+          console.log(first)
+          setQuiz(first);setGs(p=>({...p,used:[...p.used,(first.question||"").slice(0,20)].slice(-5)}));
+          if(rest.length){addToDam(subj,rest);setDamStats(getDamStats());}
+          setIsCooldown(false);ok=true;
+        }catch(e){console.error(e);}
+      }
+      if(!ok&&!stale()){const fb=popFromDam(subj,1);if(fb.length){setQuiz(fb[0]);setIsCooldown(true);setDamStats(getDamStats());return;}throw new Error("fail");}
+    }catch(e){
+      if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
+    }
+    finally{if(reqId.current===rid)setLoading(false);fetchLk.current=false;}
+  },[]);
+
+  const resetFetch=useCallback((subj,sg)=>{
+    const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:0,qNum:1,used:[]};
+    resetState();setGs(init);setSubject(subj);
+    const g=sg||grade;requestAnimationFrame(()=>fetchQ(init,g,subj,false,null));
+  },[grade,fetchQ]);
+
+  // 分析ステップ回答
+  const handleStepAnswer=idx=>{
+    if(stepAns!==null||!analysisStep||analysisStep==="done")return;
+    const step=quiz[`analysis_step${analysisStep}`];
+    const correct=idx===step.answer;
+    setStepAns(idx);
+    setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;return n;});
+  };
+
+  // 次のステップへ / 完了
+  const handleStepNext=()=>{
+    if(analysisStep<3){
+      setAnalysisStep(p=>p+1);
+      setStepAns(null);
+    }else{
+      const finalResults=[...stepResults];
+      const score=finalResults.filter(Boolean).length;
+      const correct=score>=2;
+      const wrongItem=!correct?{
+      topic:quiz.topic_tag||quiz.question.slice(0,20),
+      subject,
+      mistakeType:quiz.mistake_type||"不明"
+     }:null;
+      const nextStr=correct?gs.streak+1:0;
+      const newBest=Math.max(gs.best,nextStr);
+      updateLogs(correct,subject,wrongItem,newBest);
+      updateAnalysisStats(finalResults,subject);
+      setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
+      setAnalysisStep("done");
+    }
+  };
+
+      const skipToNext=()=>{
+      const wrongItem={topic:quiz?.topic_tag||quiz?.question?.slice(0,20)||"",subject};
+      updateLogs(false,subject,wrongItem,gs.best);
+      updateAnalysisStats([false,false,false],subject);
+      setGs(p=>({...p,streak:0,wrong:p.wrong+1,qNum:p.qNum+1}));
+      setAnalysisStep("done");
+    };
+
+  const handleNext=async()=>{
+    if(nextLk.current)return;nextLk.current=true;
+    resetState();
+    try{
+      const cur=logsR.current;
+      if(cur.reviewQueue?.length){
+        const item=cur.reviewQueue[0];
+        setLogs(p=>{const n={...p,reviewQueue:p.reviewQueue.slice(1)};saveLogs(n);return n;});
+        setIsReview(true);await fetchQ(gsR.current,gradeR.current,subjR.current,true,item);return;
+      }
+      const cand=gsR.current.qNum%5===0?pickSubject(cur):subjR.current;
+      let fromDam=popFromDam(cand,1),ns=cand;
+      if(!fromDam.length&&cand!==subjR.current){const fb=popFromDam(subjR.current,1);if(fb.length){fromDam=fb;ns=subjR.current;}}
+      if(!fromDam.length){for(const s of SUBJECTS){if(s===cand||s===subjR.current)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
+      if(fromDam.length){
+        if(ns!==subjR.current)setSubject(ns);
+        setIsReview(false);setDamStats(getDamStats());
+        setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));
+        setQuiz(fromDam[0]);return;
+      }
+      setIsReview(false);if(ns!==subjR.current)setSubject(ns);
+      await fetchQ(gsR.current,gradeR.current,ns,false,null);
+    }finally{setTimeout(()=>{nextLk.current=false;},150);}
+  };
+
+  const saveSettings=()=>{
+    const vk=apiKeys.filter(k=>k.trim());
+    if(!vk.length){alert("APIキーを1つ以上入力してください");return;}
+    if(!birthday){alert("生年月日を入力してください");return;}
+    try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
+    const g=calcGrade(birthday);
+    setGrade(g);setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),2000);
+  };
+
+  const clearLogs=()=>{
+    if(!confirm("学習記録・バッジをすべて削除しますか？\nストック問題は残ります。この操作は取り消せません。"))return;
+    try{localStorage.removeItem(STORE);localStorage.removeItem(SESS);}catch(e){}
+    setLogs(initLogs());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});
+    alert("学習記録を削除しました。");
+  };
+
+  const clearStock=()=>{
+    if(!confirm("ストック問題をすべて削除しますか？\nこの操作は取り消せません。"))return;
+    try{localStorage.removeItem(DAM_KEY);}catch(e){}
+    setDamStats(getDamStats());
+    alert("ストック問題を削除しました。");
+  };
+
+  const clearAllData=()=>{
+    if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
+    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);}catch(e){}
+    setLogs(initLogs());setDamStats(getDamStats());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});
+    alert("データを削除しました。");
+  };
+
+  // ── 派生値 ────────────────────────────────
+  const recent100=calcRecent100(logs.recentHistory);
+  const subjRateMap=calcSubjRates(logs.recentHistory);
+  const subjectRates=SUBJECTS.map(s=>{const r=subjRateMap[s];return r&&r.q>0?{s,rate:Math.round(r.c/r.q*100),q:r.q}:{s,rate:null,q:0};});
+  const rateColor=recent100?(recent100.rate>=80?"#22c55e":recent100.rate>=60?"#f59e0b":"#ef4444"):"#9990cc";
+  const rateBg=recent100?(recent100.rate>=80?"#f0fdf4":recent100.rate>=60?"#fffbeb":"#fff7f7"):"#f8f7ff";
+  const rateBorder=recent100?(recent100.rate>=80?"#86efac":recent100.rate>=60?"#fde68a":"#fca5a5"):"#e8e3ff";
+  const damTotal=getDamTotal();
+  const stageClr=["s1","s2","s3"];
+  const stageIcon=["🔍","🧩","✅"];
+  const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
+
+  const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
+  const dailyGoalMet=todaySessions>=3;
+  const reviewCount=logs.reviewQueue?.length||0;
+
+  const cal28=Array.from({length:28},(_,i)=>{
+    const d=new Date();d.setDate(d.getDate()-(27-i));
+    const key=d.toISOString().slice(0,10);
+    const l=logs.dailyLog?.[key];
+    return{key,d:d.getDate(),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
+  });
+
+  const masteryList=Object.entries(logs.topicMastery||{})
+    .map(([topic,v])=>({topic,...v}))
+    .sort((a,b)=>b.attempts-a.attempts)
+    .slice(0,12);
+
+  // ─── RENDER ──────────────────────────────────────────────────
+  return(
+    <React.Fragment>
+      <style>{css}</style>
+      <div className="root">
+
+        {newBadges.length>0&&(
+          <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:"#5b3ff8",color:"#fff",borderRadius:16,padding:"12px 20px",fontWeight:800,fontSize:14,boxShadow:"0 4px 20px rgba(91,63,248,.4)",textAlign:"center",whiteSpace:"nowrap"}}>
+            🏆 新実績: {newBadges.map(b=>b.icon+b.label).join(" · ")}
+          </div>
+        )}
+
+        {/* ── START ── */}
+        {screen==="start"&&(
+          <div style={{maxWidth:440,margin:"40px auto"}}>
+            <div className="card" style={{textAlign:"center",padding:"32px 24px"}}>
+              <div style={{fontSize:48,marginBottom:10}}>📚</div>
+              <h1 style={{fontSize:26,fontWeight:900,color:"#5b3ff8",marginBottom:4}}>まなびサポート</h1>
+              <p style={{color:"#9990cc",fontSize:13,marginBottom:16}}>誤答を分析して、思考を磨こう 🔍→✨</p>
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginBottom:16,fontSize:12,fontWeight:700,color:"#5b3ff8",textDecoration:"none"}}>🔑 Googleから無料APIキーを取得する</a>
+              {startError&&<div className="err">😅 {startError}</div>}
+              <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,fontWeight:700}}>Gemini APIキー（最大4つ）</label>
+              {apiKeys.map((k,i)=>(
+                <input key={i} type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (必須)":" (任意)"}`}/>
+              ))}
+              <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,marginTop:4,fontWeight:700}}>生年月日</label>
+              <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31"/>
+              <button className="btn btn-primary" onClick={()=>{
+                const vk=apiKeys.filter(k=>k.trim());
+                if(!vk.length){setStartError("APIキーを1つ以上入力してください");return;}
+                if(!birthday){setStartError("生年月日を入力してください");return;}
+                try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
+                const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats());
+                resetFetch(pickSubject(logsR.current),g);
+              }} style={{marginTop:10}}>学習をはじめる →</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── APP ── */}
+        {screen==="app"&&(
+          <div style={{maxWidth:500,margin:"0 auto"}}>
+
+            {/* ヘッダー */}
+            <div className="card" style={{padding:"12px 14px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11,color:"#9990cc",fontWeight:700}}>{grade}</div>
+                  <div style={{fontSize:19,fontWeight:900,display:"flex",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                    {subject}
+                    {isReview&&<span className="pill pill-review">復習</span>}
+                    {analysisStep&&analysisStep!=="done"&&<span className="pill pill-analysis">🔍 分析 {analysisStep}/3</span>}
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  {isRefilling&&<div style={{fontSize:10,color:"#9990cc",display:"flex",alignItems:"center"}}><span className="refill-dot"></span>補充中</div>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:5}}>
+                <div className="stat"><div className="stat-n" style={{color:"#f59e0b"}}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
+                <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
+                <div className="stat"><div className="stat-n" style={{color:"#ef4444"}}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
+                <div className="stat"><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析</div></div>
+                <div className="stat">
+                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
+                  <div className="stat-l">今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="tabs">
+              <button className={`tab${tab==="learn"?" active":""}`} onClick={()=>setTab("learn")}>📚 学習</button>
+              <button className={`tab${tab==="log"?" active":""}`} onClick={()=>setTab("log")}>
+                📊 記録
+                {reviewCount>0&&<span className="tab-badge">{reviewCount}</span>}
+              </button>
+              <button className={`tab${tab==="badge"?" active":""}`} onClick={()=>setTab("badge")}>🏆 実績</button>
+              <button className={`tab${tab==="settings"?" active":""}`} onClick={()=>setTab("settings")}>⚙️ 設定</button>
+            </div>
+
+            {/* ── LEARN ── */}
+            {tab==="learn"&&(
+              <React.Fragment>
+                {loading&&(
+                  <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
+                    <div className="spin" style={{marginBottom:14}}></div>
+                    <div style={{color:"#9990cc",fontSize:14,fontWeight:700}}>{isCooldown?"AIが休憩中... ☕":"問題を生成中... 🚀"}</div>
+                  </div>
+                )}
+                {appError&&!loading&&(
+                  <div className="card">
+                    <div className="err">😅 もう一度確認してみてね！</div>
+                    <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(gsR.current,grade,subjR.current,false,null);}}>もう一度</button>
+                  </div>
+                )}
+                {!loading&&quiz&&isCooldown&&(
+                  <div style={{background:"#fffbeb",borderLeft:"3px solid #f59e0b",padding:"10px 14px",marginBottom:12,borderRadius:"0 10px 10px 0",fontSize:13,color:"#92400e",fontWeight:700}}>
+                    ☕ ストックから出題中（AI補充待ち）
+                  </div>
+                )}
+
+                {/* データ不正フォールバック */}
+                {quiz&&!loading&&!analysisStep&&!hasValidAnalysis(quiz)&&(
+                  <div className="card" style={{textAlign:"center",padding:"24px"}}>
+                    <div style={{fontSize:13,color:"#9990cc",marginBottom:12}}>問題データが読み込めませんでした</div>
+                    <button className="btn btn-ghost" onClick={handleNext} disabled={loading}>次の問題へ →</button>
+                  </div>
+                )}
+
+                {/* 初期ロード中（analysisStep セット待ち） */}
+                {quiz&&!loading&&!analysisStep&&hasValidAnalysis(quiz)&&(
+                  <div className="card" style={{textAlign:"center",padding:"24px"}}>
+                    <div className="spin" style={{marginBottom:8}}></div>
+                  </div>
+                )}
+
+                {/* ─── 分析ステージ 1〜3 ─── */}
+                {quiz&&!loading&&analysisStep&&analysisStep!=="done"&&currentStep&&(
+                  <div className="an-card">
+                    {/* タイトル */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div style={{fontSize:13,fontWeight:900,color:"#5b3ff8",letterSpacing:".04em"}}>🔍 誤答分析チャレンジ</div>
+                      <span style={{fontSize:12,fontWeight:800,color:"#9990cc"}}>{analysisStep} / 3</span>
+                    </div>
+
+                    {/* 問題 */}
+                    <div className="an-qbox">
+                      <div className="an-qbox-label">📌 問題</div>
+                      <div className="an-qbox-text">{quiz.question}</div>
+                    </div>
+
+                    {/* 生徒の誤答 */}
+                    <div className="an-wrong">
+                      <div className="an-wrong-label">❌ ある生徒の答え</div>
+                      <div className="an-wrong-text">「{quiz.student_answer}」</div>
+                    </div>
+
+                    {/* ステージラベル */}
+                    <div className={`an-stage ${stageClr[analysisStep-1]}`}>
+                      {stageIcon[analysisStep-1]} {currentStep.name}
+                    </div>
+                    <div className="an-q">{currentStep.question}</div>
+
+                    {/* 選択肢 */}
+                    {currentStep.choices.map((c,i)=>{
+                      let cls="an-choice";
+                      if(stepAns!==null){if(i===currentStep.answer)cls+=" correct";else if(i===stepAns)cls+=" wrong";else cls+=" dim";}
+                      return(
+                        <button key={i} className={cls} onClick={()=>handleStepAnswer(i)} disabled={stepAns!==null}>
+                          <span className="an-num">{i+1}</span>{c}
+                        </button>
+                      );
+                    })}
+
+                    {/* フィードバック */}
+                    {stepAns!==null&&(
+                      <React.Fragment>
+                        <div className="an-fb">
+                          <strong style={{color:stepAns===currentStep.answer?"#059669":"#dc2626"}}>{stepAns===currentStep.answer?"✓ 正確に特定！":"✗ ここに注目しよう"}</strong><br/>
+                          {currentStep.feedback}
+                        </div>
+                        <button className="an-next" onClick={handleStepNext}>
+                          {analysisStep<3?`次のステップへ（${analysisStep+1}/3）→`:"結果を見る ✨"}
+                        </button>
+                      </React.Fragment>
+                    )}
+
+                    {/* スキップ */}
+                    {stepAns===null&&<button className="an-skip" onClick={skipToNext}>スキップして次の問題へ</button>}
+                  </div>
+                )}
+
+                {/* ─── 分析完了 ─── */}
+                {quiz&&!loading&&analysisStep==="done"&&(
+                  <div className="an-card">
+                    <div className="an-complete">
+                      <span className="an-complete-icon">
+                        {stepResults.filter(Boolean).length===3?"🧠":stepResults.filter(Boolean).length>=2?"🎉":"🌱"}
+                      </span>
+                      <div style={{fontSize:21,fontWeight:900,color:"#1e1e3a",marginBottom:4}}>
+                        {stepResults.filter(Boolean).length===3?"完璧な分析！":stepResults.filter(Boolean).length>=2?"よく見えました":"もう一度チャレンジしよう"}
+                      </div>
+                      <div style={{fontSize:13,color:"#7c6fb0",marginBottom:12}}>
+                        {stepResults.filter(Boolean).length} / 3 ステップ正解
+                      </div>
+                      <div className="an-score-row">
+                        {stepResults.map((r,i)=><div key={i} className={`an-score-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>)}
+                      </div>
+                      <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:12,textAlign:"left"}}>
+                        <div style={{fontSize:11,fontWeight:900,color:"#16a34a",marginBottom:4}}>✅ 正解</div>
+                        <div style={{fontSize:16,fontWeight:800,color:"#166534"}}>{quiz.correct_answer}</div>
+                        <div style={{fontSize:12,color:"#166534",marginTop:6,lineHeight:1.65}}>{quiz.correct_feedback}</div>
+                      </div>
+                    </div>
+
+                    <button className="btn-green" style={{marginBottom:8}} onClick={handleNext}>次の問題へ →</button>
+                    <button className="report-btn" onClick={()=>{
+                      setLogs(p=>{const n=JSON.parse(JSON.stringify(p));n.reviewQueue=(n.reviewQueue||[]).filter(q=>q.topic!==(quiz?.topic_tag||quiz?.question?.slice(0,20)||""));saveLogs(n);return n;});
+                      alert("報告しました。復習リストから削除されます。");
+                    }}>⚠️ この問題の内容がおかしい</button>
+                  </div>
+                )}
+
+                {/* 科目選択 */}
+                {!analysisStep&&(
+                  showSubjSel?(
+                    <div className="card" style={{padding:14,background:"#f8f7ff"}}>
+                      <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                        {SUBJECTS.map(s=>(
+                          <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} disabled={loading}>{s}</button>
+                        ))}
+                        <button className="btn btn-ghost" style={{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick={()=>setShowSubjSel(false)} disabled={loading}>もどる</button>
+                      </div>
+                    </div>
+                  ):(
+                    <div className="row2" style={{marginTop:4}}>
+                      <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} disabled={loading}>科目選択</button>
+                      <button className="btn btn-ghost" onClick={()=>{
+                        const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
+                        const un=SUBJECTS.filter(s=>!rates[s]||rates[s].q===0);
+                        if(un.length&&Math.random()<.7){resetFetch(un[Math.floor(Math.random()*un.length)]);return;}
+                        let ws=SUBJECTS[0],mr=Infinity,found=false;
+                        for(const s of SUBJECTS){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
+                        if(!found){const qc=SUBJECTS.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
+                        resetFetch(ws);
+                      }} disabled={loading}>苦手科目</button>
+                    </div>
+                  )
+                )}
+              </React.Fragment>
+            )}
+
+            {/* ── LOG ── */}
+            {tab==="log"&&(
+              <React.Fragment>
+                <div className="login-streak">
+                  <div style={{fontSize:28,fontWeight:900}}>{logs.loginStreak||0}日連続</div>
+                  <div style={{fontSize:13,opacity:.85,marginTop:4}}>この調子で続けよう 🔥</div>
+                </div>
+
+                {/* デイリー目標 */}
+                <div className={`daily-goal-card${dailyGoalMet?" done":""}`}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{fontWeight:900,fontSize:14,color:dailyGoalMet?"#166534":"#92400e"}}>
+                      {dailyGoalMet?"🎉 今日の目標達成！":"🎯 デイリー目標"}
+                    </div>
+                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/3</div>
+                  </div>
+                  <div className="daily-goal-bar-wrap">
+                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/3*100)}%`}}></div>
+                  </div>
+                    <div style={{fontSize:11,color:dailyGoalMet?"#166534":"#92400e",fontWeight:700}}>
+                       3問クリアで目標達成！
+                   </div>
+                </div>
+
+                {/* 正解率カード */}
+                <div style={{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:800,color:"#9990cc",marginBottom:4}}>直近100問の正解率</div>
+                      {recent100?(<React.Fragment>
+                        <div style={{fontSize:38,fontWeight:900,color:rateColor,lineHeight:1}}>{recent100.rate}%</div>
+                        <div style={{fontSize:11,color:rateColor,opacity:.7,marginTop:4}}>{recent100.count<100?`まだ${recent100.count}問分のデータ`:"直近100問"}</div>
+                      </React.Fragment>):(<div style={{fontSize:18,fontWeight:800,color:"#9990cc"}}>まだデータなし</div>)}
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:11,color:"#9990cc"}}>累計</div>
+                      <div style={{fontSize:18,fontWeight:900,color:"#5b3ff8"}}>{logs.totalQ}問</div>
+                      <div style={{fontSize:11,color:"#9990cc",marginTop:4}}>最高連続</div>
+                      <div style={{fontSize:18,fontWeight:900,color:"#f59e0b"}}>{logs.bestStreak}問</div>
+                    </div>
+                  </div>
+                  {recent100&&<div style={{marginTop:12}}><div className="bar-wrap" style={{height:12}}><div className="bar" style={{width:`${recent100.rate}%`,background:rateColor}}></div></div></div>}
+                </div>
+
+                {/* 分析実績（ライトカード） */}
+                <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
+                  <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
+                  <div className="an-stat-row">
+                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.completed||0}</div><div className="an-stat-l">完了</div></div>
+                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧</div></div>
+                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{logs.debugStats?.completed>0?Math.round((logs.debugStats.perfect/logs.debugStats.completed)*100)+"%":"—"}</div><div className="an-stat-l">完璧率</div></div>
+                  </div>
+                  {logs.debugHistory?.length>0&&(
+                    <React.Fragment>
+                      <div style={{fontSize:11,fontWeight:800,color:"#7c6fb0",marginBottom:6,marginTop:4}}>直近の分析履歴</div>
+                      {logs.debugHistory.slice(0,5).map((h,i)=>(
+                        <div key={i} className="anhist-row">
+                          <span style={{fontSize:11,color:"#7c6fb0",minWidth:36}}>{h.date.slice(5)}</span>
+                          <span className="anhist-subj">{h.subj}</span>
+                          <span style={{flex:1,fontSize:11,color:"#5b3ff8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.topic}</span>
+                          <div className="anhist-score">
+                            {(h.results||[]).map((r,j)=>(
+                              <div key={j} className={`anhist-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </React.Fragment>
+                  )}
+                </div>
+
+                {/* 科目別正解率 */}
+                <div className="card">
+                  <div className="section-title">科目別 正解率（直近100問）</div>
+                  {subjectRates.map(({s,rate,q})=>(
+                    <div key={s} className="subj-row">
+                      <span className="subj-name">{s}</span>
+                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
+                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
+                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 28日カレンダー */}
+                <div className="card">
+                  <div className="section-title">28日間の学習カレンダー</div>
+                  <div className="week-grid">
+                    {["日","月","火","水","木","金","土"].map(d=><div key={d} className="week-label">{d}</div>)}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+                    {Array.from({length:new Date(cal28[0].key).getDay()},(_,i)=>(
+                      <div key={`empty-${i}`}></div>
+                    ))}
+                    {cal28.map(d=>{
+                      let cls="week-dot empty";
+                      if(d.q>0){cls=d.rate>=80?"week-dot high":d.rate>=50?"week-dot mid":"week-dot low";}
+                      return(
+                        <div key={d.key} className="week-dot-wrap">
+                          <div className={cls} title={`${d.key}: ${d.q}問`}>{d.d}</div>
+                          {d.q>0&&<div style={{fontSize:8,color:"#9990cc",textAlign:"center"}}>{d.q}問</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:12,marginTop:10,justifyContent:"center"}}>
+                    {[{cls:"week-dot high",label:"80%+"},{cls:"week-dot mid",label:"50%+"},{cls:"week-dot low",label:"50%未満"}].map(x=>(
+                      <div key={x.label} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"#9990cc"}}>
+                        <div className={x.cls} style={{width:20,height:20,fontSize:8}}></div>{x.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 単元習熟マップ */}
+                {masteryList.length>0&&(
+                  <div className="card">
+                    <div className="section-title">🗺️ 単元習熟マップ</div>
+                    <div className="mastery-grid">
+                      {masteryList.map(({topic,subj,attempts,correct,mastered})=>{
+                        const rate=attempts>0?Math.round(correct/attempts*100):0;
+                        const state=mastered?"mastered":rate>=50?"learning":"fresh";
+                        const labels={fresh:"学習中",learning:"定着中",mastered:"習熟済み"};
+                        return(
+                          <div key={topic} className={`mastery-card ${state}`}>
+                            <div className="mastery-tag">{labels[state]} ｜ {subj}</div>
+                            <div className="mastery-topic">{topic}</div>
+                            <div className="mastery-meta">{attempts}問 正解率{rate}%</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{fontSize:11,color:"#bbb",marginTop:8,textAlign:"center"}}>5問以上解いて正解率80%超えで「習熟済み」</div>
+                  </div>
+                )}
+
+                {reviewCount>0&&(
+                  <div className="card" style={{background:"#fffbeb",border:"1.5px solid #fde68a"}}>
+                    <div style={{fontWeight:800,color:"#92400e",marginBottom:6}}>📝 復習キュー: {reviewCount}件</div>
+                    <div style={{fontSize:13,color:"#78350f"}}>次回の学習で自動出題。分析完了で自動削除！</div>
+                  </div>
+                )}
+
+                {/* ストック */}
+                <div className="card" style={{background:"#f8f7ff"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <div className="section-title" style={{margin:0}}>📦 問題ストック</div>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      {isRefilling&&<span className="refill-dot"></span>}
+                      <span style={{fontSize:12,fontWeight:900,color:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}>{damTotal}/100問</span>
+                    </div>
+                  </div>
+                  <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/100*100)}%`,background:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}></div></div></div>
+                  {SUBJECTS.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
+                    <div key={s} className="dam-row">
+                      <span className="dam-label">{s}</span>
+                      <div className="dam-bw"><div className="dam-bf" style={{width:`${pct}%`,background:c}}></div></div>
+                      <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
+                    </div>
+                  );})}
+                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?"⚡ バックグラウンドで補充中...":"✓ 自動補充エンジン稼働中"}</div>
+                </div>
+              </React.Fragment>
+            )}
+
+            {/* ── BADGE ── */}
+            {tab==="badge"&&(
+              <div className="card">
+                <div className="section-title">実績 {logs.earnedBadges?.length||0} / {BADGES.length}</div>
+                <div className="badge-grid">
+                  {BADGES.map(b=>{const e=logs.earnedBadges?.includes(b.id);return(
+                    <div key={b.id} className={`badge ${e?"earned":"locked"}`}>
+                      <div className="badge-icon">{b.icon}</div>
+                      <div className="badge-name">{b.label}</div>
+                      <div className="badge-desc">{b.desc}</div>
+                    </div>
+                  );})}
+                </div>
+              </div>
+            )}
+
+            {/* ── SETTINGS ── */}
+            {tab==="settings"&&(
+              <React.Fragment>
+                <div className="card">
+                  <div className="section-title">プロフィール設定</div>
+
+                  <div className="setting-row">
+                    <span className="setting-label">生年月日（学年自動計算）</span>
+                    <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" style={{marginBottom:0}}/>
+                    <div style={{fontSize:12,color:"#5b3ff8",fontWeight:700,marginTop:4}}>→ {calcGrade(birthday)}</div>
+                  </div>
+
+                  <div className="setting-row" style={{paddingTop:14}}>
+                    <span className="setting-label">Gemini APIキー（最大4つ）</span>
+                    {apiKeys.map((k,i)=>(
+                      <div key={i} className="key-row">
+                        <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (必須)":" (任意)"}`}/>
+                        <span className={`key-status ${k.trim()?"ok":"empty"}`}>{k.trim()?"✓":"—"}</span>
+                      </div>
+                    ))}
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:"#5b3ff8",fontWeight:700,textDecoration:"none"}}>🔑 APIキーを取得する（無料）</a>
+                  </div>
+
+                  <div style={{marginTop:16}}>
+                    <button className="btn btn-primary" onClick={saveSettings}>
+                      {settingsSaved?"✓ 保存しました！":"設定を保存する"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="section-title">学習データ</div>
+                  <div style={{display:"flex",gap:10,marginBottom:12}}>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#5b3ff8"}}>{logs.totalQ}</div><div className="stat-l">累計問題数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#22c55e"}}>{logs.totalCorrect}</div><div className="stat-l">累計正解数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n">{Object.keys(logs.dailyLog||{}).length}</div><div className="stat-l">学習日数</div></div>
+                  </div>
+
+                  <div style={{marginTop:16,padding:"14px 0",borderTop:"1px solid #f0edff"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:13,fontWeight:800,color:"#1e1e3a"}}>📦 ストック自動更新</div>
@@ -11,3 +1156,40 @@
                   </div>
 
                   <div className="danger-zone">
+                    <div style={{fontWeight:800,color:"#991b1b",marginBottom:6,fontSize:13}}>⚠️ データの削除</div>
+                    <div style={{fontSize:12,color:"#7f1d1d",marginBottom:12,lineHeight:1.6}}>削除したいデータを選んでください。この操作は取り消せません。</div>
+                    <button className="danger-btn" onClick={clearLogs}>
+                      📊 学習記録を削除する（ストックは残す）
+                    </button>
+                    <button className="danger-btn" onClick={clearStock}>
+                      📦 ストック問題を削除する（記録は残す）
+                    </button>
+                    <button className="danger-btn secondary" onClick={clearAllData}>
+                      🗑️ すべてのデータを削除する
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="section-title">アプリについて</div>
+                  <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
+                    <div>📚 まなびサポート v6.0</div>
+                    <div>🔍 誤答分析型 学習エンジン</div>
+                    <div>⚡ Gemini 2.5 Flash 使用</div>
+                    <div style={{marginTop:8,fontSize:12}}>ご意見・不具合は問題報告ボタンからどうぞ</div>
+                  </div>
+                </div>
+              </React.Fragment>
+            )}
+
+          </div>
+        )}
+      </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
