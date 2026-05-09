@@ -170,7 +170,7 @@ const BADGES=[
   {id:"debug50",    icon:"🎓",label:"科目マスター",      desc:"同じ科目で50問以上挑戦した",             cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=50);}},
   {id:"genius",     icon:"👑",label:"努力の天才",        desc:"累計300問を達成",                        cond:s=>s.totalQ>=300},
   {id:"runner",     icon:"⏳",label:"不屈のランナー",   desc:"累計365日学習した",                       cond:s=>Object.keys(s.dailyLog||{}).length>=365},
-  {id:"legend",   icon:"💎",label:"レジェンド",  desc:"直近100問で正解率98%以上",          cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=98;}},
+  {id:"legend",   icon:"💎",label:"レジェンド",  desc:"直近100問で正解率100%以上",          cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=100;}},
 ];
 
 // ─── CSS ─────────────────────────────────────────────────────────
@@ -971,9 +971,8 @@ function App(){
                 <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
                   <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
                   <div className="an-stat-row">
-                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.completed||0}</div><div className="an-stat-l">完了</div></div>
-                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧</div></div>
-                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{logs.debugStats?.completed>0?Math.round((logs.debugStats.perfect/logs.debugStats.completed)*100)+"%":"—"}</div><div className="an-stat-l">完璧率</div></div>
+                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧分析</div></div>
+                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const r=calcRecent100(logs.recentHistory);return r&&r.count>=1?r.rate+"%":"—";})()}</div><div className="an-stat-l">直近正解率</div></div>
                   </div>
                   {logs.debugHistory?.length>0&&(
                     <React.Fragment>
