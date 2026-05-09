@@ -108,7 +108,7 @@ analysis_step3:
 
 // ─── DAM ─────────────────────────────────────────────────────────
 const DAM_KEY="manabi_dam_v3";
-const DAM_MAX=20;
+const DAM_MAX=60;
 const DAM_BATCH=5;
 const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}catch(e){return{};}};
 const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
@@ -474,7 +474,7 @@ function App(){
     const dam=getDam();
     const damTopics=[...new Set((dam[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
     let p=`\n学年:${g}\n時期:${mon}月\n科目:${subj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
-    p+=`【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}\n苦手科目:${weak.join("、")||"なし"}\n`;
+    p+=`【出題済み単元】以下の単元はストックに存在する。同じ単元でも問題文・題材・数値が異なれば出題可。完全に同じ問題は禁止:${damTopics}\n`;
     if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
     else p+=`科目「${subj}」から1問。`;
     p+=`\nmistake_type を必ず含めること。`;
@@ -1078,10 +1078,10 @@ function App(){
                     <div className="section-title" style={{margin:0}}>📦 問題ストック</div>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       {isRefilling&&<span className="refill-dot"></span>}
-                      <span style={{fontSize:12,fontWeight:900,color:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}>{damTotal}/100問</span>
+                      <span style={{fontSize:12,fontWeight:900,color:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}>{damTotal}/300問</span>
                     </div>
                   </div>
-                  <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/100*100)}%`,background:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}></div></div></div>
+                  <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*SUBJECTS.length)*100)}%`,background:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}></div></div></div>
                   {SUBJECTS.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
                     <div key={s} className="dam-row">
                       <span className="dam-label">{s}</span>
