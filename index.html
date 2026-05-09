@@ -466,8 +466,10 @@ function App(){
     const mon=new Date().getMonth()+1;
     const rates=calcSubjRates(cur.recentHistory);
     const weak=SUBJECTS.filter(sub=>{const r=rates[sub];return r&&r.q>=3&&r.c/r.q<.6;});
+    const dam=getDam();
+    const damTopics=[...new Set((dam[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
     let p=`\n学年:${g}\n時期:${mon}月\n科目:${subj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
-    p+=`直近テーマ（重複避ける）:${s.used.slice(-3).join("、")||"なし"}\n苦手科目:${weak.join("、")||"なし"}\n`;
+    p+=`【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}\n苦手科目:${weak.join("、")||"なし"}\n`;
     if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
     else p+=`科目「${subj}」から1問。`;
     p+=`\nmistake_type を必ず含めること。`;
@@ -491,7 +493,8 @@ function App(){
       refillLk.current=true;setIsRefilling(true);
       try{
         const g=gradeR.current||calcGrade(bdR.current);
-        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+        const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
+        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
         const key=pickKey(keys);
         const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         if(!res.ok)return false;
