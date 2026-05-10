@@ -365,6 +365,11 @@ function App(){
   const [newBadges,setNewBadges]=useState([]);
   const [settingsSaved,setSettingsSaved]=useState(false);
   const [showLoginBonus,setShowLoginBonus]=useState(false);
+  const [normaQueue,setNormaQueue]=useState([]);
+  const [normaReason,setNormaReason]=useState("");
+  const [showNormaBanner,setShowNormaBanner]=useState(false);
+  const normaQueueR=useRef([]);
+  const prevSessionsRef=useRef(0);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
   const autoRefillR=useRef(autoRefill);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
@@ -386,7 +391,16 @@ function App(){
   useEffect(()=>{keysR.current=apiKeys;},[apiKeys]);
   useEffect(()=>{gradeR.current=grade;},[grade]);
   useEffect(()=>{bdR.current=birthday;},[birthday]);
+  useEffect(()=>{normaQueueR.current=normaQueue;},[normaQueue]);
   useEffect(()=>{try{localStorage.setItem(SESS,JSON.stringify({...gs,savedDate:today()}));}catch(e){}},[gs]);
+  // ノルマ達成バナー
+  useEffect(()=>{
+    const cur=logs.dailyLog?.[today()]?.sessions||0;
+    if(cur>=3&&prevSessionsRef.current<3&&prevSessionsRef.current>=0){
+      setShowNormaBanner(true);setTimeout(()=>setShowNormaBanner(false),3500);
+    }
+    prevSessionsRef.current=cur;
+  },[logs]);
 
   // quiz がセットされたら分析を自動スタート
   useEffect(()=>{
@@ -439,7 +453,7 @@ function App(){
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
       if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
-      next.dailyLog[td].sessions++;
+      if(correct)next.dailyLog[td].sessions++;
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
@@ -471,7 +485,7 @@ function App(){
     }
       if(!next.debugHistory)next.debugHistory=[];
       next.debugHistory.unshift({date:today(),subj,topic:topic||"—",results});
-      if(next.debugHistory.length>20)next.debugHistory=next.debugHistory.slice(0,20);
+      if(next.debugHistory.length>100)next.debugHistory=next.debugHistory.slice(0,100);
       checkBadges(next);saveLogs(next);return next;
     });
   };
@@ -482,6 +496,46 @@ function App(){
     const ws=SUBJECTS.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
     const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
     for(const x of ws){r-=x.w;if(r<=0)return x.s;}return SUBJECTS[0];
+  };
+
+  const buildNormaQueue=cur=>{
+    const done=cur.dailyLog?.[today()]?.sessions||0;
+    const needed=Math.max(0,3-done);
+    if(!needed)return[];
+    const rates=calcSubjRates(cur.recentHistory);
+    const result=[];const used=new Set();
+    // 優先1: 復習キューの科目
+    const reviewSubj=cur.reviewQueue?.[0]?.subject;
+    if(reviewSubj&&result.length<needed&&!used.has(reviewSubj)){
+      result.push({subj:reviewSubj,reason:"復習タイム！"});used.add(reviewSubj);
+    }
+    // 優先2: 未挑戦・苦手順
+    const sorted=SUBJECTS.filter(s=>!used.has(s))
+      .map(s=>{const r=rates[s];const rate=(r&&r.q>=3)?r.c/r.q:null;return{s,rate,q:r?.q||0};})
+      .sort((a,b)=>{
+        if(a.rate===null&&b.rate===null)return a.q-b.q;
+        if(a.rate===null)return-1;if(b.rate===null)return 1;
+        return a.rate-b.rate;
+      });
+    for(const{s,rate,q}of sorted){
+      if(result.length>=needed)break;
+      const reason=q===0?"まだ未挑戦！":rate<0.5?"苦手科目！":rate<0.7?"もう少し！":"バランス調整";
+      result.push({subj:s,reason});used.add(s);
+    }
+    return result;
+  };
+
+  const startWithNorma=(cur,g)=>{
+    const nq=buildNormaQueue(cur);
+    if(nq.length){
+      const[first,...rest]=nq;
+      setNormaQueue(rest);normaQueueR.current=rest;
+      setNormaReason(first.reason);
+      resetFetch(first.subj,g);
+    }else{
+      setNormaReason("");
+      resetFetch(pickSubject(cur),g);
+    }
   };
 
   const buildPrompt=(g,subj,s,review,reviewItem,cur)=>{
@@ -511,7 +565,11 @@ function App(){
     const doRefill=async()=>{
       if(cancelled||refillLk.current)return false;
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
-      const target=lowestBucket();if(!target||(!autoRefillR.current&&target.cnt>=DAM_MAX))return true;
+      // 復習キューにある科目を優先、なければ最少バケツ
+      const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))];
+      const reviewTarget=reviewSubjs.find(s=>(getDam()[s]||[]).length<DAM_MAX);
+      const target=reviewTarget?{subj:reviewTarget,cnt:(getDam()[reviewTarget]||[]).length}:lowestBucket();
+      if(!target||(!autoRefillR.current&&target.cnt>=DAM_MAX))return true;
       refillLk.current=true;setIsRefilling(true);
       try{
         const g=gradeR.current||calcGrade(bdR.current);
@@ -629,15 +687,42 @@ function App(){
     resetState();
     try{
       const cur=logsR.current;
+      const doneSessions=cur.dailyLog?.[today()]?.sessions||0;
+      const normaActive=doneSessions<3;
+      if(normaActive){
+        // ノルマモード: キューから次の科目を取り出す
+        const q=normaQueueR.current;
+        let ns,reason;
+        if(q.length){
+          const[next,...rest]=q;
+          setNormaQueue(rest);normaQueueR.current=rest;
+          ns=next.subj;reason=next.reason;
+        }else{
+          // キュー切れ（不正解続き）: バランスで補填
+          ns=pickSubject(cur);reason="バランス調整";
+        }
+        setNormaReason(reason);setSubject(ns);setIsReview(false);
+        const fromDam=popFromDam(ns,1);setDamStats(getDamStats());
+        if(fromDam.length){setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));setQuiz(fromDam[0]);return;}
+        await fetchQ(gsR.current,gradeR.current,ns,false,null);return;
+      }
+      // フリーモード
+      setNormaReason("");
       if(cur.reviewQueue?.length){
         const item=cur.reviewQueue[0];
-        setLogs(p=>{const n={...p,reviewQueue:p.reviewQueue.slice(1)};saveLogs(n);return n;});
-        setIsReview(true);await fetchQ(gsR.current,gradeR.current,subjR.current,true,item);return;
+        const fromDamReview=popFromDam(item.subject,1);
+        if(fromDamReview.length){
+          // ストックにあればそこから即出題
+          setLogs(p=>{const n={...p,reviewQueue:p.reviewQueue.slice(1)};saveLogs(n);return n;});
+          setSubject(item.subject);setIsReview(true);setDamStats(getDamStats());
+          setGs(p=>({...p,used:[...p.used,(fromDamReview[0].question||"").slice(0,20)].slice(-5)}));
+          setQuiz(fromDamReview[0]);return;
+        }
+        // ストックになければスキップして通常問題へ（バックグラウンドが補充したら次回出てくる）
       }
-      const cand=gsR.current.qNum%5===0?pickSubject(cur):subjR.current;
+      const cand=subjR.current;
       let fromDam=popFromDam(cand,1),ns=cand;
-      if(!fromDam.length&&cand!==subjR.current){const fb=popFromDam(subjR.current,1);if(fb.length){fromDam=fb;ns=subjR.current;}}
-      if(!fromDam.length){for(const s of SUBJECTS){if(s===cand||s===subjR.current)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
+      if(!fromDam.length){for(const s of SUBJECTS){if(s===cand)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
       if(fromDam.length){
         if(ns!==subjR.current)setSubject(ns);
         setIsReview(false);setDamStats(getDamStats());
@@ -719,7 +804,15 @@ function App(){
         </div>
       )}
 
-      {newBadges.length>0&&(
+      {showNormaBanner&&(
+        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",zIndex:1001,background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(34,197,94,.4)",textAlign:"center",minWidth:240,animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
+          <div style={{fontSize:28,marginBottom:4}}>🎉</div>
+          <div style={{fontSize:15,fontWeight:900}}>ノルマ達成！あとは自由に！</div>
+          <div style={{fontSize:11,marginTop:4,opacity:.9}}>科目も自分で選べるよ ✨</div>
+        </div>
+      )}
+
+        {newBadges.length>0&&(
           <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:"#5b3ff8",color:"#fff",borderRadius:16,padding:"12px 20px",fontWeight:800,fontSize:14,boxShadow:"0 4px 20px rgba(91,63,248,.4)",textAlign:"center",whiteSpace:"nowrap"}}>
             🏆 新実績: {newBadges.map(b=>b.icon+b.label).join(" · ")}
           </div>
@@ -744,7 +837,7 @@ function App(){
                 if(!birthday){setStartError("生年月日を入力してください");return;}
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats());
-                resetFetch(pickSubject(logsR.current),g);
+                startWithNorma(logsR.current,g);
               }} style={{marginTop:10}}>学習をはじめる →</button>
 
               <div style={{marginTop:20,padding:"14px 16px",background:"#f8f7ff",borderRadius:14,textAlign:"left"}}>
@@ -753,7 +846,7 @@ function App(){
                   ["🔑","問題の生成にはGemini APIキーが必要です。　　　　　　　上のリンクから5分程度で取得できます。"],
                   ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
                   ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
-　　　　　　["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
+                  ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
                   ["💾","学習データはこのブラウザにのみ保存されます。　　　　　　他の端末への引き継ぎはできません。"],
                 ].map(([icon,text])=>(
                   <div key={icon} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
@@ -779,6 +872,7 @@ function App(){
                     {subject}
                     {isReview&&<span className="pill pill-review">復習</span>}
                     {analysisStep&&analysisStep!=="done"&&<span className="pill pill-analysis">🔍 分析 {analysisStep}/3</span>}
+                    {!dailyGoalMet&&normaReason&&<span style={{fontSize:11,background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 9px",fontWeight:800,border:"1px solid #fde68a"}}>{normaReason}</span>}
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -927,8 +1021,15 @@ function App(){
                   </div>
                 )}
 
-                {/* 科目選択 */}
-                {(!analysisStep||analysisStep==="done")&&(
+                {/* ノルマ中インジケーター */}
+                {(!analysisStep||analysisStep==="done")&&!dailyGoalMet&&(
+                  <div style={{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}}>
+                    🎯 ノルマ {todaySessions}/3　— AIが科目を選んでいます
+                  </div>
+                )}
+
+                {/* 科目選択 - ノルマ達成後のみ表示 */}
+                {(!analysisStep||analysisStep==="done")&&dailyGoalMet&&(
                   showSubjSel?(
                     <div className="card" style={{padding:14,background:"#f8f7ff"}}>
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
@@ -1001,12 +1102,24 @@ function App(){
                   {recent100&&<div style={{marginTop:12}}><div className="bar-wrap" style={{height:12}}><div className="bar" style={{width:`${recent100.rate}%`,background:rateColor}}></div></div></div>}
                 </div>
 
+                {/* 科目別正解率 */}
+                <div className="card">
+                  <div className="section-title">科目別 正解率（直近100問）</div>
+                  {subjectRates.map(({s,rate,q})=>(
+                    <div key={s} className="subj-row">
+                      <span className="subj-name">{s}</span>
+                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
+                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
+                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
+                    </div>
+                  ))}
+                </div>
+
                 {/* 分析実績（ライトカード） */}
                 <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
                   <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
                   <div className="an-stat-row">
-                    <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧分析</div></div>
-                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const r=calcRecent100(logs.recentHistory);return r&&r.count>=1?r.rate+"%":"—";})()}</div><div className="an-stat-l">直近正解率</div></div>
+                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const h=(logs.debugHistory||[]).slice(0,100);if(!h.length)return"—";const perfect=h.filter(x=>Array.isArray(x.results)&&x.results.every(Boolean)).length;return Math.round(perfect/h.length*100)+"%";})()}</div><div className="an-stat-l">直近完璧分析率</div></div>
                   </div>
                   {logs.debugHistory?.length>0&&(
                     <React.Fragment>
@@ -1025,19 +1138,6 @@ function App(){
                       ))}
                     </React.Fragment>
                   )}
-                </div>
-
-                {/* 科目別正解率 */}
-                <div className="card">
-                  <div className="section-title">科目別 正解率（直近100問）</div>
-                  {subjectRates.map(({s,rate,q})=>(
-                    <div key={s} className="subj-row">
-                      <span className="subj-name">{s}</span>
-                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
-                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
-                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
-                    </div>
-                  ))}
                 </div>
 
                 {/* 28日カレンダー */}
@@ -1168,37 +1268,44 @@ function App(){
                 </div>
 
                 <div className="card">
-                  <div className="section-title">学習データ</div>
-                  <div style={{display:"flex",gap:10,marginBottom:12}}>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#5b3ff8"}}>{logs.totalQ}</div><div className="stat-l">累計問題数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#22c55e"}}>{logs.totalCorrect}</div><div className="stat-l">累計正解数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n">{Object.keys(logs.dailyLog||{}).length}</div><div className="stat-l">学習日数</div></div>
-                  </div>
-
-                  <div style={{marginTop:16,padding:"14px 0",borderTop:"1px solid #f0edff"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div>
-                        <div style={{fontSize:13,fontWeight:800,color:"#1e1e3a"}}>📦 ストック自動更新</div>
-                        <div style={{fontSize:11,color:"#9990cc",marginTop:2}}>ONにすると問題ストックが満たされた後も、古い問題を入れ替えて新鮮にします</div>
-                      </div>
-                      <div onClick={()=>setAutoRefill(p=>!p)} style={{width:44,height:24,borderRadius:12,background:autoRefill?"#5b3ff8":"#e8e3ff",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}>
-                        <div style={{position:"absolute",top:3,left:autoRefill?22:3,width:18,height:18,borderRadius:9,background:"#fff",boxShadow:"0 1px 4px rgba(0,0,0,.2)",transition:"left .2s"}}></div>
-                      </div>
+                  <div className="section-title">問題ストック設定</div>
+                  <div className="setting-row" style={{borderBottom:"none",paddingBottom:0}}>
+                    <span className="setting-label">バックグラウンド自動補充</span>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
+                      <button
+                        onClick={()=>setAutoRefill(v=>!v)}
+                        style={{
+                          width:52,height:28,borderRadius:14,border:"none",cursor:"pointer",
+                          background:autoRefill?"linear-gradient(135deg,#5b3ff8,#9b59f8)":"#e8e3ff",
+                          position:"relative",transition:"all .2s",flexShrink:0,padding:0
+                        }}
+                      >
+                        <span style={{
+                          position:"absolute",top:3,left:autoRefill?26:3,
+                          width:22,height:22,borderRadius:"50%",background:"#fff",
+                          boxShadow:"0 1px 4px rgba(0,0,0,.2)",transition:"left .2s",display:"block"
+                        }}/>
+                      </button>
+                      <span style={{fontSize:13,fontWeight:700,color:autoRefill?"#5b3ff8":"#9990cc"}}>
+                        {autoRefill?"ON（自動補充中）":"OFF（手動のみ）"}
+                      </span>
                     </div>
+                    <div style={{fontSize:11,color:"#bbb",marginTop:6}}>OFFにするとストックが空になった時だけ生成します</div>
                   </div>
+                </div>
 
+                <div className="card">
+                  <div className="section-title">データ管理</div>
                   <div className="danger-zone">
-                    <div style={{fontWeight:800,color:"#991b1b",marginBottom:6,fontSize:13}}>⚠️ データの削除</div>
-                    <div style={{fontSize:12,color:"#7f1d1d",marginBottom:12,lineHeight:1.6}}>削除したいデータを選んでください。この操作は取り消せません。</div>
+                    <div style={{fontSize:12,fontWeight:800,color:"#991b1b",marginBottom:10}}>⚠️ 削除操作は取り消せません</div>
                     <button className="danger-btn" onClick={clearLogs}>
-                      📊 学習記録を削除する（ストックは残す）
+                      📊 学習記録・バッジをリセット
                     </button>
                     <button className="danger-btn" onClick={clearStock}>
-                      📦 ストック問題を削除する（記録は残す）
+                      📦 ストック問題をすべて削除
                     </button>
                     <button className="danger-btn secondary" onClick={clearAllData}>
-                      🗑️ すべてのデータを削除する
+                      🗑️ すべてのデータを削除
                     </button>
                   </div>
                 </div>
