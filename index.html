@@ -16,94 +16,50 @@ const { useState, useEffect, useCallback, useRef } = React;
 const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
-const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。
-
-目的は、
-児童・生徒が「どこで間違えたか」に気づき、
-正しい考え方を理解できるよう支援することです。
-
-問題は、
-「ある生徒のよくある誤答」をもとに作成します。
-
-分析問題は、
-難しい推理や抽象的な議論ではなく、
-対象学年に合った自然な学習支援にしてください。
-
-【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
-・現在の学習月に合わせること（未習内容の先取り禁止）
+const SYSTEM_PROMPT = `【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
+・現在の学習月に合わせること。その月時点で未習の内容は出さない。
 
 【問題ルール】
-・テキストのみで完結（図・地図・視覚依存禁止）
-・未習漢字はひらがな対応、問題文は学習に必要な長さを優先し200文字以内
-・1問で確認する内容は1つだけにする
-・国語では、不自然な文法分類ゲームにしない
+・テキストだけで解ける問題にする（図・地図・表への言及は不可）
+・未習漢字はひらがなで書く。問題文は200文字以内
+・1問で確認することは1つだけ
 ・英語問題でも指示文は日本語
-・教師が実際の授業で出しそうな自然な問題にする
-・問題文を読めば、何を答える問題か分かるようにする
-・学校の授業で自然に出される問題にする
+・国語では文法の分類を目的にした不自然な問いにしない
+・教師が授業で自然に出す問題にする
+・問題文を読めば何を答えるか分かるようにする
+・正解まで必要以上に遠回りさせない
 
 【誤答の生成】
-・AIが「よくある誤答」を1つ直接生成する（student_answer フィールド）
-・誤答は「よくある思考のズレ・混同」を反映させること
-・正解（correct_answer）も必ず明示すること
+・その学年の子がよくやる思考のズレ・混同を1つ選び、student_answer に入れる
+・正解を correct_answer に必ず入れる
 
-【3段階の分析設問（analysis_step1〜3・必須）】
+【分析設問（analysis_step1〜3）共通】4択・正解1つ・各選択肢100文字以内。学年の授業語のみ使用。1ステップ1確認。正解が1つに絞れない問いは作らない。不正解肢＝その学年で自然にありえる誤解。ただし正解と区別できる内容にする。feedbackは否定せず寄り添う表現。
+step1 何を答える問題か：正解＝正しい問題意図、不正解＝よくある読み違い
+step2 どこで間違えたか：mistake_typeと必ず対応させること
+step3 正しく考えよう：何を教えてあげたら正解になるか
+正解＝答えに近づく考え方。不正解＝よくある別の思い込み
 
-【共通ルール】
-・対象学年で習う内容・言葉だけを使う
-・未習内容や専門用語は禁止
-・問題文だけで考えられるようにする
-・ひっかけ問題にしない
-・「何を聞かれていたか」を確認できる設問を優先する
-・不正解の選択肢は「惜しいけど違う」レベルにする（明らかに違う選択肢を混ぜない）
-・正解以外の選択肢も、その学年の学習内容として自然な内容にする
-・誤答の理由が複数考えられる場合は、その問題自体を作らない
-・「どちらも正解」になる選択肢の組み合わせを禁止する
-・正解が1つに絞れない設問は作らない
-・各設問は1つの確認事項だけを問う
-・正解まで必要以上に遠回りさせない
-・難しい教育用語や抽象表現は禁止
-・「大人が感心する難問」にしない
-・1問の中で新しいルールを追加しない
-・答えを間違えた児童・生徒を否定しない
-・「おしい」「ここを見直そう」など学習支援らしい表現を使う
+【出力形式】要素数1のJSON配列のみ（説明・コードブロック・前置き禁止）
 
-analysis_step1:
-「問題で何を聞かれていたか」を確認する
+・analysis_step1〜3 の choices は必ず4個
+・answer は 0〜3 の整数
+・answer は choices の正解位置と一致させる
+・文字列や説明をJSONの外に書かないこと
+・必ず有効なJSONとして出力すること
 
-analysis_step2:
-どんな取り違えだったかを確認する
-
-・mistake_type と一致する内容にする
-・計算ミス
-・読み違い
-・条件見落とし
-・用語混同
-などを自然に扱う
-
-analysis_step3:
-何を教えてあげたら正解になる？
-
-各ステップ：
-・4択
-・正解は1つ
-・100文字以内
-・対象学年で自然に読める文にする
-・問題は、学校や塾で実際に使われていても違和感のない自然な品質にする
-
-【出力形式】JSON配列のみ（説明・コードブロック禁止）
 [{
-"question":"問題文（学習に必要な長さ・200文字以内）",
+"mistake_type":"読み違い／計算ミス／条件見落とし／用語混同　から1つ",
+"topic_tag":"単元名",
+"subject":"科目名",
+"question":"問題文（200文字以内）",
 "student_answer":"生徒の誤答",
 "correct_answer":"正解",
 "correct_feedback":"なぜ正しいかを1文で",
-"analysis_step1":{"name":"何を聞かれていた？","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
-"analysis_step2":{"name":"どこで取り違えた？","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
-"analysis_step3":{"name":"正しく考えよう","question":"設問","choices":["A","B","C","D"],"answer":0,"feedback":"解説1文"},
-"topic_tag":"単元名",
-"subject":"科目名",
-"mistake_type":"読み違い・計算ミス・条件見落とし・用語混同など"
-}]`;
+"analysis_step1":{"name":"何を答える問題？","question":"設問文","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"},
+"analysis_step2":{"name":"どこで間違えた？","question":"設問文","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"},
+"analysis_step3":{"name":"何を教えてあげるといいか？","question":"設問文","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"}
+}]
+※ answer は choices 配列の正解インデックス（0始まり）。例：choices[2]が正解なら "answer":2`;
 
 // ─── DAM ─────────────────────────────────────────────────────────
 const DAM_KEY="manabi_dam_v3";
@@ -138,12 +94,25 @@ const shuffleAllSteps=q=>({
 
 const hasValidAnalysis=q=>{
   if(
-  !q ||
-  !q.student_answer ||
-  !q.correct_answer ||
-  !q.question
-)return false;
-  return[1,2,3].every(i=>{const s=q[`analysis_step${i}`];return s&&s.question&&Array.isArray(s.choices)&&s.choices.length===4&&typeof s.answer==="number";});
+    !q ||
+    !q.student_answer ||
+    !q.correct_answer ||
+    !q.question
+  ) return false;
+
+  return [1,2,3].every(i=>{
+    const s=q[`analysis_step${i}`];
+
+    return (
+      s &&
+      s.question &&
+      Array.isArray(s.choices) &&
+      s.choices.length===4 &&
+      Number.isInteger(s.answer) &&
+      s.answer>=0 &&
+      s.answer<=3
+    );
+  });
 };
 
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
@@ -479,8 +448,6 @@ function App(){
     p+=`【出題済み単元】以下の単元はストックに存在する。同じ単元でも問題文・題材・数値が異なれば出題可。完全に同じ問題は禁止:${damTopics}\n`;
     if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
     else p+=`科目「${subj}」から1問。`;
-    p+=`\nmistake_type を必ず含めること。`;
-    p+=`\n「誤答付き問題」形式で student_answer・correct_answer・analysis_step1〜3 を必ず含めること。`;
     return p;
   };
 
@@ -501,7 +468,7 @@ function App(){
       try{
         const g=gradeR.current||calcGrade(bdR.current);
         const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.25,topP:.9,topK:20}};
         const key=pickKey(keys);
         const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         if(!res.ok)return false;
@@ -541,13 +508,20 @@ function App(){
       for(const key of keys){
         if(ok||stale())break;
         try{
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.25,topP:.9,topK:20}};
           const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
           if(!res.ok)continue;const data=await res.json();if(data.error)continue;
           const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
           let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
           if(!Array.isArray(parsed))parsed=[parsed];
-          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q));
+          parsed=parsed.filter(q=>
+          q &&
+          q.question &&
+          q.student_answer &&
+          q.correct_answer &&
+          q.subject===subj &&
+          hasValidAnalysis(q)
+         );
           if(!parsed.length)continue;
           const enriched=parsed.map(q=>
           shuffleAllSteps({
