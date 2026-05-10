@@ -297,8 +297,6 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .an-fb{background:#f0edff;border-radius:10px;padding:12px 14px;margin:8px 0;font-size:13px;color:#4c1d95;border-left:3px solid #7c3aed;line-height:1.7;font-weight:600}
 .an-next{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-top:6px;transition:all .18s}
 .an-next:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(91,63,248,.3)}
-.an-skip{background:#f8f7ff;border:1.5px solid #e8e3ff;color:#9990cc;border-radius:10px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;margin-top:6px}
-.an-skip:hover{background:#ede9ff;color:#5b3ff8}
 .an-complete{text-align:center;padding:20px 16px}
 .an-complete-icon{font-size:52px;display:block;margin-bottom:10px;animation:bounce .7s cubic-bezier(.34,1.56,.64,1) both}
 @keyframes bounce{0%{transform:scale(0) rotate(-20deg);opacity:0}60%{transform:scale(1.2) rotate(5deg)}100%{transform:scale(1) rotate(0);opacity:1}}
@@ -323,7 +321,7 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 // ─── initLogs ────────────────────────────────────────────────────
 const initLogs=()=>({
   subjectStats:{},dailyLog:{},totalQ:0,totalCorrect:0,
-  bestStreak:0,loginStreak:0,lastLogin:"",
+  bestStreak:0,loginStreak:0,bestLoginStreak:0,lastLogin:"",
   earnedBadges:[],reviewQueue:[],recentHistory:[],
   debugStats:{completed:0,perfect:0},
   checkStats:{total:0,correct:0},
@@ -352,6 +350,7 @@ function App(){
   const [isReview,setIsReview]=useState(false);
   const [newBadges,setNewBadges]=useState([]);
   const [settingsSaved,setSettingsSaved]=useState(false);
+  const [showLoginBonus,setShowLoginBonus]=useState(false);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
   const autoRefillR=useRef(autoRefill);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
@@ -404,6 +403,9 @@ function App(){
         if(!p.checkStats)p.checkStats={total:0,correct:0};
         if(!p.topicMastery)p.topicMastery={};
         if(!p.debugHistory)p.debugHistory=[];
+        if(!p.bestLoginStreak)p.bestLoginStreak=0;
+        const td=today();
+        if(p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         setLogs(p);
       }
     }catch(e){}
@@ -431,7 +433,7 @@ function App(){
       next.recentHistory.push({correct,subject:subj,date:td});
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
-      if(next.lastLogin!==td){const y=new Date();y.setDate(y.getDate()-1);const ys=y.toISOString().slice(0,10);next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;}
+      if(next.lastLogin!==td){const y=new Date();y.setDate(y.getDate()-1);const ys=y.toISOString().slice(0,10);next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){
         if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
@@ -460,6 +462,7 @@ function App(){
     });
   };
 
+  const getFireLevel=n=>{if(n>=30)return 5;if(n>=14)return 4;if(n>=7)return 3;if(n>=3)return 2;if(n>=1)return 1;return 0;};
   const pickSubject=cur=>{
     const rates=calcSubjRates(cur.recentHistory);
     const ws=SUBJECTS.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
@@ -607,14 +610,6 @@ function App(){
     }
   };
 
-      const skipToNext=()=>{
-      const wrongItem={topic:quiz?.topic_tag||quiz?.question?.slice(0,20)||"",subject};
-      updateLogs(false,subject,wrongItem,gs.best);
-      updateAnalysisStats([false,false,false],subject);
-      setGs(p=>({...p,streak:0,wrong:p.wrong+1,qNum:p.qNum+1}));
-      setAnalysisStep("done");
-    };
-
   const handleNext=async()=>{
     if(nextLk.current)return;nextLk.current=true;
     resetState();
@@ -641,9 +636,7 @@ function App(){
   };
 
   const saveSettings=()=>{
-    const vk=apiKeys.filter(k=>k.trim());
-    if(!vk.length){alert("APIキーを1つ以上入力してください");return;}
-    if(!birthday){alert("生年月日を入力してください");return;}
+    if(!birthday){setStartError("生年月日を入力してください");return;}
     try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
     const g=calcGrade(birthday);
     setGrade(g);setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),2000);
@@ -704,7 +697,15 @@ function App(){
       <style>{css}</style>
       <div className="root">
 
-        {newBadges.length>0&&(
+        {showLoginBonus&&(
+        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",zIndex:1000,background:"linear-gradient(135deg,#ff6b35,#f7931e)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(255,107,53,.4)",textAlign:"center",minWidth:240,animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
+          <div style={{fontSize:28,marginBottom:4}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</div>
+          <div style={{fontSize:15,fontWeight:900}}>{logs.loginStreak}日連続！すごい！</div>
+          {logs.loginStreak===logs.bestLoginStreak&&<div style={{fontSize:11,marginTop:4,opacity:.9}}>🏆 自己最高記録更新！</div>}
+        </div>
+      )}
+
+      {newBadges.length>0&&(
           <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:"#5b3ff8",color:"#fff",borderRadius:16,padding:"12px 20px",fontWeight:800,fontSize:14,boxShadow:"0 4px 20px rgba(91,63,248,.4)",textAlign:"center",whiteSpace:"nowrap"}}>
             🏆 新実績: {newBadges.map(b=>b.icon+b.label).join(" · ")}
           </div>
@@ -726,13 +727,27 @@ function App(){
               <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,marginTop:4,fontWeight:700}}>生年月日</label>
               <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31"/>
               <button className="btn btn-primary" onClick={()=>{
-                const vk=apiKeys.filter(k=>k.trim());
-                if(!vk.length){setStartError("APIキーを1つ以上入力してください");return;}
                 if(!birthday){setStartError("生年月日を入力してください");return;}
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats());
                 resetFetch(pickSubject(logsR.current),g);
               }} style={{marginTop:10}}>学習をはじめる →</button>
+
+              <div style={{marginTop:20,padding:"14px 16px",background:"#f8f7ff",borderRadius:14,textAlign:"left"}}>
+                <div style={{fontSize:11,fontWeight:900,color:"#9990cc",letterSpacing:".06em",marginBottom:10}}>📋 はじめる前に</div>
+                {[
+                  ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
+                  ["🔑","APIキーなしでもストックがあれば問題を解けます。　　　　生成・補充にはAPIキーが必要です（無料枠で十分）"],
+                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
+　　　　　　["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
+                  ["💾","学習データはこのブラウザにのみ保存されます。　　　　　　他の端末への引き継ぎはできません。"],
+                ].map(([icon,text])=>(
+                  <div key={icon} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
+                    <span style={{flexShrink:0}}>{icon}</span>
+                    <span style={{color:"#4a4a6a"}}>{text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -745,7 +760,7 @@ function App(){
             <div className="card" style={{padding:"12px 14px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div>
-                  <div style={{fontSize:11,color:"#9990cc",fontWeight:700}}>{grade}</div>
+                  <div style={{fontSize:11,color:"#9990cc",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>{grade}<span style={{letterSpacing:"-2px"}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</span></div>
                   <div style={{fontSize:19,fontWeight:900,display:"flex",alignItems:"center",flexWrap:"wrap",gap:6}}>
                     {subject}
                     {isReview&&<span className="pill pill-review">復習</span>}
@@ -788,7 +803,7 @@ function App(){
                 )}
                 {appError&&!loading&&(
                   <div className="card">
-                    <div className="err">😅 もう一度確認してみてね！</div>
+                    <div className="err">😅 問題を生成できませんでした！</div>
                     <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(gsR.current,grade,subjR.current,false,null);}}>もう一度</button>
                   </div>
                 )}
@@ -864,8 +879,6 @@ function App(){
                       </React.Fragment>
                     )}
 
-                    {/* スキップ */}
-                    {stepAns===null&&<button className="an-skip" onClick={skipToNext}>スキップして次の問題へ</button>}
                   </div>
                 )}
 
@@ -1078,7 +1091,7 @@ function App(){
                     <div className="section-title" style={{margin:0}}>📦 問題ストック</div>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       {isRefilling&&<span className="refill-dot"></span>}
-                      <span style={{fontSize:12,fontWeight:900,color:damTotal>60?"#22c55e":damTotal>30?"#f59e0b":"#ef4444"}}>{damTotal}/300問</span>
+                      <span style={{fontSize:12,fontWeight:900,color:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}>{damTotal}/{DAM_MAX*SUBJECTS.length}問</span>
                     </div>
                   </div>
                   <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*SUBJECTS.length)*100)}%`,background:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}></div></div></div>
@@ -1153,7 +1166,7 @@ function App(){
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:13,fontWeight:800,color:"#1e1e3a"}}>📦 ストック自動更新</div>
-                        <div style={{fontSize:11,color:"#9990cc",marginTop:2}}>OFFにすると満タン後の補充を停止します</div>
+                        <div style={{fontSize:11,color:"#9990cc",marginTop:2}}>ONにすると問題ストックが満たされた後も、古い問題を入れ替えて新鮮にします</div>
                       </div>
                       <div onClick={()=>setAutoRefill(p=>!p)} style={{width:44,height:24,borderRadius:12,background:autoRefill?"#5b3ff8":"#e8e3ff",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}>
                         <div style={{position:"absolute",top:3,left:autoRefill?22:3,width:18,height:18,borderRadius:9,background:"#fff",boxShadow:"0 1px 4px rgba(0,0,0,.2)",transition:"left .2s"}}></div>
