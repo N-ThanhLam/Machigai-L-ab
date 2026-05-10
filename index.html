@@ -393,7 +393,6 @@ function App(){
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
       if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
-      next.dailyLog[td].sessions++;
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
@@ -412,12 +411,16 @@ function App(){
     });
   };
 
-  const updateAnalysisStats=(results,subj)=>{
+  const updateAnalysisStats=(results,subj,correct)=>{
     const perfect=results.every(Boolean);
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));
       if(!next.debugStats)next.debugStats={completed:0,perfect:0};
       next.debugStats.completed++;if(perfect)next.debugStats.perfect++;
+      const td=today();
+      if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
+      if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
+      if(correct)next.dailyLog[td].sessions++;
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){next.reviewQueue=(next.reviewQueue||[]).filter(q=>q.topic!==topic);}
       if(topic&&next.topicMastery[topic]){
@@ -577,7 +580,7 @@ function App(){
       const nextStr=correct?gs.streak+1:0;
       const newBest=Math.max(gs.best,nextStr);
       updateLogs(correct,subject,wrongItem,newBest);
-      updateAnalysisStats(finalResults,subject);
+      updateAnalysisStats(finalResults,subject,correct);
       setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
       setAnalysisStep("done");
     }
@@ -649,7 +652,8 @@ function App(){
   const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
 
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
-  const dailyGoalMet=todaySessions>=3;
+  const dailyGoal=3;
+  const dailyGoalMet=todaySessions>=dailyGoal;
   const reviewCount=logs.reviewQueue?.length||0;
 
   const cal28=Array.from({length:28},(_,i)=>{
@@ -749,7 +753,7 @@ function App(){
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#ef4444"}}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
                 <div className="stat">
-                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
+                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/{dailyGoal}</div>
                   <div className="stat-l">今日</div>
                 </div>
               </div>
@@ -930,13 +934,13 @@ function App(){
                     <div style={{fontWeight:900,fontSize:14,color:dailyGoalMet?"#166534":"#92400e"}}>
                       {dailyGoalMet?"🎉 今日の目標達成！":"🎯 デイリー目標"}
                     </div>
-                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/3</div>
+                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/{dailyGoal}</div>
                   </div>
                   <div className="daily-goal-bar-wrap">
-                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/3*100)}%`}}></div>
+                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/dailyGoal*100)}%`}}></div>
                   </div>
                     <div style={{fontSize:11,color:dailyGoalMet?"#166534":"#92400e",fontWeight:700}}>
-                       3問クリアで目標達成！
+                       {dailyGoal}問クリアで目標達成！
                    </div>
                 </div>
 
@@ -960,12 +964,25 @@ function App(){
                   {recent100&&<div style={{marginTop:12}}><div className="bar-wrap" style={{height:12}}><div className="bar" style={{width:`${recent100.rate}%`,background:rateColor}}></div></div></div>}
                 </div>
 
+                {/* 科目別正解率 */}
+                <div className="card">
+                  <div className="section-title">科目別 正解率（直近100問）</div>
+                  {subjectRates.map(({s,rate,q})=>(
+                    <div key={s} className="subj-row">
+                      <span className="subj-name">{s}</span>
+                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
+                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
+                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
+                    </div>
+                  ))}
+                </div>
+
                 {/* 分析実績（ライトカード） */}
                 <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
                   <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
                   <div className="an-stat-row">
                     <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧分析</div></div>
-                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const r=calcRecent100(logs.recentHistory);return r&&r.count>=1?r.rate+"%":"—";})()}</div><div className="an-stat-l">直近正解率</div></div>
+                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const c=logs.debugStats?.completed||0;const p=logs.debugStats?.perfect||0;return c>=1?Math.round(p/c*100)+"%":"—";})()}</div><div className="an-stat-l">完璧分析率</div></div>
                   </div>
                   {logs.debugHistory?.length>0&&(
                     <React.Fragment>
@@ -984,19 +1001,6 @@ function App(){
                       ))}
                     </React.Fragment>
                   )}
-                </div>
-
-                {/* 科目別正解率 */}
-                <div className="card">
-                  <div className="section-title">科目別 正解率（直近100問）</div>
-                  {subjectRates.map(({s,rate,q})=>(
-                    <div key={s} className="subj-row">
-                      <span className="subj-name">{s}</span>
-                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
-                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
-                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
-                    </div>
-                  ))}
                 </div>
 
                 {/* 28日カレンダー */}
@@ -1127,15 +1131,7 @@ function App(){
                 </div>
 
                 <div className="card">
-                  <div className="section-title">学習データ</div>
-                  <div style={{display:"flex",gap:10,marginBottom:12}}>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#5b3ff8"}}>{logs.totalQ}</div><div className="stat-l">累計問題数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#22c55e"}}>{logs.totalCorrect}</div><div className="stat-l">累計正解数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析数</div></div>
-                    <div className="stat" style={{flex:1}}><div className="stat-n">{Object.keys(logs.dailyLog||{}).length}</div><div className="stat-l">学習日数</div></div>
-                  </div>
-
-                  <div style={{marginTop:16,padding:"14px 0",borderTop:"1px solid #f0edff"}}>
+                  <div style={{marginTop:0,padding:"0 0 14px 0",borderBottom:"1px solid #f0edff"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:13,fontWeight:800,color:"#1e1e3a"}}>📦 ストック自動更新</div>
@@ -1147,7 +1143,7 @@ function App(){
                     </div>
                   </div>
 
-                  <div className="danger-zone">
+                  <div className="danger-zone" style={{marginTop:14}}>
                     <div style={{fontWeight:800,color:"#991b1b",marginBottom:6,fontSize:13}}>⚠️ データの削除</div>
                     <div style={{fontSize:12,color:"#7f1d1d",marginBottom:12,lineHeight:1.6}}>削除したいデータを選んでください。この操作は取り消せません。</div>
                     <button className="danger-btn" onClick={clearLogs}>
