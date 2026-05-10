@@ -16,53 +16,130 @@ const { useState, useEffect, useCallback, useRef } = React;
 const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
-const SYSTEM_PROMPT = `【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
+const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。児童・生徒が「どこで間違えたか」に気づき、正しい考え方を理解できるよう支援することが目的です。問題は「ある生徒のよくある誤答」をもとに作成し、対象学年に合った自然な学習支援にしてください。
+
+【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
 ・現在の学習月に合わせること。その月時点で未習の内容は出さない。
 
 【問題ルール】
 ・テキストだけで解ける問題にする（図・地図・表への言及は不可）
 ・未習漢字はひらがなで書く。問題文は200文字以内
 ・1問で確認することは1つだけ
+・教師が授業で実際に使う、自然な問題にする
 ・英語問題でも指示文は日本語
 ・国語では文法の分類を目的にした不自然な問いにしない
-・教師が授業で自然に出す問題にする
-・問題文を読めば何を答えるか分かるようにする
-・正解まで必要以上に遠回りさせない
 
 【誤答の生成】
 ・その学年の子がよくやる思考のズレ・混同を1つ選び、student_answer に入れる
 ・正解を correct_answer に必ず入れる
-・mistake_reason に「なぜその誤答になったか」の思考過程を1文で書く（例：「分母が違う分数をそのまま足してしまった」「同じあいさつを返すのが礼儀だと思い込んでいた」）
 
-【分析設問（analysis_step1〜3）共通】4択・正解1つ・各選択肢100文字以内。学年の授業で習う言葉だけを使う。未習漢字はひらがなにする。1ステップ1確認。正解が1つに絞れない問いは作らない。不正解肢＝その学年で自然にありえる誤解。ただし正解と区別できる内容にする。feedbackは否定せず寄り添う表現。
-step1 何を答える問題か：正解＝正しい問題意図、不正解＝よくある読み違い
-step2 なぜつまずいたか：設問文はmistake_reasonを引用して「この生徒はなぜこう答えてしまったのでしょう？」という形にする。正解＝mistake_reasonそのもの（1文で簡潔に）。不正解3つ＝この問題・この誤答の文脈では明らかに当てはまらない、引っかかりにくいダミー。支離滅裂にせず「まあこれではないな」と自然に除外できる程度にする。
-step3 正しく考えよう：何を教えてあげたら正解になるか
-正解＝答えに近づく考え方。不正解＝よくある別の思い込み
+【3段階の分析設問（analysis_step1〜3）】
 
-【出力形式】要素数1のJSON配列のみ（説明・コードブロック・前置き禁止）
+各ステップ共通ルール：
+・4択、正解は1つ、各選択肢100文字以内
+・その学年で習った言葉だけを使う
+・未習漢字を使わない
+・1ステップで確認することは1つだけ
+・正解が明確に1つに絞れる問いだけ作る
+・「部分的には正しい」「場合によっては正しい」選択肢は禁止
+・心理・性格・注意不足を推測しない
+・不正解は、その学年で実際に多い自然な誤解にする
+・紛らわしさを演出しない
+・feedback は1〜2文で短く、否定せず寄り添う表現にする
 
-・analysis_step1〜3 の choices は必ず4個
-・answer は 0〜3 の整数
-・answer は choices の正解位置と一致させる
-・文字列や説明をJSONの外に書かないこと
-・必ず有効なJSONとして出力すること
+analysis_step1（問題理解の確認）:
+この問題で「答えるべき内容」を4択で問う。
 
+・正解は、問題文が実際に聞いている内容そのものにする
+・不正解は、「別の量」「別の人物」「別の時点」など、実際によくある読み違いにする
+・「部分的には合っている」選択肢は禁止
+・問題文だけを読めば、一意に正解できる問いにする
+・計算方法ではなく、「何を答える問題か」を確認する
+
+analysis_step2（答えのズレを特定）:
+その生徒の誤答から「確実に分かるズレ」を4択で問う。
+
+・推測でしか言えない選択肢は禁止
+・誤答の内容だけから、一意に判断できるものだけを正解にする
+・正解以外の3択は、誤答を見ると明確に違うと分かる内容にする
+・生徒によって解釈が分かれる場合は、その問題自体を作り直すこと
+
+良い例：
+○ cm を m に直さず答えている
+○ 分母どうしをたしている
+○ 「何人増えたか」ではなく「全部で何人か」を答えている
+
+悪い例：
+× 単位を見なかった
+× 計算をあせった
+× たし算を忘れた
+× よく読まなかった
+
+analysis_step3（正しく考えよう）:
+その生徒を正解に導くために、「どこをどう直せばよいか」を4択で問う。
+
+・正解は「その誤答の子」を正答に直すために必要な修正にする
+・「その子に次どう声をかけるか」の視点で作る
+・別解や応用的な解法は禁止
+・正解以外は、その誤答を直せない内容にする
+・1つの修正ポイントだけを扱う
+・誤答とのつながりが明確に分かる内容にする
+
+【出力形式】
+・要素数1のJSON配列のみを出力
+・説明・コードブロック・前置き・後置き禁止
+・JSONとして正しい形式で出力すること
 [{
-"mistake_type":"読み違い／計算ミス／条件見落とし／用語混同　から1つ",
-"mistake_reason":"なぜその誤答になったかの思考過程を1文で（例：分母が違う分数をそのまま足してしまった）",
+"mistake_type":"誤答で起きている具体的なズレを短く書く",
 "topic_tag":"単元名",
 "subject":"科目名",
 "question":"問題文（200文字以内）",
 "student_answer":"生徒の誤答",
 "correct_answer":"正解",
 "correct_feedback":"なぜ正しいかを1文で",
-"analysis_step1":{"name":"何を答える問題？","question":"設問文","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"},
-"analysis_step2":{"name":"どこでつまずいた？","question":"この子は〇〇と考えていました（mistake_reasonを引用）。それはなぜ起きたのでしょう？","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"},
-"analysis_step3":{"name":"何を教えてあげるといいか？","question":"設問文","choices":["選択肢0","選択肢1","選択肢2","選択肢3"],"answer":0,"feedback":"解説1文"}
-}]
-※ answer は choices 配列の正解インデックス（0始まり）。例：choices[2]が正解なら "answer":2`;
 
+"analysis_step1":{
+"name":"何を聞かれていた？",
+"question":"設問文",
+"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
+"answer":0,
+"feedback":"解説1文"
+},
+
+"analysis_step2":{
+"name":"答えのズレを見つけよう",
+"question":"設問文",
+"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
+"answer":0,
+"feedback":"解説1文"
+},
+
+"analysis_step3":{
+"name":"どう教えてあげる？",
+"question":"設問文",
+"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
+"answer":0,
+"feedback":"解説1文"
+}
+}]
+
+※ answer は choices 配列の正解インデックス（0始まり）
+
+【mistake_type のルール】
+・誤答で起きている「観測できるズレ」を短く書く
+
+良い例：
+・cm を m に直していない
+・分母どうしを足している
+・「増えた数」ではなく「全部の数」を答えている
+・過去形にしていない
+・主語を取り違えている
+
+悪い例：
+・あせっている
+・よく読めていない
+・計算が苦手
+・見落とした
 // ─── DAM ─────────────────────────────────────────────────────────
 const DAM_KEY="manabi_dam_v3";
 const DAM_MAX=60;
@@ -96,25 +173,12 @@ const shuffleAllSteps=q=>({
 
 const hasValidAnalysis=q=>{
   if(
-    !q ||
-    !q.student_answer ||
-    !q.correct_answer ||
-    !q.question
-  ) return false;
-
-  return [1,2,3].every(i=>{
-    const s=q[`analysis_step${i}`];
-
-    return (
-      s &&
-      s.question &&
-      Array.isArray(s.choices) &&
-      s.choices.length===4 &&
-      Number.isInteger(s.answer) &&
-      s.answer>=0 &&
-      s.answer<=3
-    );
-  });
+  !q ||
+  !q.student_answer ||
+  !q.correct_answer ||
+  !q.question
+)return false;
+  return[1,2,3].every(i=>{const s=q[`analysis_step${i}`];return s&&s.question&&Array.isArray(s.choices)&&s.choices.length===4&&typeof s.answer==="number";});
 };
 
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
@@ -395,6 +459,7 @@ function App(){
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
       if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
+      next.dailyLog[td].sessions++;
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
@@ -413,16 +478,12 @@ function App(){
     });
   };
 
-  const updateAnalysisStats=(results,subj,correct)=>{
+  const updateAnalysisStats=(results,subj)=>{
     const perfect=results.every(Boolean);
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));
       if(!next.debugStats)next.debugStats={completed:0,perfect:0};
       next.debugStats.completed++;if(perfect)next.debugStats.perfect++;
-      const td=today();
-      if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
-      if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
-      if(correct)next.dailyLog[td].sessions++;
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){next.reviewQueue=(next.reviewQueue||[]).filter(q=>q.topic!==topic);}
       if(topic&&next.topicMastery[topic]){
@@ -453,6 +514,8 @@ function App(){
     p+=`【出題済み単元】以下の単元はストックに存在する。同じ単元でも問題文・題材・数値が異なれば出題可。完全に同じ問題は禁止:${damTopics}\n`;
     if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
     else p+=`科目「${subj}」から1問。`;
+    p+=`\nmistake_type を必ず含めること。`;
+    p+=`\n「誤答付き問題」形式で student_answer・correct_answer・analysis_step1〜3 を必ず含めること。`;
     return p;
   };
 
@@ -473,7 +536,7 @@ function App(){
       try{
         const g=gradeR.current||calcGrade(bdR.current);
         const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.25,topP:.9,topK:20}};
+        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
         const key=pickKey(keys);
         const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         if(!res.ok)return false;
@@ -513,20 +576,13 @@ function App(){
       for(const key of keys){
         if(ok||stale())break;
         try{
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.25,topP:.9,topK:20}};
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
           const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
           if(!res.ok)continue;const data=await res.json();if(data.error)continue;
           const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
           let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
           if(!Array.isArray(parsed))parsed=[parsed];
-          parsed=parsed.filter(q=>
-          q &&
-          q.question &&
-          q.student_answer &&
-          q.correct_answer &&
-          q.subject===subj &&
-          hasValidAnalysis(q)
-         );
+          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q));
           if(!parsed.length)continue;
           const enriched=parsed.map(q=>
           shuffleAllSteps({
@@ -582,7 +638,7 @@ function App(){
       const nextStr=correct?gs.streak+1:0;
       const newBest=Math.max(gs.best,nextStr);
       updateLogs(correct,subject,wrongItem,newBest);
-      updateAnalysisStats(finalResults,subject,correct);
+      updateAnalysisStats(finalResults,subject);
       setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
       setAnalysisStep("done");
     }
@@ -654,8 +710,7 @@ function App(){
   const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
 
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
-  const dailyGoal=3;
-  const dailyGoalMet=todaySessions>=dailyGoal;
+  const dailyGoalMet=todaySessions>=3;
   const reviewCount=logs.reviewQueue?.length||0;
 
   const cal28=Array.from({length:28},(_,i)=>{
@@ -755,7 +810,7 @@ function App(){
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#ef4444"}}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
                 <div className="stat">
-                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/{dailyGoal}</div>
+                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
                   <div className="stat-l">今日</div>
                 </div>
               </div>
@@ -936,13 +991,13 @@ function App(){
                     <div style={{fontWeight:900,fontSize:14,color:dailyGoalMet?"#166534":"#92400e"}}>
                       {dailyGoalMet?"🎉 今日の目標達成！":"🎯 デイリー目標"}
                     </div>
-                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/{dailyGoal}</div>
+                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/3</div>
                   </div>
                   <div className="daily-goal-bar-wrap">
-                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/dailyGoal*100)}%`}}></div>
+                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/3*100)}%`}}></div>
                   </div>
                     <div style={{fontSize:11,color:dailyGoalMet?"#166534":"#92400e",fontWeight:700}}>
-                       {dailyGoal}問クリアで目標達成！
+                       3問クリアで目標達成！
                    </div>
                 </div>
 
@@ -966,25 +1021,12 @@ function App(){
                   {recent100&&<div style={{marginTop:12}}><div className="bar-wrap" style={{height:12}}><div className="bar" style={{width:`${recent100.rate}%`,background:rateColor}}></div></div></div>}
                 </div>
 
-                {/* 科目別正解率 */}
-                <div className="card">
-                  <div className="section-title">科目別 正解率（直近100問）</div>
-                  {subjectRates.map(({s,rate,q})=>(
-                    <div key={s} className="subj-row">
-                      <span className="subj-name">{s}</span>
-                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
-                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
-                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
-                    </div>
-                  ))}
-                </div>
-
                 {/* 分析実績（ライトカード） */}
                 <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
                   <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
                   <div className="an-stat-row">
                     <div className="an-stat"><div className="an-stat-n">{logs.debugStats?.perfect||0}</div><div className="an-stat-l">完璧分析</div></div>
-                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const c=logs.debugStats?.completed||0;const p=logs.debugStats?.perfect||0;return c>=1?Math.round(p/c*100)+"%":"—";})()}</div><div className="an-stat-l">完璧分析率</div></div>
+                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const r=calcRecent100(logs.recentHistory);return r&&r.count>=1?r.rate+"%":"—";})()}</div><div className="an-stat-l">直近正解率</div></div>
                   </div>
                   {logs.debugHistory?.length>0&&(
                     <React.Fragment>
@@ -1003,6 +1045,19 @@ function App(){
                       ))}
                     </React.Fragment>
                   )}
+                </div>
+
+                {/* 科目別正解率 */}
+                <div className="card">
+                  <div className="section-title">科目別 正解率（直近100問）</div>
+                  {subjectRates.map(({s,rate,q})=>(
+                    <div key={s} className="subj-row">
+                      <span className="subj-name">{s}</span>
+                      <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
+                      <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
+                      <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
+                    </div>
+                  ))}
                 </div>
 
                 {/* 28日カレンダー */}
@@ -1133,7 +1188,15 @@ function App(){
                 </div>
 
                 <div className="card">
-                  <div style={{marginTop:0,padding:"0 0 14px 0",borderBottom:"1px solid #f0edff"}}>
+                  <div className="section-title">学習データ</div>
+                  <div style={{display:"flex",gap:10,marginBottom:12}}>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#5b3ff8"}}>{logs.totalQ}</div><div className="stat-l">累計問題数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#22c55e"}}>{logs.totalCorrect}</div><div className="stat-l">累計正解数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n" style={{color:"#7c3aed"}}>{logs.debugStats?.completed||0}</div><div className="stat-l">分析数</div></div>
+                    <div className="stat" style={{flex:1}}><div className="stat-n">{Object.keys(logs.dailyLog||{}).length}</div><div className="stat-l">学習日数</div></div>
+                  </div>
+
+                  <div style={{marginTop:16,padding:"14px 0",borderTop:"1px solid #f0edff"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:13,fontWeight:800,color:"#1e1e3a"}}>📦 ストック自動更新</div>
@@ -1145,7 +1208,7 @@ function App(){
                     </div>
                   </div>
 
-                  <div className="danger-zone" style={{marginTop:14}}>
+                  <div className="danger-zone">
                     <div style={{fontWeight:800,color:"#991b1b",marginBottom:6,fontSize:13}}>⚠️ データの削除</div>
                     <div style={{fontSize:12,color:"#7f1d1d",marginBottom:12,lineHeight:1.6}}>削除したいデータを選んでください。この操作は取り消せません。</div>
                     <button className="danger-btn" onClick={clearLogs}>
