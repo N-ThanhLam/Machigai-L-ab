@@ -46,6 +46,7 @@ const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。児童・�
 ・不正解は、その学年で実際に多い自然な誤解にする
 ・紛らわしさを演出しない
 ・feedback は1〜2文で短く、否定せず寄り添う表現にする
+・「上記の全て」「以上の全て」など、選択肢の並び順に依存する表現は禁止
 
 analysis_step1（問題理解の確認）:
 この問題で「答えるべき内容」を4択で問う。
@@ -330,6 +331,20 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .anhist-dot{width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px}
 .anhist-dot.ok{background:#dcfce7;color:#166534}
 .anhist-dot.ng{background:#fee2e2;color:#991b1b}
+
+/* ① 正解バースト */
+@keyframes burst-expand{0%{transform:translate(-50%,-50%) scale(0);opacity:.9}100%{transform:translate(-50%,-50%) scale(3);opacity:0}}
+.correct-burst{position:fixed;top:50%;left:50%;width:72px;height:72px;border-radius:50%;border:5px solid #22c55e;pointer-events:none;z-index:2000;animation:burst-expand .6s ease-out both}
+.correct-burst-2{position:fixed;top:50%;left:50%;width:72px;height:72px;border-radius:50%;border:4px solid #86efac;pointer-events:none;z-index:2000;animation:burst-expand .6s .12s ease-out both}
+/* ⑥⑦⑨⑪ トースト共通 */
+@keyframes toast-in{from{transform:translateX(-50%) translateY(-14px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+.toast-base{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:996;border-radius:18px;padding:12px 22px;font-weight:800;font-size:13px;text-align:center;white-space:nowrap;animation:toast-in .4s cubic-bezier(.34,1.56,.64,1) both;max-width:92vw;box-shadow:0 4px 20px rgba(0,0,0,.13)}
+/* ② あと1問ハイライト */
+@keyframes norma-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.norma-last{background:linear-gradient(135deg,#fef3c7,#fde68a)!important;border-color:#f59e0b!important;animation:norma-pulse 1s ease-in-out infinite}
+/* ⑧ ボーナスボタン */
+.btn-bonus{background:linear-gradient(135deg,#f0fdf4,#dcfce7);color:#166534;border:2px solid #86efac;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s}
+.btn-bonus:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(34,197,94,.25)}
 `;
 
 // ─── initLogs ────────────────────────────────────────────────────
@@ -368,9 +383,22 @@ function App(){
   const [normaQueue,setNormaQueue]=useState([]);
   const [normaReason,setNormaReason]=useState("");
   const [showNormaBanner,setShowNormaBanner]=useState(false);
+  // ① 正解バースト
+  const [showCorrectBurst,setShowCorrectBurst]=useState(false);
+  // ⑥ 連続正解途切れメッセージ
+  const [streakBrokenMsg,setStreakBrokenMsg]=useState("");
+  // ⑦ ウェルカムバックメッセージ
+  const [welcomeMsg,setWelcomeMsg]=useState("");
+  // ⑨ 苦手科目改善メッセージ
+  const [subjectImprovedMsg,setSubjectImprovedMsg]=useState("");
+  // ⑪ 休み明けメッセージ
+  const [showRestartMsg,setShowRestartMsg]=useState(false);
   const normaQueueR=useRef([]);
+  const prevRatesRef=useRef({});
+  const welcomeShownRef=useRef(false);
   const prevSessionsRef=useRef(0);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
+  const [importMsg,setImportMsg]=useState("");
   const autoRefillR=useRef(autoRefill);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
 
@@ -400,6 +428,38 @@ function App(){
       setShowNormaBanner(true);setTimeout(()=>setShowNormaBanner(false),3500);
     }
     prevSessionsRef.current=cur;
+  },[logs]);
+
+  // ⑦ ウェルカムバック（app画面に入ったとき）
+  useEffect(()=>{
+    if(screen!=="app"||welcomeShownRef.current)return;
+    welcomeShownRef.current=true;
+    const yd=new Date();yd.setDate(yd.getDate()-1);
+    const yk=yd.toISOString().slice(0,10);
+    const yl=logsR.current.dailyLog?.[yk];
+    if(yl&&yl.q>0){
+      const subjs=(yl.subjects||[]).join("・");
+      const msg=subjs?`昨日は${subjs}を${yl.q}問頑張ったね！今日もいこう ✨`:`昨日は${yl.q}問頑張ったね！今日もいこう ✨`;
+      setWelcomeMsg(msg);
+      setTimeout(()=>setWelcomeMsg(""),4000);
+    }
+  },[screen]);
+
+  // ⑨ 苦手科目改善検知
+  useEffect(()=>{
+    const rates=calcSubjRates(logs.recentHistory);
+    const prev=prevRatesRef.current;
+    for(const s of SUBJECTS){
+      const r=rates[s];const p=prev[s];
+      if(r&&r.q>=5&&p&&p.q>=5){
+        const pr=p.c/p.q;const cr=r.c/r.q;
+        if(pr<0.5&&cr>=0.5){
+          setSubjectImprovedMsg(`📈 ${s}の正解率が${Math.round(pr*100)}%→${Math.round(cr*100)}%にアップ！`);
+          setTimeout(()=>setSubjectImprovedMsg(""),4500);
+        }
+      }
+    }
+    prevRatesRef.current=rates;
   },[logs]);
 
   // quiz がセットされたら分析を自動スタート
@@ -433,7 +493,11 @@ function App(){
         if(!p.debugHistory)p.debugHistory=[];
         if(!p.bestLoginStreak)p.bestLoginStreak=0;
         const td=today();
-        if(p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
+        const yd2=new Date();yd2.setDate(yd2.getDate()-1);const yk2=yd2.toISOString().slice(0,10);
+        const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
+        if(!isGap&&p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
+        // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
+        if(isGap){setShowRestartMsg(true);setTimeout(()=>setShowRestartMsg(false),5000);}
         setLogs(p);
       }
     }catch(e){}
@@ -452,7 +516,6 @@ function App(){
       next.subjectStats[subj].q++;if(correct)next.subjectStats[subj].c++;
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
-      if(!next.dailyLog[td].sessions)next.dailyLog[td].sessions=0;
       if(correct)next.dailyLog[td].sessions++;
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
@@ -631,7 +694,6 @@ function App(){
        );
           const[first,...rest]=enriched;
           if(stale())return;
-          console.log(first)
           setQuiz(first);setGs(p=>({...p,used:[...p.used,(first.question||"").slice(0,20)].slice(-5)}));
           if(rest.length){addToDam(subj,rest);setDamStats(getDamStats());}
           setIsCooldown(false);ok=true;
@@ -657,6 +719,8 @@ function App(){
     const correct=idx===step.answer;
     setStepAns(idx);
     setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;return n;});
+    // ① 正解バースト
+    if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
   };
 
   // 次のステップへ / 完了
@@ -668,6 +732,11 @@ function App(){
       const finalResults=[...stepResults];
       const score=finalResults.filter(Boolean).length;
       const correct=score>=2;
+      // ⑥ 連続正解が途切れたとき
+      if(!correct&&gs.streak>=3){
+        setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
+        setTimeout(()=>setStreakBrokenMsg(""),3500);
+      }
       const wrongItem=!correct?{
       topic:quiz.topic_tag||quiz.question.slice(0,20),
       subject,
@@ -762,10 +831,64 @@ function App(){
     alert("データを削除しました。");
   };
 
+  // ─── エクスポート / インポート ─────────────
+  const exportData=()=>{
+    const now=new Date();
+    const ts=now.toISOString().replace("T"," ").slice(0,19);
+    const g=grade||calcGrade(birthday)||"不明";
+    const dateStr=now.toISOString().slice(0,10).replace(/-/g,"");
+    const payload={
+      app:"まちがいラボ",version:"6.1",
+      exportedAt:ts,grade:g,birthday,
+      logs,
+    };
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`まちがいラボ_${g}_${dateStr}.json`;
+    a.click();URL.revokeObjectURL(url);
+  };
+
+  const importData=e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        if(d.app!=="まちがいラボ")throw new Error("invalid app");
+        if(!d.logs||typeof d.logs!=="object")throw new Error("invalid logs");
+        const restored={...initLogs(),...d.logs};
+        if(!restored.debugStats)restored.debugStats={completed:0,perfect:0};
+        if(!restored.checkStats)restored.checkStats={total:0,correct:0};
+        if(!restored.topicMastery)restored.topicMastery={};
+        if(!restored.debugHistory)restored.debugHistory=[];
+        if(!restored.bestLoginStreak)restored.bestLoginStreak=0;
+        setLogs(restored);saveLogs(restored);
+        if(d.birthday){
+          setBirthday(d.birthday);
+          const g=calcGrade(d.birthday);setGrade(g);
+          try{localStorage.setItem(PROF,JSON.stringify({birthday:d.birthday,apiKeys}));}catch(ex){}
+        }
+        setImportMsg(`✓ インポート完了！ ${d.grade||"不明"} ／ ${d.exportedAt||"日時不明"}`);
+        setTimeout(()=>setImportMsg(""),5000);
+      }catch(err){
+        setImportMsg("❌ ファイルを読み込めませんでした");
+        setTimeout(()=>setImportMsg(""),3000);
+      }
+      e.target.value="";
+    };
+    reader.readAsText(file);
+  };
+
   // ── 派生値 ────────────────────────────────
   const recent100=calcRecent100(logs.recentHistory);
   const subjRateMap=calcSubjRates(logs.recentHistory);
   const subjectRates=SUBJECTS.map(s=>{const r=subjRateMap[s];return r&&r.q>0?{s,rate:Math.round(r.c/r.q*100),q:r.q}:{s,rate:null,q:0};});
+  // ④ 昨日との比較メッセージ
+  const yesterdayKey=(()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})();
+  const todayQ=logs.dailyLog?.[today()]?.q||0;
+  const yesterdayQ=logs.dailyLog?.[yesterdayKey]?.q||0;
+  const compareMsg=(todayQ>0&&yesterdayQ>0)?(todayQ>yesterdayQ?`昨日より${todayQ-yesterdayQ}問多いよ！🎉`:todayQ===yesterdayQ?`昨日と同じペース！`:null):null;
   const rateColor=recent100?(recent100.rate>=80?"#22c55e":recent100.rate>=60?"#f59e0b":"#ef4444"):"#9990cc";
   const rateBg=recent100?(recent100.rate>=80?"#f0fdf4":recent100.rate>=60?"#fffbeb":"#fff7f7"):"#f8f7ff";
   const rateBorder=recent100?(recent100.rate>=80?"#86efac":recent100.rate>=60?"#fde68a":"#fca5a5"):"#e8e3ff";
@@ -818,6 +941,17 @@ function App(){
           </div>
         )}
 
+        {/* ⑦ ウェルカムバック（loginBonus と重複しないよう抑制） */}
+        {welcomeMsg&&!showLoginBonus&&<div className="toast-base" style={{background:"linear-gradient(135deg,#5b3ff8,#9b59f8)",color:"#fff",top:newBadges.length>0?68:20}}>{welcomeMsg}</div>}
+        {/* ⑨ 苦手科目改善 */}
+        {subjectImprovedMsg&&<div className="toast-base" style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",top:newBadges.length>0?68:20}}>{subjectImprovedMsg}</div>}
+        {/* ⑥ 連続正解途切れ */}
+        {streakBrokenMsg&&<div className="toast-base" style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",top:20}}>{streakBrokenMsg}</div>}
+        {/* ⑪ 休み明け */}
+        {showRestartMsg&&<div className="toast-base" style={{background:"#f0fdf4",border:"2px solid #86efac",color:"#166534",top:20}}>久しぶり！また一緒に頑張ろう 🌱</div>}
+        {/* ① 正解バースト */}
+        {showCorrectBurst&&<React.Fragment><div className="correct-burst"/><div className="correct-burst-2"/></React.Fragment>}
+
         {/* ── START ── */}
         {screen==="start"&&(
           <div style={{maxWidth:440,margin:"40px auto"}}>
@@ -847,7 +981,6 @@ function App(){
                   ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
                   ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
                   ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
-                  ["💾","学習データはこのブラウザにのみ保存されます。　　　　　　他の端末への引き継ぎはできません。"],
                 ].map(([icon,text])=>(
                   <div key={icon} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
                     <span style={{flexShrink:0}}>{icon}</span>
@@ -882,7 +1015,7 @@ function App(){
               <div style={{display:"flex",gap:5}}>
                 <div className="stat"><div className="stat-n" style={{color:"#f59e0b"}}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
-                <div className="stat"><div className="stat-n" style={{color:"#ef4444"}}>{gs.wrong}</div><div className="stat-l">ミス</div></div>
+                <div className="stat"><div className="stat-n" style={{color:"#7c6fb0"}}>{gs.wrong}</div><div className="stat-l">{gs.wrong>0?"問から学んだ":"ミスなし！"}</div></div>
                 <div className="stat">
                   <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
                   <div className="stat-l">今日</div>
@@ -903,6 +1036,8 @@ function App(){
             {/* ── LEARN ── */}
             {tab==="learn"&&(
               <React.Fragment>
+                {/* ④ 昨日比較・② あと1問ハイライト */}
+                {compareMsg&&<div style={{textAlign:"center",fontSize:12,fontWeight:800,color:"#5b3ff8",background:"#f0edff",borderRadius:10,padding:"6px 12px",marginBottom:8}}>{compareMsg}</div>}
                 {loading&&(
                   <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
                     <div className="spin" style={{marginBottom:14}}></div>
@@ -1011,6 +1146,13 @@ function App(){
                         <div style={{fontSize:16,fontWeight:800,color:"#166534"}}>{quiz.correct_answer}</div>
                         <div style={{fontSize:12,color:"#166534",marginTop:6,lineHeight:1.65}}>{quiz.correct_feedback}</div>
                       </div>
+                      {/* ⑤ mistake_type */}
+                      {quiz.mistake_type&&quiz.mistake_type!=="不明"&&(
+                        <div style={{background:"#f0edff",border:"1.5px solid #ddd6fe",borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"left"}}>
+                          <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",marginBottom:4,letterSpacing:".04em"}}>💡 この間違いのポイント</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
+                        </div>
+                      )}
                     </div>
 
                     <button className="btn-green" style={{marginBottom:8}} onClick={handleNext}>次の問題へ →</button>
@@ -1023,8 +1165,8 @@ function App(){
 
                 {/* ノルマ中インジケーター */}
                 {(!analysisStep||analysisStep==="done")&&!dailyGoalMet&&(
-                  <div style={{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}}>
-                    🎯 ノルマ {todaySessions}/3　— AIが科目を選んでいます
+                  <div style={{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}} className={todaySessions===2?"norma-last":""}>
+                    {todaySessions===2?"🎯 あと1問でノルマ達成！":"🎯 ノルマ "+todaySessions+"/3　— AIが科目を選んでいます"}
                   </div>
                 )}
 
@@ -1041,18 +1183,22 @@ function App(){
                       </div>
                     </div>
                   ):(
-                    <div className="row2" style={{marginTop:4}}>
-                      <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} disabled={loading}>科目選択</button>
-                      <button className="btn btn-ghost" onClick={()=>{
-                        const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
-                        const un=SUBJECTS.filter(s=>!rates[s]||rates[s].q===0);
-                        if(un.length&&Math.random()<.7){resetFetch(un[Math.floor(Math.random()*un.length)]);return;}
-                        let ws=SUBJECTS[0],mr=Infinity,found=false;
-                        for(const s of SUBJECTS){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
-                        if(!found){const qc=SUBJECTS.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
-                        resetFetch(ws);
-                      }} disabled={loading}>苦手科目</button>
-                    </div>
+                    <React.Fragment>
+                      {/* ⑧ ボーナスボタン */}
+                      {analysisStep==="done"&&<button className="btn-bonus" onClick={handleNext} disabled={loading}>🎁 ボーナス1問に挑戦！</button>}
+                      <div className="row2" style={{marginTop:4}}>
+                        <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} disabled={loading}>科目選択</button>
+                        <button className="btn btn-ghost" onClick={()=>{
+                          const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
+                          const un=SUBJECTS.filter(s=>!rates[s]||rates[s].q===0);
+                          if(un.length&&Math.random()<.7){resetFetch(un[Math.floor(Math.random()*un.length)]);return;}
+                          let ws=SUBJECTS[0],mr=Infinity,found=false;
+                          for(const s of SUBJECTS){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
+                          if(!found){const qc=SUBJECTS.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
+                          resetFetch(ws);
+                        }} disabled={loading}>苦手科目</button>
+                      </div>
+                    </React.Fragment>
                   )
                 )}
               </React.Fragment>
@@ -1216,7 +1362,7 @@ function App(){
                       <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
                     </div>
                   );})}
-                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?"⚡ バックグラウンドで補充中...":"✓ 自動補充エンジン稼働中"}</div>
+                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:`✓ ${autoRefill?"自動更新ON（常に新鮮）":"自動更新OFF（空になったら補充）"}`}</div>
                 </div>
               </React.Fragment>
             )}
@@ -1270,7 +1416,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">問題ストック設定</div>
                   <div className="setting-row" style={{borderBottom:"none",paddingBottom:0}}>
-                    <span className="setting-label">バックグラウンド自動補充</span>
+                    <span className="setting-label">📦 ストック自動更新</span>
                     <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
                       <button
                         onClick={()=>setAutoRefill(v=>!v)}
@@ -1287,11 +1433,30 @@ function App(){
                         }}/>
                       </button>
                       <span style={{fontSize:13,fontWeight:700,color:autoRefill?"#5b3ff8":"#9990cc"}}>
-                        {autoRefill?"ON（自動補充中）":"OFF（手動のみ）"}
+                        {autoRefill?"ON（問題を新鮮に入れ替え中）":"OFF（満タンになるまで補充）"}
                       </span>
                     </div>
-                    <div style={{fontSize:11,color:"#bbb",marginTop:6}}>OFFにするとストックが空になった時だけ生成します</div>
+                    <div style={{fontSize:11,color:"#bbb",marginTop:6}}>ONにすると満タン後も古い問題を入れ替えて新鮮に保ちます</div>
                   </div>
+                </div>
+
+                <div className="card">
+                  <div className="section-title">エクスポート / インポート</div>
+                  <button className="btn btn-ghost" style={{marginBottom:8}} onClick={exportData}>
+                    📤 学習データをエクスポート
+                  </button>
+                  <label style={{display:"block",background:"#f0edff",color:"#5b3ff8",border:"none",borderRadius:14,padding:"13px 20px",fontSize:15,fontWeight:800,fontFamily:"inherit",cursor:"pointer",width:"100%",textAlign:"center",boxSizing:"border-box",marginBottom:importMsg?8:0,transition:"all .18s"}}>
+                    📥 学習データをインポート
+                    <input type="file" accept=".json" style={{display:"none"}} onChange={importData}/>
+                  </label>
+                  {importMsg&&(
+                    <div style={{fontSize:12,fontWeight:700,borderRadius:10,padding:"8px 12px",marginBottom:4,
+                      color:importMsg.startsWith("✓")?"#166534":"#991b1b",
+                      background:importMsg.startsWith("✓")?"#dcfce7":"#fee2e2"}}>
+                      {importMsg}
+                    </div>
+                  )}
+                  <div style={{fontSize:11,color:"#bbb",marginTop:6}}>APIキーはエクスポートされません。ファイル名に学年・日付が入ります。</div>
                 </div>
 
                 <div className="card">
@@ -1313,7 +1478,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v6.0</div>
+                    <div>📚 まちがいラボ v6.1</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
                   </div>
