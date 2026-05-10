@@ -841,6 +841,7 @@ function App(){
       app:"まちがいラボ",version:"6.1",
       exportedAt:ts,grade:g,birthday,
       logs,
+      dam:getDam(),
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
@@ -864,6 +865,18 @@ function App(){
         if(!restored.debugHistory)restored.debugHistory=[];
         if(!restored.bestLoginStreak)restored.bestLoginStreak=0;
         setLogs(restored);saveLogs(restored);
+        if(d.dam&&typeof d.dam==="object"){
+          const current=getDam();
+          for(const subj of SUBJECTS){
+            if(Array.isArray(d.dam[subj])&&d.dam[subj].length){
+              const merged=current[subj]||[];
+              const existingKeys=new Set(merged.map(q=>(q.question||"").slice(0,30)));
+              const incoming=d.dam[subj].filter(q=>!existingKeys.has((q.question||"").slice(0,30)));
+              current[subj]=[...merged,...incoming].slice(-DAM_MAX);
+            }
+          }
+          saveDam(current);setDamStats(getDamStats());
+        }
         if(d.birthday){
           setBirthday(d.birthday);
           const g=calcGrade(d.birthday);setGrade(g);
