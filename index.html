@@ -460,18 +460,35 @@ function App(){
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
   const [importMsg,setImportMsg]=useState("");
   const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
+  const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
   const autoRefillR=useRef(autoRefill);
 
   // 学年に応じた科目リスト（gradeが変わると自動更新）
   const subjects = calcSubjects(grade);
   const subjectsR = useRef(subjects);
-  useEffect(()=>{ subjectsR.current = calcSubjects(grade); },[grade]);
+  useEffect(()=>{ subjectsR.current = calcSubjects(grade); setDamStats(getDamStats(calcSubjects(grade))); },[grade]);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
+
+  // ストック待機中: 補充されたら自動で問題を表示
+  useEffect(()=>{
+    if(!waitingForStock)return;
+    const timer=setInterval(()=>{
+      const q=popFromDam(waitingForStock,1);
+      if(q.length){
+        setWaitingForStock(null);
+        setQuiz(q[0]);
+        setDamStats(getDamStats(subjectsR.current));
+        setGs(p=>({...p,used:[...p.used,(q[0].question||"").slice(0,20)].slice(-5)}));
+      }
+    },3000);
+    return()=>clearInterval(timer);
+  },[waitingForStock]);
 
   // ── 誤答分析ステート（フラット） ──
   const [analysisStep,setAnalysisStep]=useState(null); // null | 1 | 2 | 3 | "done"
   const [stepAns,setStepAns]=useState(null);
   const [stepResults,setStepResults]=useState([null,null,null]);
+  const stepResultsR=useRef([null,null,null]);
 
   const STORE="manabi_logs_v4";const PROF="manabi_profile_v2";const SESS="manabi_session_v2";
 
@@ -689,7 +706,9 @@ function App(){
 
   const resetState=()=>{
     setQuiz(null);
-    setAnalysisStep(null);setStepAns(null);setStepResults([null,null,null]);
+    setAnalysisStep(null);setStepAns(null);
+    stepResultsR.current=[null,null,null];
+    setStepResults([null,null,null]);
   };
 
   // バックグラウンド補充
@@ -769,8 +788,12 @@ function App(){
       if(!stale()){resetState();setAppError("");}
       if(!review){
         const st=popFromDam(subj,1);
-        if(st.length){const q=st[0];if(!stale()){setQuiz(q);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subjectsR.current));setGs(p=>({...p,used:[...p.used,(q.question||"").slice(0,20)].slice(-5)}));}return;}
+        if(st.length){if(!stale()){setQuiz(st[0]);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subjectsR.current));setGs(p=>({...p,used:[...p.used,(st[0].question||"").slice(0,20)].slice(-5)}));}return;}
+        // ストック空 → 待機モード（即時生成しない）
+        if(!stale()){setLoading(false);setWaitingForStock(subj);}
+        return;
       }
+      // 復習モードのみ即時生成（復習はストックと別管理のため維持）
       if(!stale()){setLoading(true);setQuiz(null);}
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)throw new Error("no key");
       let ok=false;
@@ -786,22 +809,7 @@ function App(){
           parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q))
             .map(q=>{if(subj==="算数"&&q.subject==="数学")return{...q,subject:"算数"};return q;});
           if(!parsed.length)continue;
-          // ─ 検査AI ─────────────────────────────────────────
-          const inspKey2=pickKey(keys);
-          const inspRes2=await Promise.all(parsed.map(q=>inspectQuestion(q,g,inspKey2)));
-          const rejectedLive=parsed.filter((_,i)=>!inspRes2[i]).length;
-          if(rejectedLive>0){setRejectCount(p=>{const n=p+rejectedLive;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
-          parsed=parsed.filter((_,i)=>inspRes2[i]);
-          if(!parsed.length)continue;
-          // ──────────────────────────────────────────────────
-          const enriched=parsed.map(q=>
-          shuffleAllSteps({
-          ...q,
-          mistake_type:q.mistake_type||"不明",
-          _subject:subj,
-          _inspected:true
-         })
-       );
+          const enriched=parsed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_inspected:false}));
           const[first,...rest]=enriched;
           if(stale())return;
           setQuiz(first);setGs(p=>({...p,used:[...p.used,(first.question||"").slice(0,20)].slice(-5)}));
@@ -809,7 +817,7 @@ function App(){
           setIsCooldown(false);ok=true;
         }catch(e){console.error(e);}
       }
-      if(!ok&&!stale()){const fb=popFromDam(subj,1);if(fb.length){setQuiz(fb[0]);setIsCooldown(true);setDamStats(getDamStats(subjectsR.current));return;}throw new Error("fail");}
+      if(!ok&&!stale())throw new Error("fail");
     }catch(e){
       if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
@@ -818,7 +826,7 @@ function App(){
 
   const resetFetch=useCallback((subj,sg)=>{
     const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:0,qNum:1,used:[]};
-    resetState();setGs(init);setSubject(subj);
+    resetState();setGs(init);setSubject(subj);setWaitingForStock(null);
     const g=sg||grade;requestAnimationFrame(()=>fetchQ(init,g,subj,false,null));
   },[grade,fetchQ]);
 
@@ -828,7 +836,7 @@ function App(){
     const step=quiz[`analysis_step${analysisStep}`];
     const correct=idx===step.answer;
     setStepAns(idx);
-    setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;return n;});
+    setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;stepResultsR.current=n;return n;});
     // ① 正解バースト
     if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
   };
@@ -840,9 +848,9 @@ function App(){
       setAnalysisStep(p=>p+1);
       setStepAns(null);
     }else{
-      const finalResults=[...stepResults];
+      const finalResults=[...stepResultsR.current];
       const score=finalResults.filter(Boolean).length;
-      const correct=score>=3;
+      const correct=score>=2;
       // ⑥ 連続正解が途切れたとき
       if(!correct&&gs.streak>=3){
         setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
@@ -884,7 +892,8 @@ function App(){
         setNormaReason(reason);setSubject(ns);setIsReview(false);
         const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subjectsR.current));
         if(fromDam.length){setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));setQuiz(fromDam[0]);return;}
-        await fetchQ(gsR.current,gradeR.current,ns,false,null);return;
+        // ストック空 → 待機モード
+        setWaitingForStock(ns);return;
       }
       // フリーモード
       setNormaReason("");
@@ -910,7 +919,8 @@ function App(){
         setQuiz(fromDam[0]);return;
       }
       setIsReview(false);if(ns!==subjR.current)setSubject(ns);
-      await fetchQ(gsR.current,gradeR.current,ns,false,null);
+      // ストック空 → 待機モード
+      setWaitingForStock(ns);
     }finally{setTimeout(()=>{nextLk.current=false;},150);}
   };
 
@@ -937,8 +947,8 @@ function App(){
 
   const clearAllData=()=>{
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
-    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");}catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);
+    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");localStorage.removeItem("manabi_autorefill");}catch(e){}
+    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);setAutoRefill(true);
     alert("データを削除しました。");
   };
 
@@ -949,7 +959,7 @@ function App(){
     const g=grade||calcGrade(birthday)||"不明";
     const dateStr=now.toISOString().slice(0,10).replace(/-/g,"");
     const payload={
-      app:"まちがいラボ",version:"6.3",
+      app:"まちがいラボ",
       exportedAt:ts,grade:g,birthday,
       logs,
       dam:getDam(),
@@ -978,12 +988,16 @@ function App(){
         setLogs(restored);saveLogs(restored);
         if(d.dam&&typeof d.dam==="object"){
           const current=getDam();
-          for(const subj of SUBJECTS){
+          const importSubjects=d.birthday?calcSubjects(calcGrade(d.birthday)):subjectsR.current;
+          // 「数学」キーも「算数」にマージできるよう両方チェック
+          const allKeys=new Set([...importSubjects,"数学"]);
+          for(const subj of allKeys){
+            const targetSubj=(subj==="数学"&&!importSubjects.includes("数学"))?"算数":subj;
             if(Array.isArray(d.dam[subj])&&d.dam[subj].length){
-              const merged=current[subj]||[];
+              const merged=current[targetSubj]||[];
               const existingKeys=new Set(merged.map(q=>(q.question||"").slice(0,30)));
               const incoming=d.dam[subj].filter(q=>!existingKeys.has((q.question||"").slice(0,30)));
-              current[subj]=[...merged,...incoming].slice(-DAM_MAX);
+              current[targetSubj]=[...merged,...incoming].slice(-DAM_MAX);
             }
           }
           saveDam(current);setDamStats(getDamStats(subjectsR.current));
@@ -1026,10 +1040,12 @@ function App(){
   const reviewCount=logs.reviewQueue?.length||0;
 
   const cal28=Array.from({length:28},(_,i)=>{
-    const d=new Date();d.setDate(d.getDate()-(27-i));
-    const key=d.toISOString().slice(0,10);
+    const base=new Date();const jst=new Date(base.getTime()+9*60*60*1000);
+    jst.setUTCDate(jst.getUTCDate()-(27-i));
+    const key=jst.toISOString().slice(0,10);
+    const dayOfMonth=jst.getUTCDate();
     const l=logs.dailyLog?.[key];
-    return{key,d:d.getDate(),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
+    return{key,d:dayOfMonth,dow:((jst.getUTCDay())),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
   });
 
   const masteryList=Object.entries(logs.topicMastery||{})
@@ -1087,13 +1103,16 @@ function App(){
               {startError&&<div className="err">😅 {startError}</div>}
               <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,fontWeight:700}}>Gemini APIキー（最大4つ）</label>
               {apiKeys.map((k,i)=>(
-                <input key={i} type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (必須)":" (任意)"}`}/>
+                <input key={i} type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (任意・入れると問題が自動補充される)":" (任意)"}`}/>
               ))}
               <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,marginTop:4,fontWeight:700}}>生年月日</label>
               <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31"/>
+              {/* ★ SPEC: APIキーは任意。未入力でもアプリに進める。
+                  ストック補充・復習リアルタイム生成はAPIキーがある場合のみ動作するが、
+                  ストックに問題があれば解答できる。この仕様を削除・変更しないこと。 */}
               <button className="btn btn-primary" onClick={()=>{
                 if(!birthday){setStartError("生年月日を入力してください");return;}
-                if(!apiKeys.some(k=>k.trim())){setStartError("Gemini APIキーを1つ以上入力してください");return;}
+                // APIキー未入力でも先に進める（キーなし時はストックから出題、補充・生成はスキップ）
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
                 startWithNorma(logsR.current,g);
@@ -1102,7 +1121,7 @@ function App(){
               <div style={{marginTop:20,padding:"14px 16px",background:"#f8f7ff",borderRadius:14,textAlign:"left"}}>
                 <div style={{fontSize:11,fontWeight:900,color:"#9990cc",letterSpacing:".06em",marginBottom:10}}>📋 はじめる前に</div>
                 {[
-                  ["🔑","問題の生成にはGemini APIキーが必要です。　　　　　　　上のリンクから5分程度で取得できます。"],
+                  ["🔑","APIキーなしでもストック問題で遊べます。　　　　　　　キーを入れると問題が自動補充されより快適になります。"],
                   ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
                   ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
                   ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
@@ -1169,6 +1188,13 @@ function App(){
                     <div style={{color:"#9990cc",fontSize:14,fontWeight:700}}>{isCooldown?"AIが休憩中... ☕":"問題を生成中... 🚀"}</div>
                   </div>
                 )}
+                {!loading&&waitingForStock&&!quiz&&(
+                  <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
+                    <div className="spin" style={{marginBottom:14}}></div>
+                    <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>⚡ 問題を準備中です...</div>
+                    <div style={{color:"#9990cc",fontSize:12,fontWeight:700}}>バックグラウンドで補充しています。<br/>そのままお待ちください！</div>
+                  </div>
+                )}
                 {appError&&!loading&&(
                   <div className="card">
                     <div className="err">😅 問題を生成できませんでした！</div>
@@ -1177,7 +1203,7 @@ function App(){
                 )}
                 {!loading&&quiz&&isCooldown&&(
                   <div style={{background:"#fffbeb",borderLeft:"3px solid #f59e0b",padding:"10px 14px",marginBottom:12,borderRadius:"0 10px 10px 0",fontSize:13,color:"#92400e",fontWeight:700}}>
-                    ☕ ストックから出題中（AI補充待ち）
+                    ☕ 問題を準備中（AI補充待ち）
                   </div>
                 )}
 
@@ -1417,7 +1443,7 @@ function App(){
                     {["日","月","火","水","木","金","土"].map(d=><div key={d} className="week-label">{d}</div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
-                    {Array.from({length:new Date(cal28[0].key).getDay()},(_,i)=>(
+                    {Array.from({length:cal28[0].dow},(_,i)=>(
                       <div key={`empty-${i}`}></div>
                     ))}
                     {cal28.map(d=>{
@@ -1486,7 +1512,7 @@ function App(){
                       <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
                     </div>
                   );})}
-                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:`✓ ${autoRefill?"自動更新ON（常に新鮮）":"自動更新OFF（空になったら補充）"}`}</div>
+                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:`✓ ${autoRefill?"自動更新ON（常に最新）":"自動更新ON（ストックが満たされたら停止）"}`}</div>
                   {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🔍 検査AI棄却: {rejectCount}問（品質確保のため除外）</div>}
                 </div>
               </React.Fragment>
@@ -1524,7 +1550,7 @@ function App(){
                     <span className="setting-label">Gemini APIキー（最大4つ）</span>
                     {apiKeys.map((k,i)=>(
                       <div key={i} className="key-row">
-                        <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (必須)":" (任意)"}`}/>
+                        <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (任意)":" (任意)"}`}/>
                         <span className={`key-status ${k.trim()?"ok":"empty"}`}>{k.trim()?"✓":"—"}</span>
                       </div>
                     ))}
@@ -1558,12 +1584,11 @@ function App(){
                         }}/>
                       </button>
                       <span style={{fontSize:13,fontWeight:700,color:autoRefill?"#5b3ff8":"#9990cc"}}>
-                        {autoRefill?"ON（問題を新鮮に入れ替え中）":"OFF（満タンになるまで補充）"}
+                        {autoRefill?"ON（最新問題に入れ替え中）":"OFF（問題数が満たされるまで補充）"}
                       </span>
                     </div>
-                    <div style={{fontSize:11,color:"#bbb",marginTop:6}}>ONにすると満タン後も古い問題を入れ替えて新鮮に保ちます</div>
-                  </div>
-                </div>
+                   </div>
+                 </div>
 
                 <div className="card">
                   <div className="section-title">エクスポート / インポート</div>
@@ -1603,7 +1628,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v6.4</div>
+                    <div>📚 まちがいラボ</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
                     <div>🛡️ 検査AI（品質フィルター）搭載</div>
