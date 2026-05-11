@@ -116,6 +116,62 @@ analysis_step3（正しく考えよう）:
 ・誤答で起きている「観測できるズレ」を短く書く
 ・心理・性格・注意不足を書かない
 `;
+
+// ─── INSPECT PROMPT ──────────────────────────────────────────────
+const INSPECT_PROMPT = `あなたは学習問題の品質検査AIです。入力されたJSONの問題を審査し、以下の観点でチェックしてください。
+
+【必須チェック項目】
+1. correct_answer は事実として正しいか（算数・国語・英語・社会・理科として）
+2. student_answer は correct_answer と「1箇所だけ」異なるか（複数箇所ズレていたら不合格）
+3. 問題文がテキストだけで解けるか（図・グラフ・表・地図への依存があれば不合格）
+4. analysis_step1〜3 それぞれの answer インデックスが、その choices の中で実際に正解に対応しているか
+5. correct_feedback に事実誤りがないか
+6. 学年・科目に対して適切な難易度・語彙か
+
+【出力形式】
+JSONのみ出力。説明文・コードブロック・前置き禁止。
+合格: {"pass":true,"issues":[]}
+不合格: {"pass":false,"issues":["具体的な問題点を1文で"]}
+`;
+
+// ─── INSPECT FUNCTION ────────────────────────────────────────────
+const inspectQuestion = async (q, grade, key) => {
+  if (!key || !key.trim()) return true; // キーなしは素通り
+  const payload = JSON.stringify({
+    grade,
+    subject: q.subject,
+    topic_tag: q.topic_tag,
+    question: q.question,
+    student_answer: q.student_answer,
+    correct_answer: q.correct_answer,
+    correct_feedback: q.correct_feedback,
+    mistake_type: q.mistake_type,
+    analysis_step1: q.analysis_step1,
+    analysis_step2: q.analysis_step2,
+    analysis_step3: q.analysis_step3,
+  });
+  try {
+    const body = {
+      systemInstruction: { parts: [{ text: INSPECT_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: payload }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.1, topP: 0.8, topK: 10 }
+    };
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (!res.ok) return true;
+    const data = await res.json();
+    if (data.error) return true;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) return true;
+    const result = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+    return result.pass === true;
+  } catch (e) {
+    return true; // 検査失敗時は素通り（ユーザー体験を優先）
+  }
+};
+
 // ─── DAM ─────────────────────────────────────────────────────────
 const DAM_KEY="manabi_dam_v3";
 const DAM_MAX=60;
@@ -394,6 +450,7 @@ function App(){
   const prevSessionsRef=useRef(0);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
   const [importMsg,setImportMsg]=useState("");
+  const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
   const autoRefillR=useRef(autoRefill);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
 
@@ -641,13 +698,28 @@ function App(){
         let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return false;}
         if(!Array.isArray(parsed))parsed=[parsed];
         const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&q.subject===target.subj&&hasValidAnalysis(q));
-        if(valid.length){addToDam(target.subj,valid.map(q=>
+        if(valid.length){
+          // ─ 検査AI（直列実行でRPM消費を分散） ──────────────
+          const inspKey=pickKey(keys);
+          const passed=[];
+          let rejected=0;
+          for(const q of valid){
+            if(cancelled)break;
+            const ok=await inspectQuestion(q,g,inspKey);
+            if(ok)passed.push(q);else rejected++;
+          }
+          if(cancelled)return false;
+          if(rejected>0){setRejectCount(p=>{const n=p+rejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
+          // ──────────────────────────────────────────────────
+          if(passed.length){addToDam(target.subj,passed.map(q=>
   shuffleAllSteps({
     ...q,
     mistake_type:q.mistake_type||"不明",
-    _subject:target.subj
+    _subject:target.subj,
+    _inspected:true
   })
       ));if(!cancelled)setDamStats(getDamStats());return true;}
+        }
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
@@ -680,11 +752,20 @@ function App(){
           if(!Array.isArray(parsed))parsed=[parsed];
           parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q));
           if(!parsed.length)continue;
+          // ─ 検査AI ─────────────────────────────────────────
+          const inspKey2=pickKey(keys);
+          const inspRes2=await Promise.all(parsed.map(q=>inspectQuestion(q,g,inspKey2)));
+          const rejectedLive=parsed.filter((_,i)=>!inspRes2[i]).length;
+          if(rejectedLive>0){setRejectCount(p=>{const n=p+rejectedLive;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
+          parsed=parsed.filter((_,i)=>inspRes2[i]);
+          if(!parsed.length)continue;
+          // ──────────────────────────────────────────────────
           const enriched=parsed.map(q=>
           shuffleAllSteps({
           ...q,
           mistake_type:q.mistake_type||"不明",
-          _subject:subj
+          _subject:subj,
+          _inspected:true
          })
        );
           const[first,...rest]=enriched;
@@ -807,8 +888,8 @@ function App(){
 
   const clearLogs=()=>{
     if(!confirm("学習記録・バッジをすべて削除しますか？\nストック問題は残ります。この操作は取り消せません。"))return;
-    try{localStorage.removeItem(STORE);localStorage.removeItem(SESS);}catch(e){}
-    setLogs(initLogs());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});
+    try{localStorage.removeItem(STORE);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");}catch(e){}
+    setLogs(initLogs());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);
     alert("学習記録を削除しました。");
   };
 
@@ -821,8 +902,8 @@ function App(){
 
   const clearAllData=()=>{
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
-    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);}catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});
+    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");}catch(e){}
+    setLogs(initLogs());setDamStats(getDamStats());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);
     alert("データを削除しました。");
   };
 
@@ -833,7 +914,7 @@ function App(){
     const g=grade||calcGrade(birthday)||"不明";
     const dateStr=now.toISOString().slice(0,10).replace(/-/g,"");
     const payload={
-      app:"まちがいラボ",version:"6.1",
+      app:"まちがいラボ",version:"6.3",
       exportedAt:ts,grade:g,birthday,
       logs,
       dam:getDam(),
@@ -1161,6 +1242,7 @@ function App(){
                           <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
                         </div>
                       )}
+                      {quiz._inspected&&<div style={{textAlign:"center",fontSize:10,color:"#9990cc",fontWeight:700,marginTop:4}}>🔍 検査AI通過済み</div>}
                     </div>
 
                     <button className="btn-green" style={{marginBottom:8}} onClick={handleNext}>次の問題へ →</button>
@@ -1369,6 +1451,7 @@ function App(){
                     </div>
                   );})}
                   <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:`✓ ${autoRefill?"自動更新ON（常に新鮮）":"自動更新OFF（空になったら補充）"}`}</div>
+                  {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🔍 検査AI棄却: {rejectCount}問（品質確保のため除外）</div>}
                 </div>
               </React.Fragment>
             )}
@@ -1484,9 +1567,10 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v6.1</div>
+                    <div>📚 まちがいラボ v6.2</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
+                    <div>🛡️ 検査AI（品質フィルター）搭載</div>
                   </div>
                 </div>
               </React.Fragment>
