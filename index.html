@@ -186,6 +186,8 @@ const DAM_BATCH=5;
 const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}catch(e){return{};}};
 const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
 const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));dam[subj]=[...ex,...qs.filter(q=>!keys.has((q.question||"").slice(0,30)))].slice(-DAM_MAX);saveDam(dam);};
+// 復習問題はストックの「先頭」に挿入して優先使用されるようにする
+const addToDamFront=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));const fresh=qs.filter(q=>!keys.has((q.question||"").slice(0,30)));if(!fresh.length)return;dam[subj]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];const take=Math.min(n,b.length);if(!take)return[];const r=b.slice(0,take);dam[subj]=b.slice(take);saveDam(dam);return r;};
 const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
 const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
@@ -194,6 +196,7 @@ const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects
 // ─── UTILS ───────────────────────────────────────────────────────
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
 const today=()=>{const d=new Date();const jst=new Date(d.getTime()+9*60*60*1000);return jst.toISOString().slice(0,10);};
+const jstYesterday=()=>{const d=new Date();const jst=new Date(d.getTime()+9*60*60*1000);jst.setUTCDate(jst.getUTCDate()-1);return jst.toISOString().slice(0,10);};
 let _ki=0;
 const pickKey=keys=>{const k=keys[_ki%keys.length];_ki++;return k;};
 
@@ -437,6 +440,9 @@ function App(){
   const [isRefilling,setIsRefilling]=useState(false);
   const [logs,setLogs]=useState(initLogs);
   const [isReview,setIsReview]=useState(false);
+  const isReviewR=useRef(false);
+  // isReviewとisReviewRを同期
+  useEffect(()=>{isReviewR.current=isReview;},[isReview]);
   const [newBadges,setNewBadges]=useState([]);
   const [settingsSaved,setSettingsSaved]=useState(false);
   const [showLoginBonus,setShowLoginBonus]=useState(false);
@@ -461,6 +467,8 @@ function App(){
   const [importMsg,setImportMsg]=useState("");
   const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
   const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
+  const waitingForStockR=useRef(null);
+  useEffect(()=>{waitingForStockR.current=waitingForStock;},[waitingForStock]);
   const autoRefillR=useRef(autoRefill);
 
   // 学年に応じた科目リスト（gradeが変わると自動更新）
@@ -469,16 +477,26 @@ function App(){
   useEffect(()=>{ subjectsR.current = calcSubjects(grade); setDamStats(getDamStats(calcSubjects(grade))); },[grade]);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
 
-  // ストック待機中: 補充されたら自動で問題を表示
+  // ストック待機中: 補充されたら自動で問題を表示（全科目チェック、あればズレて出題）
   useEffect(()=>{
     if(!waitingForStock)return;
     const timer=setInterval(()=>{
-      const q=popFromDam(waitingForStock,1);
-      if(q.length){
-        setWaitingForStock(null);
-        setQuiz(q[0]);
-        setDamStats(getDamStats(subjectsR.current));
-        setGs(p=>({...p,used:[...p.used,(q[0].question||"").slice(0,20)].slice(-5)}));
+      const subs=subjectsR.current;
+      // 元の科目を優先、なければ他科目へズレる
+      for(const s of [waitingForStock,...subs.filter(x=>x!==waitingForStock)]){
+        const q=popFromDam(s,1);
+        if(q.length){
+          setWaitingForStock(null);
+          if(s!==waitingForStock){setSubject(s);setIsReview(false);}
+          // 復習待機中に問題が来たらreviewQueueを消費
+          if(isReviewR.current&&s===waitingForStock){
+            setLogs(p=>{const n={...p,reviewQueue:(p.reviewQueue||[]).slice(1)};saveLogs(n);return n;});
+          }
+          setQuiz(q[0]);
+          setDamStats(getDamStats(subs));
+          setGs(p=>({...p,used:[...p.used,(q[0].question||"").slice(0,20)].slice(-5)}));
+          return;
+        }
       }
     },3000);
     return()=>clearInterval(timer);
@@ -517,8 +535,7 @@ function App(){
   useEffect(()=>{
     if(screen!=="app"||welcomeShownRef.current)return;
     welcomeShownRef.current=true;
-    const yd=new Date();yd.setDate(yd.getDate()-1);
-    const yk=yd.toISOString().slice(0,10);
+    const yk=jstYesterday();
     const yl=logsR.current.dailyLog?.[yk];
     if(yl&&yl.q>0){
       const subjs=(yl.subjects||[]).join("・");
@@ -558,7 +575,7 @@ function App(){
   useEffect(()=>{
     try{
       const p=localStorage.getItem(PROF);
-      if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");if(d.apiKeys&&Array.isArray(d.apiKeys))setApiKeys(d.apiKeys);else if(d.apiKey)setApiKeys([d.apiKey,"","",""]);}
+      if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");setGrade(calcGrade(d.birthday||""));if(d.apiKeys&&Array.isArray(d.apiKeys))setApiKeys(d.apiKeys);else if(d.apiKey)setApiKeys([d.apiKey,"","",""]);}
       const s=localStorage.getItem(SESS);
       if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:prev.best||0,wrong:0,qNum:1,used:[]}));}
     }catch(e){}
@@ -576,7 +593,7 @@ function App(){
         if(!p.debugHistory)p.debugHistory=[];
         if(!p.bestLoginStreak)p.bestLoginStreak=0;
         const td=today();
-        const yd2=new Date();yd2.setDate(yd2.getDate()-1);const yk2=yd2.toISOString().slice(0,10);
+        const yk2=jstYesterday();
         const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
         if(!isGap&&p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
@@ -608,7 +625,7 @@ function App(){
       next.recentHistory.push({correct,subject:subj,date:td});
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
-      if(next.lastLogin!==td){const y=new Date();y.setDate(y.getDate()-1);const ys=y.toISOString().slice(0,10);next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
+      if(next.lastLogin!==td){const ys=jstYesterday();next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){
         if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
@@ -764,7 +781,10 @@ function App(){
           const passed=valid.filter((_,j)=>{if(inspResults[j])return true;rejected++;return false;});
           totalRejected+=rejected;
           if(passed.length&&!cancelled){
-            addToDam(subj,passed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_inspected:true})));
+            const enriched=passed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_inspected:true}));
+            // 復習科目はストック先頭に挿入して優先使用
+            const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
+            if(isReviewSubj)addToDamFront(subj,enriched);else addToDam(subj,enriched);
             anyPassed=true;
           }
         }));
@@ -775,49 +795,42 @@ function App(){
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
-    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled)loop(ok?120000:90000);};
+    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled){const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;const next=isWaiting?15000:hasReview?45000:ok?120000:90000;loop(next);}};
     loop(15000);
     return()=>{cancelled=true;};
   },[screen]);
 
-  const fetchQ=useCallback(async(s,g,subj,review,reviewItem)=>{
+  const fetchQ=useCallback(async(g,subj,review,reviewItem)=>{
     if(fetchLk.current)return;fetchLk.current=true;
     const rid=Date.now()+Math.random();reqId.current=rid;
     const stale=()=>reqId.current!==rid;
     try{
       if(!stale()){resetState();setAppError("");}
-      if(!review){
-        const st=popFromDam(subj,1);
-        if(st.length){if(!stale()){setQuiz(st[0]);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subjectsR.current));setGs(p=>({...p,used:[...p.used,(st[0].question||"").slice(0,20)].slice(-5)}));}return;}
-        // ストック空 → 待機モード（即時生成しない）
-        if(!stale()){setLoading(false);setWaitingForStock(subj);}
+      // 常にストックから出題。直接生成しない。
+      // 指定科目を優先、0なら他科目へズレる、全科目0なら待機。
+      const subs=subjectsR.current;
+      const st=popFromDam(subj,1);
+      if(st.length){
+        if(!stale()){setQuiz(st[0]);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subs));setGs(p=>({...p,used:[...p.used,(st[0].question||"").slice(0,20)].slice(-5)}));}
         return;
       }
-      // 復習モードのみ即時生成（復習はストックと別管理のため維持）
-      if(!stale()){setLoading(true);setQuiz(null);}
-      const keys=keysR.current.filter(k=>k.trim());if(!keys.length)throw new Error("no key");
-      let ok=false;
-      for(const key of keys){
-        if(ok||stale())break;
-        try{
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:buildPrompt(g,subj,s,review,reviewItem,logsR.current)}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
-          const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-          if(!res.ok)continue;const data=await res.json();if(data.error)continue;
-          const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
-          let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
-          if(!Array.isArray(parsed))parsed=[parsed];
-          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q))
-            .map(q=>{if(subj==="算数"&&q.subject==="数学")return{...q,subject:"算数"};return q;});
-          if(!parsed.length)continue;
-          const enriched=parsed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_inspected:false}));
-          const[first,...rest]=enriched;
-          if(stale())return;
-          setQuiz(first);setGs(p=>({...p,used:[...p.used,(first.question||"").slice(0,20)].slice(-5)}));
-          if(rest.length){addToDam(subj,rest);setDamStats(getDamStats(subjectsR.current));}
-          setIsCooldown(false);ok=true;
-        }catch(e){console.error(e);}
+      // 指定科目が0 → 他科目へズレる
+      let shifted=null,shiftedSubj=subj;
+      for(const s of subs){
+        if(s===subj)continue;
+        const any=popFromDam(s,1);
+        if(any.length){shifted=any[0];shiftedSubj=s;break;}
       }
-      if(!ok&&!stale())throw new Error("fail");
+      if(shifted){
+        if(!stale()){
+          if(shiftedSubj!==subj)setSubject(shiftedSubj);
+          setQuiz(shifted);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subs));
+          setGs(p=>({...p,used:[...p.used,(shifted.question||"").slice(0,20)].slice(-5)}));
+        }
+        return;
+      }
+      // 全科目0 → 待機モード
+      if(!stale()){setLoading(false);setWaitingForStock(subj);}
     }catch(e){
       if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
@@ -827,7 +840,7 @@ function App(){
   const resetFetch=useCallback((subj,sg)=>{
     const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:0,qNum:1,used:[]};
     resetState();setGs(init);setSubject(subj);setWaitingForStock(null);
-    const g=sg||grade;requestAnimationFrame(()=>fetchQ(init,g,subj,false,null));
+    const g=sg||grade;requestAnimationFrame(()=>fetchQ(g,subj,false,null));
   },[grade,fetchQ]);
 
   // 分析ステップ回答
@@ -890,10 +903,18 @@ function App(){
           ns=pickSubject(cur);reason="バランス調整";
         }
         setNormaReason(reason);setSubject(ns);setIsReview(false);
-        const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subjectsR.current));
-        if(fromDam.length){setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));setQuiz(fromDam[0]);return;}
-        // ストック空 → 待機モード
-        setWaitingForStock(ns);return;
+        // 指定科目のストックを確認、0なら他科目へズレる
+        {
+          const subs=subjectsR.current;
+          const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subs));
+          if(fromDam.length){setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));setQuiz(fromDam[0]);return;}
+          // 指定科目が0 → 他科目へズレる
+          let shifted=null,shiftedSubj=ns;
+          for(const s of subs){if(s===ns)continue;const any=popFromDam(s,1);if(any.length){shifted=any[0];shiftedSubj=s;break;}}
+          if(shifted){setSubject(shiftedSubj);setDamStats(getDamStats(subs));setGs(p=>({...p,used:[...p.used,(shifted.question||"").slice(0,20)].slice(-5)}));setQuiz(shifted);return;}
+          // 全科目0 → 待機モード
+          setWaitingForStock(ns);return;
+        }
       }
       // フリーモード
       setNormaReason("");
@@ -907,7 +928,10 @@ function App(){
           setGs(p=>({...p,used:[...p.used,(fromDamReview[0].question||"").slice(0,20)].slice(-5)}));
           setQuiz(fromDamReview[0]);return;
         }
-        // ストックになければスキップして通常問題へ（バックグラウンドが補充したら次回出てくる）
+        // 復習キューがあるのにストックが0 → バックグラウンドが補充するまで待機（スキップしない）
+        // waitingForStockポーリングは全科目チェックするので、他に問題があれば自動でズレる
+        setSubject(item.subject);setIsReview(true);
+        setWaitingForStock(item.subject);return;
       }
       const cand=subjR.current;
       let fromDam=popFromDam(cand,1),ns=cand;
@@ -1190,15 +1214,26 @@ function App(){
                 )}
                 {!loading&&waitingForStock&&!quiz&&(
                   <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
-                    <div className="spin" style={{marginBottom:14}}></div>
-                    <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>⚡ 問題を準備中です...</div>
-                    <div style={{color:"#9990cc",fontSize:12,fontWeight:700}}>バックグラウンドで補充しています。<br/>そのままお待ちください！</div>
+                    {apiKeys.some(k=>k.trim())?(
+                      <>
+                        <div className="spin" style={{marginBottom:14}}></div>
+                        <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>⚡ 問題を準備中です...</div>
+                        <div style={{color:"#9990cc",fontSize:12,fontWeight:700}}>バックグラウンドで補充しています。<br/>そのままお待ちください！</div>
+                      </>
+                    ):(
+                      <>
+                        <div style={{fontSize:36,marginBottom:12}}>📦</div>
+                        <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:8}}>ストックがありません</div>
+                        <div style={{color:"#9990cc",fontSize:12,fontWeight:700,marginBottom:16}}>APIキーを登録すると問題が自動補充されます。</div>
+                        <button className="btn btn-primary" style={{maxWidth:240,margin:"0 auto"}} onClick={()=>setTab("settings")}>⚙️ 設定でAPIキーを登録</button>
+                      </>
+                    )}
                   </div>
                 )}
                 {appError&&!loading&&(
                   <div className="card">
-                    <div className="err">😅 問題を生成できませんでした！</div>
-                    <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(gsR.current,grade,subjR.current,false,null);}}>もう一度</button>
+                    <div className="err">😅 {appError}</div>
+                    <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(grade,subjR.current,false,null);}}>もう一度</button>
                   </div>
                 )}
                 {!loading&&quiz&&isCooldown&&(
