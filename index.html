@@ -182,7 +182,7 @@ const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Se
 const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];const take=Math.min(n,b.length);if(!take)return[];const r=b.slice(0,take);dam[subj]=b.slice(take);saveDam(dam);return r;};
 const getDamStats=()=>SUBJECTS.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
 const getDamTotal=()=>SUBJECTS.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
-const lowestBucket=()=>{const dam=getDam();let min=Infinity,cands=[];for(const s of SUBJECTS){const n=(dam[s]||[]).length;if(n<min){min=n;cands=[{subj:s,cnt:n}];}else if(n===min)cands.push({subj:s,cnt:n});}return cands.length?cands[Math.floor(Math.random()*cands.length)]:null;};
+const lowestBuckets=(n=1)=>{const dam=getDam();return SUBJECTS.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
 
 // ─── UTILS ───────────────────────────────────────────────────────
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
@@ -680,46 +680,53 @@ function App(){
     const doRefill=async()=>{
       if(cancelled||refillLk.current)return false;
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
-      // 復習キューにある科目を優先、なければ最少バケツ
-      const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))];
-      const reviewTarget=reviewSubjs.find(s=>(getDam()[s]||[]).length<DAM_MAX);
-      const target=reviewTarget?{subj:reviewTarget,cnt:(getDam()[reviewTarget]||[]).length}:lowestBucket();
-      if(!target||(!autoRefillR.current&&target.cnt>=DAM_MAX))return true;
+      const g=gradeR.current||calcGrade(bdR.current);
+      const dam=getDam();
+      // 復習キューの科目を優先、足りなければ最少バケツで埋める（キー数分まで）
+      const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))].filter(s=>(dam[s]||[]).length<DAM_MAX);
+      const byCount=lowestBuckets(keys.length);
+      const seen=new Set();const targets=[];
+      for(const s of reviewSubjs){if(!seen.has(s)&&targets.length<keys.length){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
+      for(const t of byCount){if(!seen.has(t.subj)&&targets.length<keys.length){targets.push(t);seen.add(t.subj);}}
+      const filtered=targets.filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
+      if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
-        const g=gradeR.current||calcGrade(bdR.current);
-        const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-        const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
-        const key=pickKey(keys);
-        const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-        if(!res.ok)return false;
-        const data=await res.json();if(data.error)return false;
-        const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return false;
-        let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return false;}
-        if(!Array.isArray(parsed))parsed=[parsed];
-        const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&q.subject===target.subj&&hasValidAnalysis(q));
-        if(valid.length){
-          // ─ 検査AI（直列実行でRPM消費を分散） ──────────────
-          const inspKey=pickKey(keys);
-          const passed=[];
+        // ─ 生成: キー数分を並列実行 ──────────────────────────
+        const genResults=await Promise.all(filtered.map(async(target,i)=>{
+          const key=keys[i%keys.length];
+          const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          try{
+            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+            if(!res.ok)return{subj:target.subj,valid:[]};
+            const data=await res.json();if(data.error)return{subj:target.subj,valid:[]};
+            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return{subj:target.subj,valid:[]};
+            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return{subj:target.subj,valid:[]};}
+            if(!Array.isArray(parsed))parsed=[parsed];
+            const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&q.subject===target.subj&&hasValidAnalysis(q));
+            return{subj:target.subj,valid};
+          }catch(e){return{subj:target.subj,valid:[]};}
+        }));
+        if(cancelled)return false;
+        // ─ 検査AI: 科目ごとに並列、問題内も並列 ─────────────
+        let totalRejected=0;let anyPassed=false;
+        await Promise.all(genResults.map(async({subj,valid},i)=>{
+          if(!valid.length||cancelled)return;
+          const inspKey=keys[i%keys.length];
+          const inspResults=await Promise.all(valid.map(q=>inspectQuestion(q,g,inspKey)));
           let rejected=0;
-          for(const q of valid){
-            if(cancelled)break;
-            const ok=await inspectQuestion(q,g,inspKey);
-            if(ok)passed.push(q);else rejected++;
+          const passed=valid.filter((_,j)=>{if(inspResults[j])return true;rejected++;return false;});
+          totalRejected+=rejected;
+          if(passed.length&&!cancelled){
+            addToDam(subj,passed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_inspected:true})));
+            anyPassed=true;
           }
-          if(cancelled)return false;
-          if(rejected>0){setRejectCount(p=>{const n=p+rejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
-          // ──────────────────────────────────────────────────
-          if(passed.length){addToDam(target.subj,passed.map(q=>
-  shuffleAllSteps({
-    ...q,
-    mistake_type:q.mistake_type||"不明",
-    _subject:target.subj,
-    _inspected:true
-  })
-      ));if(!cancelled)setDamStats(getDamStats());return true;}
-        }
+        }));
+        // ─────────────────────────────────────────────────────
+        if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
+        if(!cancelled)setDamStats(getDamStats());
+        return anyPassed;
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
@@ -801,6 +808,7 @@ function App(){
 
   // 次のステップへ / 完了
   const handleStepNext=()=>{
+    if(!analysisStep||analysisStep==="done")return;
     if(analysisStep<3){
       setAnalysisStep(p=>p+1);
       setStepAns(null);
@@ -1058,6 +1066,7 @@ function App(){
               <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31"/>
               <button className="btn btn-primary" onClick={()=>{
                 if(!birthday){setStartError("生年月日を入力してください");return;}
+                if(!apiKeys.some(k=>k.trim())){setStartError("Gemini APIキーを1つ以上入力してください");return;}
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats());
                 startWithNorma(logsR.current,g);
@@ -1567,7 +1576,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v6.2</div>
+                    <div>📚 まちがいラボ v6.3</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
                     <div>🛡️ 検査AI（品質フィルター）搭載</div>
