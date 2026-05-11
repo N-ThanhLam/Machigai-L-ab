@@ -13,7 +13,14 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"];
+// 学年に応じて科目リストを返す（小学生は算数、中学・高校は数学）
+const calcSubjects = (grade) => {
+  if (grade && (grade.startsWith("中") || grade.startsWith("高"))) {
+    return ["国語", "数学", "英語", "社会", "理科"];
+  }
+  return ["国語", "算数", "英語", "社会", "理科"];
+};
+const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"]; // 初期値（ロード前の表示用）
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
 const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。児童・生徒が「どこで間違えたか」に気づき、正しい考え方を理解できるよう支援することが目的です。問題は「ある生徒のよくある誤答」をもとに作成し、対象学年に合った自然な学習支援にしてください。
@@ -180,21 +187,23 @@ const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}ca
 const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
 const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));dam[subj]=[...ex,...qs.filter(q=>!keys.has((q.question||"").slice(0,30)))].slice(-DAM_MAX);saveDam(dam);};
 const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];const take=Math.min(n,b.length);if(!take)return[];const r=b.slice(0,take);dam[subj]=b.slice(take);saveDam(dam);return r;};
-const getDamStats=()=>SUBJECTS.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
-const getDamTotal=()=>SUBJECTS.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
-const lowestBuckets=(n=1)=>{const dam=getDam();return SUBJECTS.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
+const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
+const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
+const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
 
 // ─── UTILS ───────────────────────────────────────────────────────
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
-const today=()=>new Date().toISOString().slice(0,10);
+const today=()=>{const d=new Date();const jst=new Date(d.getTime()+9*60*60*1000);return jst.toISOString().slice(0,10);};
 let _ki=0;
 const pickKey=keys=>{const k=keys[_ki%keys.length];_ki++;return k;};
 
 // ─── STEP SHUFFLE ─────────────────────────────────────────────────
 const shuffleStep=step=>{
+  const origAnswer=typeof step.answer==="number"&&step.answer>=0&&step.answer<step.choices.length?step.answer:0;
   const ix=step.choices.map((c,i)=>({c,i}));
   for(let i=ix.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ix[i],ix[j]]=[ix[j],ix[i]];}
-  return{...step,choices:ix.map(x=>x.c),answer:ix.findIndex(x=>x.i===step.answer)};
+  const newAnswer=ix.findIndex(x=>x.i===origAnswer);
+  return{...step,choices:ix.map(x=>x.c),answer:newAnswer>=0?newAnswer:0};
 };
 const shuffleAllSteps=q=>({
   ...q,
@@ -232,7 +241,7 @@ const BADGES=[
   {id:"q50",        icon:"🏆",label:"50問の壁",           desc:"合計50問を解いた",                       cond:s=>s.totalQ>=50},
   // ─ むずかしい ─
   {id:"mastery3",   icon:"🗺️",label:"単元マスター",     desc:"3単元を習熟した",                        cond:s=>Object.values(s.topicMastery||{}).filter(t=>t.mastered).length>=3},
-  {id:"debug10",    icon:"⚖️",label:"バランス学習者",    desc:"全科目で正解率50%以上を達成",            cond:s=>{const r=calcSubjRates(s.recentHistory);return SUBJECTS.every(sub=>r[sub]&&r[sub].q>=3&&r[sub].c/r[sub].q>=0.5);}},
+  {id:"debug10",    icon:"⚖️",label:"バランス学習者",    desc:"全科目で正解率50%以上を達成",            cond:(s,subs)=>{const r=calcSubjRates(s.recentHistory);const sub=subs||SUBJECTS;return sub.every(sub=>r[sub]&&r[sub].q>=3&&r[sub].c/r[sub].q>=0.5);}},
   {id:"debugPerf",  icon:"🧠",label:"完璧な分析",        desc:"分析3ステップをすべて正解した",           cond:s=>(s.debugStats?.perfect||0)>=1},
   {id:"q100",       icon:"🎖️",label:"100問の山",         desc:"累計100問を解いた",                      cond:s=>s.totalQ>=100},
   {id:"recent80", icon:"🎯",label:"直近80%超え", desc:"直近100問で正解率80%以上", cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=80;}},
@@ -424,7 +433,7 @@ function App(){
   const [startError,setStartError]=useState("");
   const [appError,setAppError]=useState("");
   const [showSubjSel,setShowSubjSel]=useState(false);
-  const [damStats,setDamStats]=useState(getDamStats);
+  const [damStats,setDamStats]=useState(()=>getDamStats(calcSubjects(calcGrade(""))));
   const [isRefilling,setIsRefilling]=useState(false);
   const [logs,setLogs]=useState(initLogs);
   const [isReview,setIsReview]=useState(false);
@@ -452,6 +461,11 @@ function App(){
   const [importMsg,setImportMsg]=useState("");
   const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
   const autoRefillR=useRef(autoRefill);
+
+  // 学年に応じた科目リスト（gradeが変わると自動更新）
+  const subjects = calcSubjects(grade);
+  const subjectsR = useRef(subjects);
+  useEffect(()=>{ subjectsR.current = calcSubjects(grade); },[grade]);
   useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
 
   // ── 誤答分析ステート（フラット） ──
@@ -501,7 +515,7 @@ function App(){
   useEffect(()=>{
     const rates=calcSubjRates(logs.recentHistory);
     const prev=prevRatesRef.current;
-    for(const s of SUBJECTS){
+    for(const s of subjectsR.current){
       const r=rates[s];const p=prev[s];
       if(r&&r.q>=5&&p&&p.q>=5){
         const pr=p.c/p.q;const cr=r.c/r.q;
@@ -531,7 +545,7 @@ function App(){
       const s=localStorage.getItem(SESS);
       if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:prev.best||0,wrong:0,qNum:1,used:[]}));}
     }catch(e){}
-    loadLogs();setDamStats(getDamStats());
+    loadLogs();setDamStats(getDamStats(subjectsR.current));
   },[]);
 
   const loadLogs=()=>{
@@ -557,7 +571,8 @@ function App(){
   const saveLogs=nl=>{try{localStorage.setItem(STORE,JSON.stringify(nl));}catch(e){}};
 
   const checkBadges=(next)=>{
-    const earned=BADGES.filter(b=>!next.earnedBadges.includes(b.id)&&b.cond(next));
+    const subs=subjectsR.current;
+    const earned=BADGES.filter(b=>!next.earnedBadges.includes(b.id)&&b.cond(next,subs));
     if(earned.length){next.earnedBadges=[...next.earnedBadges,...earned.map(b=>b.id)];setNewBadges(earned);setTimeout(()=>setNewBadges([]),3500);}
   };
 
@@ -607,13 +622,15 @@ function App(){
 
   const getFireLevel=n=>{if(n>=30)return 5;if(n>=14)return 4;if(n>=7)return 3;if(n>=3)return 2;if(n>=1)return 1;return 0;};
   const pickSubject=cur=>{
+    const subs=subjectsR.current;
     const rates=calcSubjRates(cur.recentHistory);
-    const ws=SUBJECTS.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
+    const ws=subs.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
     const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
-    for(const x of ws){r-=x.w;if(r<=0)return x.s;}return SUBJECTS[0];
+    for(const x of ws){r-=x.w;if(r<=0)return x.s;}return subs[0];
   };
 
   const buildNormaQueue=cur=>{
+    const subs=subjectsR.current;
     const done=cur.dailyLog?.[today()]?.sessions||0;
     const needed=Math.max(0,3-done);
     if(!needed)return[];
@@ -625,7 +642,7 @@ function App(){
       result.push({subj:reviewSubj,reason:"復習タイム！"});used.add(reviewSubj);
     }
     // 優先2: 未挑戦・苦手順
-    const sorted=SUBJECTS.filter(s=>!used.has(s))
+    const sorted=subs.filter(s=>!used.has(s))
       .map(s=>{const r=rates[s];const rate=(r&&r.q>=3)?r.c/r.q:null;return{s,rate,q:r?.q||0};})
       .sort((a,b)=>{
         if(a.rate===null&&b.rate===null)return a.q-b.q;
@@ -656,13 +673,15 @@ function App(){
   const buildPrompt=(g,subj,s,review,reviewItem,cur)=>{
     const mon=new Date().getMonth()+1;
     const rates=calcSubjRates(cur.recentHistory);
-    const weak=SUBJECTS.filter(sub=>{const r=rates[sub];return r&&r.q>=3&&r.c/r.q<.6;});
+    const weak=calcSubjects(g).filter(sub=>{const r=rates[sub];return r&&r.q>=3&&r.c/r.q<.6;});
     const dam=getDam();
     const damTopics=[...new Set((dam[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-    let p=`\n学年:${g}\n時期:${mon}月\n科目:${subj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
+    // 中学・高校で「算数」が渡された場合は「数学」としてGeminiに要求
+    const promptSubj=(subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":subj;
+    let p=`\n学年:${g}\n時期:${mon}月\n科目:${promptSubj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
     p+=`【出題済み単元】以下の単元はストックに存在する。同じ単元でも問題文・題材・数値が異なれば出題可。完全に同じ問題は禁止:${damTopics}\n`;
-    if(review&&reviewItem)p+=`【復習】科目「${subj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
-    else p+=`科目「${subj}」から1問。`;
+    if(review&&reviewItem)p+=`【復習】科目「${promptSubj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
+    else p+=`科目「${promptSubj}」から1問。`;
     p+=`\nmistake_type を必ず含めること。`;
     p+=`\n「誤答付き問題」形式で student_answer・correct_answer・analysis_step1〜3 を必ず含めること。`;
     return p;
@@ -681,10 +700,11 @@ function App(){
       if(cancelled||refillLk.current)return false;
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
       const g=gradeR.current||calcGrade(bdR.current);
+      const curSubjects=calcSubjects(g);
       const dam=getDam();
       // 復習キューの科目を優先、足りなければ最少バケツで埋める（キー数分まで）
       const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))].filter(s=>(dam[s]||[]).length<DAM_MAX);
-      const byCount=lowestBuckets(keys.length);
+      const byCount=lowestBuckets(keys.length,curSubjects);
       const seen=new Set();const targets=[];
       for(const s of reviewSubjs){if(!seen.has(s)&&targets.length<keys.length){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
       for(const t of byCount){if(!seen.has(t.subj)&&targets.length<keys.length){targets.push(t);seen.add(t.subj);}}
@@ -696,7 +716,9 @@ function App(){
         const genResults=await Promise.all(filtered.map(async(target,i)=>{
           const key=keys[i%keys.length];
           const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${target.subj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
+          const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
           try{
             const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
             if(!res.ok)return{subj:target.subj,valid:[]};
@@ -704,7 +726,11 @@ function App(){
             const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return{subj:target.subj,valid:[]};
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return{subj:target.subj,valid:[]};}
             if(!Array.isArray(parsed))parsed=[parsed];
-            const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&q.subject===target.subj&&hasValidAnalysis(q));
+            const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+              // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
+              if(target.subj==="算数"&&q.subject==="数学")return{...q,subject:"算数"};
+              return q;
+            }).filter(q=>q.subject===target.subj);
             return{subj:target.subj,valid};
           }catch(e){return{subj:target.subj,valid:[]};}
         }));
@@ -725,7 +751,7 @@ function App(){
         }));
         // ─────────────────────────────────────────────────────
         if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
-        if(!cancelled)setDamStats(getDamStats());
+        if(!cancelled)setDamStats(getDamStats(subjectsR.current));
         return anyPassed;
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
@@ -743,7 +769,7 @@ function App(){
       if(!stale()){resetState();setAppError("");}
       if(!review){
         const st=popFromDam(subj,1);
-        if(st.length){const q=st[0];if(!stale()){setQuiz(q);setLoading(false);setIsCooldown(false);setDamStats(getDamStats());setGs(p=>({...p,used:[...p.used,(q.question||"").slice(0,20)].slice(-5)}));}return;}
+        if(st.length){const q=st[0];if(!stale()){setQuiz(q);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subjectsR.current));setGs(p=>({...p,used:[...p.used,(q.question||"").slice(0,20)].slice(-5)}));}return;}
       }
       if(!stale()){setLoading(true);setQuiz(null);}
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)throw new Error("no key");
@@ -757,7 +783,8 @@ function App(){
           const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
           let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
           if(!Array.isArray(parsed))parsed=[parsed];
-          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q));
+          parsed=parsed.filter(q=>q&&q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q))
+            .map(q=>{if(subj==="算数"&&q.subject==="数学")return{...q,subject:"算数"};return q;});
           if(!parsed.length)continue;
           // ─ 検査AI ─────────────────────────────────────────
           const inspKey2=pickKey(keys);
@@ -778,11 +805,11 @@ function App(){
           const[first,...rest]=enriched;
           if(stale())return;
           setQuiz(first);setGs(p=>({...p,used:[...p.used,(first.question||"").slice(0,20)].slice(-5)}));
-          if(rest.length){addToDam(subj,rest);setDamStats(getDamStats());}
+          if(rest.length){addToDam(subj,rest);setDamStats(getDamStats(subjectsR.current));}
           setIsCooldown(false);ok=true;
         }catch(e){console.error(e);}
       }
-      if(!ok&&!stale()){const fb=popFromDam(subj,1);if(fb.length){setQuiz(fb[0]);setIsCooldown(true);setDamStats(getDamStats());return;}throw new Error("fail");}
+      if(!ok&&!stale()){const fb=popFromDam(subj,1);if(fb.length){setQuiz(fb[0]);setIsCooldown(true);setDamStats(getDamStats(subjectsR.current));return;}throw new Error("fail");}
     }catch(e){
       if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
@@ -815,7 +842,7 @@ function App(){
     }else{
       const finalResults=[...stepResults];
       const score=finalResults.filter(Boolean).length;
-      const correct=score>=2;
+      const correct=score>=3;
       // ⑥ 連続正解が途切れたとき
       if(!correct&&gs.streak>=3){
         setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
@@ -855,7 +882,7 @@ function App(){
           ns=pickSubject(cur);reason="バランス調整";
         }
         setNormaReason(reason);setSubject(ns);setIsReview(false);
-        const fromDam=popFromDam(ns,1);setDamStats(getDamStats());
+        const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subjectsR.current));
         if(fromDam.length){setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));setQuiz(fromDam[0]);return;}
         await fetchQ(gsR.current,gradeR.current,ns,false,null);return;
       }
@@ -867,7 +894,7 @@ function App(){
         if(fromDamReview.length){
           // ストックにあればそこから即出題
           setLogs(p=>{const n={...p,reviewQueue:p.reviewQueue.slice(1)};saveLogs(n);return n;});
-          setSubject(item.subject);setIsReview(true);setDamStats(getDamStats());
+          setSubject(item.subject);setIsReview(true);setDamStats(getDamStats(subjectsR.current));
           setGs(p=>({...p,used:[...p.used,(fromDamReview[0].question||"").slice(0,20)].slice(-5)}));
           setQuiz(fromDamReview[0]);return;
         }
@@ -875,10 +902,10 @@ function App(){
       }
       const cand=subjR.current;
       let fromDam=popFromDam(cand,1),ns=cand;
-      if(!fromDam.length){for(const s of SUBJECTS){if(s===cand)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
+      if(!fromDam.length){for(const s of subjectsR.current){if(s===cand)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
       if(fromDam.length){
         if(ns!==subjR.current)setSubject(ns);
-        setIsReview(false);setDamStats(getDamStats());
+        setIsReview(false);setDamStats(getDamStats(subjectsR.current));
         setGs(p=>({...p,used:[...p.used,(fromDam[0].question||"").slice(0,20)].slice(-5)}));
         setQuiz(fromDam[0]);return;
       }
@@ -904,14 +931,14 @@ function App(){
   const clearStock=()=>{
     if(!confirm("ストック問題をすべて削除しますか？\nこの操作は取り消せません。"))return;
     try{localStorage.removeItem(DAM_KEY);}catch(e){}
-    setDamStats(getDamStats());
+    setDamStats(getDamStats(subjectsR.current));
     alert("ストック問題を削除しました。");
   };
 
   const clearAllData=()=>{
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
     try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");}catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats());setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);
+    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1,used:[]});setRejectCount(0);
     alert("データを削除しました。");
   };
 
@@ -959,7 +986,7 @@ function App(){
               current[subj]=[...merged,...incoming].slice(-DAM_MAX);
             }
           }
-          saveDam(current);setDamStats(getDamStats());
+          saveDam(current);setDamStats(getDamStats(subjectsR.current));
         }
         if(d.birthday){
           setBirthday(d.birthday);
@@ -980,7 +1007,7 @@ function App(){
   // ── 派生値 ────────────────────────────────
   const recent100=calcRecent100(logs.recentHistory);
   const subjRateMap=calcSubjRates(logs.recentHistory);
-  const subjectRates=SUBJECTS.map(s=>{const r=subjRateMap[s];return r&&r.q>0?{s,rate:Math.round(r.c/r.q*100),q:r.q}:{s,rate:null,q:0};});
+  const subjectRates=subjects.map(s=>{const r=subjRateMap[s];return r&&r.q>0?{s,rate:Math.round(r.c/r.q*100),q:r.q}:{s,rate:null,q:0};});
   // ④ 昨日との比較メッセージ
   const yesterdayKey=(()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})();
   const todayQ=logs.dailyLog?.[today()]?.q||0;
@@ -989,7 +1016,7 @@ function App(){
   const rateColor=recent100?(recent100.rate>=80?"#22c55e":recent100.rate>=60?"#f59e0b":"#ef4444"):"#9990cc";
   const rateBg=recent100?(recent100.rate>=80?"#f0fdf4":recent100.rate>=60?"#fffbeb":"#fff7f7"):"#f8f7ff";
   const rateBorder=recent100?(recent100.rate>=80?"#86efac":recent100.rate>=60?"#fde68a":"#fca5a5"):"#e8e3ff";
-  const damTotal=getDamTotal();
+  const damTotal=getDamTotal(subjects);
   const stageClr=["s1","s2","s3"];
   const stageIcon=["🔍","🧩","✅"];
   const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
@@ -1068,7 +1095,7 @@ function App(){
                 if(!birthday){setStartError("生年月日を入力してください");return;}
                 if(!apiKeys.some(k=>k.trim())){setStartError("Gemini APIキーを1つ以上入力してください");return;}
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
-                const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats());
+                const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
                 startWithNorma(logsR.current,g);
               }} style={{marginTop:10}}>学習をはじめる →</button>
 
@@ -1228,10 +1255,10 @@ function App(){
                   <div className="an-card">
                     <div className="an-complete">
                       <span className="an-complete-icon">
-                        {stepResults.filter(Boolean).length===3?"🧠":stepResults.filter(Boolean).length>=2?"🎉":"🌱"}
+                        {stepResults.filter(Boolean).length===3?"🧠":"🌱"}
                       </span>
                       <div style={{fontSize:21,fontWeight:900,color:"#1e1e3a",marginBottom:4}}>
-                        {stepResults.filter(Boolean).length===3?"完璧な分析！":stepResults.filter(Boolean).length>=2?"よく見えました":"もう一度チャレンジしよう"}
+                        {stepResults.filter(Boolean).length===3?"完璧な分析！":"もう一度チャレンジしよう"}
                       </div>
                       <div style={{fontSize:13,color:"#7c6fb0",marginBottom:12}}>
                         {stepResults.filter(Boolean).length} / 3 ステップ正解
@@ -1275,7 +1302,7 @@ function App(){
                     <div className="card" style={{padding:14,background:"#f8f7ff"}}>
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-                        {SUBJECTS.map(s=>(
+                        {subjects.map(s=>(
                           <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} disabled={loading}>{s}</button>
                         ))}
                         <button className="btn btn-ghost" style={{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick={()=>setShowSubjSel(false)} disabled={loading}>もどる</button>
@@ -1287,11 +1314,11 @@ function App(){
                         <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} disabled={loading}>科目選択</button>
                         <button className="btn btn-ghost" onClick={()=>{
                           const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
-                          const un=SUBJECTS.filter(s=>!rates[s]||rates[s].q===0);
+                          const un=subjects.filter(s=>!rates[s]||rates[s].q===0);
                           if(un.length&&Math.random()<.7){resetFetch(un[Math.floor(Math.random()*un.length)]);return;}
-                          let ws=SUBJECTS[0],mr=Infinity,found=false;
-                          for(const s of SUBJECTS){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
-                          if(!found){const qc=SUBJECTS.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
+                          let ws=subjects[0],mr=Infinity,found=false;
+                          for(const s of subjects){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
+                          if(!found){const qc=subjects.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
                           resetFetch(ws);
                         }} disabled={loading}>苦手科目</button>
                       </div>
@@ -1452,7 +1479,7 @@ function App(){
                     </div>
                   </div>
                   <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*SUBJECTS.length)*100)}%`,background:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}></div></div></div>
-                  {SUBJECTS.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
+                  {subjects.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
                     <div key={s} className="dam-row">
                       <span className="dam-label">{s}</span>
                       <div className="dam-bw"><div className="dam-bf" style={{width:`${pct}%`,background:c}}></div></div>
@@ -1576,7 +1603,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v6.3</div>
+                    <div>📚 まちがいラボ v6.4</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
                     <div>🛡️ 検査AI（品質フィルター）搭載</div>
