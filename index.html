@@ -148,9 +148,9 @@ const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+(getDam()[s]||[]
 const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
 
 // ─── UTILS ───────────────────────────────────────────────────────
-const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
+const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth+"T00:00:00"),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
-const jstYesterday=()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});};
+const jstYesterday=()=>{const d=new Date(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}));d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE');};
 let _ki=0;
 
 // ─── STEP SHUFFLE ─────────────────────────────────────────────────
@@ -505,6 +505,15 @@ const initLogs=()=>({
 const AnalysisPanel=React.memo(({quiz,analysisStep,stepAns,stepResults,currentStep,stageClr,stageIcon,onAnswer,onNext,onReport,currentReviewItemId,setLogs,saveLogs,isReview,isNorma,todaySess})=>{
   if(!quiz||!analysisStep)return null;
   const ModeBanner=()=>{
+    if(isReview&&isNorma) return(
+      <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:16}}>📝</span>
+        <div>
+          <div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>ノルマ中の復習問題 {todaySess+1} / 3</div>
+          <div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題！全正解でノルマも+1 🎯</div>
+        </div>
+      </div>
+    );
     if(isReview) return(
       <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>📝</span>
@@ -519,7 +528,7 @@ const AnalysisPanel=React.memo(({quiz,analysisStep,stepAns,stepResults,currentSt
         <span style={{fontSize:16}}>🎯</span>
         <div>
           <div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div>
-          <div style={{fontSize:11,color:"#4c1d95"}}>3問クリアでノルマ達成！</div>
+          <div style={{fontSize:11,color:"#4c1d95"}}>3ステップ全正解でノルマ+1！</div>
         </div>
       </div>
     );
@@ -629,6 +638,7 @@ function App(){
 
   const [screen,setScreen]=useState("start");
   const [tab,setTab]=useState("learn");
+  const [setupProgress,setSetupProgress]=useState([]); // [{subj,status:"waiting"|"generating"|"done"|"error"}]
   const [apiKeys,setApiKeys]=useState(["","","",""]);
   const [birthday,setBirthday]=useState("");
   const [grade,setGrade]=useState("");
@@ -667,6 +677,8 @@ function App(){
   const [showRestartMsg,setShowRestartMsg]=useState(false);
   // 他科目スライドメッセージ
   const [subjectSlideMsg,setSubjectSlideMsg]=useState("");
+  // 報告完了メッセージ
+  const [reportMsg,setReportMsg]=useState("");
   const normaQueueR=useRef([]);
   const prevRatesRef=useRef({});
   const welcomeShownRef=useRef(false);
@@ -710,18 +722,14 @@ function App(){
       // nextLk/fetchLk が立っている間（handleNext・fetchQ処理中）は上書きしない
       if(nextLk.current||fetchLk.current)return;
       const subs=subjectsR.current;
-      // スナップショット科目を優先、なければ他科目へズレる
-      for(const s of [snapshotSubj,...subs.filter(x=>x!==snapshotSubj)]){
-        const q=popFromDam(s,1);
-        if(q.length){
-          pollingCancelRef.current++; // 自分を含む旧tickを全て無効化してからsetState
-          setWaitingForStock(null);
-          if(s!==snapshotSubj){setSubject(s);setIsReview(false);setSubjectSlideMsg(`📦 ${displaySubject(snapshotSubj,currentGrade)}のストックがなかったため、${displaySubject(s,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
-          // 復習待機中に問題が来てもキュー削除はしない（分析完了後にIDで削除）
-          setQuiz(q[0]);
-          setDamStats(getDamStats(subs));
-          return;
-        }
+      // 緊急生成した3問は指定科目専用なので、他科目へはズレない
+      const q=popFromDam(snapshotSubj,1);
+      if(q.length){
+        pollingCancelRef.current++; // 自分を含む旧tickを全て無効化してからsetState
+        setWaitingForStock(null);
+        // 復習待機中に問題が来てもキュー削除はしない（分析完了後にIDで削除）
+        setQuiz(q[0]);
+        setDamStats(getDamStats(subs));
       }
     },3000);
     return()=>{clearInterval(timer);};
@@ -800,7 +808,7 @@ function App(){
       const p=localStorage.getItem(PROF);
       if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");setGrade(calcGrade(d.birthday||""));if(d.apiKeys&&Array.isArray(d.apiKeys))setApiKeys(d.apiKeys);else if(d.apiKey)setApiKeys([d.apiKey,"","",""]);}
       const s=localStorage.getItem(SESS);
-      if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:prev.best||0,wrong:0,qNum:1}));}
+      if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:p2.best||0,wrong:0,qNum:1}));}
     }catch(e){}
     loadLogs();setDamStats(getDamStats(subjectsR.current));
   },[]);
@@ -902,14 +910,14 @@ function App(){
     if(earned.length){next.earnedBadges=[...next.earnedBadges,...earned.map(b=>b.id)];setNewBadges(earned);setTimeout(()=>setNewBadges([]),3500);}
   };
 
-  const updateLogs=useCallback((correct,subj,wrongItem,newBest)=>{
+  const updateLogs=useCallback((correct,subj,wrongItem,newBest,sessionComplete)=>{
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));const td=today();
       if(!next.subjectStats[subj])next.subjectStats[subj]={q:0,c:0};
       next.subjectStats[subj].q++;if(correct)next.subjectStats[subj].c++;
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
-      if(correct)next.dailyLog[td].sessions++; // 3/3正解のセッションのみノルマカウント
+      if(sessionComplete)next.dailyLog[td].sessions++; // 3/3正解のセッションのみノルマカウント
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
@@ -959,7 +967,7 @@ function App(){
   const pickSubject=cur=>{
     const subs=subjectsR.current;
     const rates=calcSubjRates(cur.recentHistory);
-    const ws=subs.map(s=>{const r=rates[s];if(!r||r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
+    const ws=subs.map(s=>{const r=rates[s];if(!r||r.q===0)return{s,w:5};if(r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
     const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
     for(const x of ws){r-=x.w;if(r<=0)return x.s;}return subs[0];
   };
@@ -990,7 +998,7 @@ function App(){
       });
     for(const{s,rate,q}of sorted){
       if(result.length>=needed)break;
-      const reason=q===0?"まだ未挑戦！":rate<0.5?"苦手科目！":rate<0.7?"もう少し！":"バランス調整";
+      const reason=q===0?"まだ未挑戦！":rate===null?"挑戦中！":rate<0.5?"苦手科目！":rate<0.7?"もう少し！":"バランス調整";
       result.push({subj:s,reason});used.add(s);
     }
     return result;
@@ -1119,6 +1127,9 @@ function App(){
   // ─── 緊急生成: ストックが空のとき即座に3問生成してDAMに積む ──────────
   const generateEmergency=useCallback(async(subj,g)=>{
     if(emergencyGenLk.current)return null;
+    // バックグラウンド補充が走っている間は重複API呼び出しを避ける
+    // → null を返すと waiting 状態へ移行し、補充完了後にポーリングで拾う
+    if(refillLk.current)return null;
     const keys=keysR.current.filter(k=>k.trim());
     if(!keys.length)return null;
     emergencyGenLk.current=true;setIsEmergencyGen(true);
@@ -1142,9 +1153,14 @@ function App(){
         return{...q,subject:normSubj};
       }).filter(q=>q.subject===subj);
       const localPassed=valid.filter(q=>localValidate(q));
+      // doRefill と同様に棄却数を記録する
+      const localRejected=valid.length-localPassed.length;
+      if(localRejected>0){setRejectCount(p=>{const n=p+localRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
       if(!localPassed.length)return null;
       const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
-      addToDam(subj,toStore);
+      // doRefill と同様に復習対象科目は先頭挿入して優先出題
+      const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
+      if(isReviewSubj)addToDamFront(subj,toStore);else addToDam(subj,toStore);
       const pop=popFromDam(subj,1);
       return pop.length?pop[0]:null;
     }catch(e){return null;}
@@ -1166,22 +1182,7 @@ function App(){
         if(!stale()){setQuiz(st[0]);setDamStats(getDamStats(subs));}
         return;
       }
-      // 指定科目が0 → 他科目へズレる
-      let shifted=null,shiftedSubj=subj;
-      for(const s of subs){
-        if(s===subj)continue;
-        const any=popFromDam(s,1);
-        if(any.length){shifted=any[0];shiftedSubj=s;break;}
-      }
-      if(shifted){
-        if(!stale()){
-          if(shiftedSubj!==subj){setSubject(shiftedSubj);setSubjectSlideMsg(`📦 ${displaySubject(subj,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
-          setQuiz(shifted);setDamStats(getDamStats(subs));
-          
-        }
-        return;
-      }
-      // 全科目0 → 緊急生成（3問）
+      // ストックなし → 緊急生成（3問）。他科目へはズレない
       if(!stale()){
         const generated=await generateEmergency(subj,currentGrade);
         if(!stale()){
@@ -1206,7 +1207,7 @@ function App(){
   },[]);
 
   const resetFetch=useCallback((subj,sg)=>{
-    const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:0,qNum:1};
+    const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:cur.wrong,qNum:1};
     // fetchLk/nextLkを明示リセット。rAF前に解放しないとfetchQ冒頭ガードで弾かれる。
     fetchLk.current=false;nextLk.current=false;
     resetState();setGs(init);setSubject(subj);pollingCancelRef.current++;setWaitingForStock(null);
@@ -1239,7 +1240,7 @@ function App(){
         setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
         setTimeout(()=>setStreakBrokenMsg(""),3500);
       }
-      const wrongItem=!correct?{
+      const wrongItem=score<=1?{
       id:crypto.randomUUID(),
       topic:quiz.topic_tag||quiz.question.slice(0,20),
       subject,
@@ -1247,7 +1248,7 @@ function App(){
      }:null;
       const nextStr=correct?gs.streak+1:0;
       const newBest=Math.max(gs.best,nextStr);
-      updateLogs(correct,subject,wrongItem,newBest);
+      updateLogs(correct,subject,wrongItem,newBest,score===3);
       updateAnalysisStats(finalResults,subject);
       setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
       setAnalysisStep("done");
@@ -1287,16 +1288,12 @@ function App(){
           ns=pickSubject(cur);reason="バランス調整";
         }
         setNormaReason(reason);setSubject(ns);
-        // 指定科目のストックを確認、0なら他科目へズレる
+        // 指定科目のストックを確認、0なら緊急生成（他科目へはズレない）
         {
           const subs=subjectsR.current;
           const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subs));
           if(fromDam.length){setQuiz(fromDam[0]);return;}
-          // 指定科目が0 → 他科目へズレる
-          let shifted=null,shiftedSubj=ns;
-          for(const s of subs){if(s===ns)continue;const any=popFromDam(s,1);if(any.length){shifted=any[0];shiftedSubj=s;break;}}
-          if(shifted){setSubject(shiftedSubj);setDamStats(getDamStats(subs));setQuiz(shifted);if(shiftedSubj!==ns){setSubjectSlideMsg(`📦 ${displaySubject(ns,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}return;}
-          // 全科目0 → 緊急生成（3問）
+          // ストックなし → 緊急生成（3問）
           {
             const generated=await generateEmergency(ns,currentGrade);
             if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
@@ -1328,20 +1325,17 @@ function App(){
         return;
       }
       const cand=subjR.current;
-      let fromDam=popFromDam(cand,1),ns=cand;
-      if(!fromDam.length){for(const s of subjectsR.current){if(s===cand)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
+      const fromDam=popFromDam(cand,1);
       if(fromDam.length){
-        if(ns!==subjR.current){setSubject(ns);setSubjectSlideMsg(`📦 ${displaySubject(subjR.current,currentGrade)}のストックがなかったため、${displaySubject(ns,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
         setIsReview(false);setDamStats(getDamStats(subjectsR.current));
-        
         setQuiz(fromDam[0]);return;
       }
-      setIsReview(false);if(ns!==subjR.current)setSubject(ns);
-      // ストック空 → 緊急生成（3問）
+      setIsReview(false);
+      // ストック空 → 緊急生成（3問）。他科目へはズレない
       {
-        const generated=await generateEmergency(ns,currentGrade);
+        const generated=await generateEmergency(cand,currentGrade);
         if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
-        else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);}
+        else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(cand);}
       }
     }finally{
       // 待機モード突入時は polling にすぐ制御を渡すため即解放。
@@ -1349,6 +1343,68 @@ function App(){
       if(enteredWaiting){nextLk.current=false;}
       else{setTimeout(()=>{nextLk.current=false;},150);}
     }
+  };
+
+  // ─── 初回セットアップ: 全科目1リクエストずつ直列生成 ──────────────
+  const runInitialSetup=async(g,keys)=>{
+    const subs=calcSubjects(g);
+    const initProgress=subs.map(s=>({subj:s,status:"waiting"}));
+    setSetupProgress(initProgress);
+    setScreen("setup");
+    const validKey=keys.filter(k=>k.trim());
+    let ki=0;
+    for(let i=0;i<subs.length;i++){
+      const subj=subs[i];
+      setSetupProgress(p=>p.map(x=>x.subj===subj?{...x,status:"generating"}:x));
+      {
+        const MAX_RETRY=3;let lastErr=null;let succeeded=false;
+        for(let attempt=0;attempt<MAX_RETRY;attempt++){
+          if(attempt>0){
+            const wait=attempt===1?3000:6000;
+            setSetupProgress(p=>p.map(x=>x.subj===subj?{...x,status:`retry${attempt}`}:x));
+            await new Promise(r=>setTimeout(r,wait));
+            setSetupProgress(p=>p.map(x=>x.subj===subj?{...x,status:"generating"}:x));
+          }
+          try{
+            const key=validKey[ki%validKey.length];ki++;
+            const promptSubj=(subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":subj;
+            const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+            if(res.status===503||res.status===429){lastErr=new Error(`http_${res.status}`);continue;}
+            if(!res.ok)throw new Error(`http_${res.status}`);
+            const data=await res.json();if(data.error)throw new Error("api_error");
+            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)throw new Error("no_text");
+            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){throw new Error("parse_error");}
+            if(!Array.isArray(parsed))parsed=[parsed];
+            const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+              const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
+              if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+              if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
+              return{...q,subject:normSubj};
+            }).filter(q=>q.subject===subj);
+            const passed=valid.filter(q=>localValidate(q)).map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
+            if(passed.length)addToDam(subj,passed);
+            setSetupProgress(p=>p.map(x=>x.subj===subj?{...x,status:"done"}:x));
+            succeeded=true;break;
+          }catch(e){
+            lastErr=e;
+            // 503/429以外の即時失敗エラーはリトライしない
+            if(!e.message?.startsWith("http_5")&&e.message!=="http_429")break;
+          }
+        }
+        if(!succeeded){
+          console.error("[setup] failed for",subj,lastErr?.message||lastErr);
+          setSetupProgress(p=>p.map(x=>x.subj===subj?{...x,status:"error"}:x));
+        }
+      }
+      // 科目間に少しウェイト（レート制限対策）
+      if(i<subs.length-1)await new Promise(r=>setTimeout(r,1200));
+    }
+    // 完了 → アプリ画面へ
+    const cur=logsR.current;
+    setDamStats(getDamStats(subs));
+    setScreen("app");setTab("learn");
+    startWithNorma(cur,g);
   };
 
   const saveSettings=()=>{
@@ -1471,12 +1527,11 @@ function App(){
   const bestDayScore=Math.min(100,logs.bestDayScore||0);
 
   const cal28=Array.from({length:28},(_,i)=>{
-    const base=new Date();const jst=new Date(base.getTime()+9*60*60*1000);
-    jst.setUTCDate(jst.getUTCDate()-(27-i));
-    const key=jst.toISOString().slice(0,10);
-    const dayOfMonth=jst.getUTCDate();
+    const base=new Date(today());base.setDate(base.getDate()-(27-i));
+    const key=base.toISOString().slice(0,10);
+    const dayOfMonth=base.getUTCDate();
     const l=logs.dailyLog?.[key];
-    return{key,d:dayOfMonth,dow:((jst.getUTCDay())),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
+    return{key,d:dayOfMonth,dow:base.getUTCDay(),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
   });
 
   const masteryList=Object.entries(logs.topicMastery||{})
@@ -1526,6 +1581,8 @@ function App(){
         {showRestartMsg&&<div className="toast-base" style={{background:"#f0fdf4",border:"2px solid #86efac",color:"#166534",top:20}}>久しぶり！また一緒に頑張ろう 🌱</div>}
         {/* 他科目スライド */}
         {subjectSlideMsg&&<div className="toast-base" style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",top:20}}>{subjectSlideMsg}</div>}
+        {/* 報告完了 */}
+        {reportMsg&&<div className="toast-base" style={{background:"#1e1e3a",color:"#fff",top:20}}>{reportMsg}</div>}
         {/* ① 正解バースト */}
         {showCorrectBurst&&<React.Fragment><div className="correct-burst"/><div className="correct-burst-2"/></React.Fragment>}
 
@@ -1550,19 +1607,27 @@ function App(){
               <button className="btn btn-primary" onClick={()=>{
                 if(!birthday){setStartError("生年月日を入力してください");return;}
                 setStartError("");
-                // APIキー未入力でも先に進める（キーなし時はストックから出題、補充・生成はスキップ）
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
-                const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
-                startWithNorma(logsR.current,g);
+                const g=calcGrade(birthday);setGrade(g);
+                const validKeys=apiKeys.filter(k=>k.trim());
+                const stockEmpty=calcSubjects(g).every(s=>(getDam()[s]||[]).length===0);
+                if(validKeys.length>0&&stockEmpty){
+                  // 初回セットアップ: 全科目一気に生成
+                  runInitialSetup(g,apiKeys);
+                }else{
+                  setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
+                  startWithNorma(logsR.current,g);
+                }
               }} style={{marginTop:10}}>学習をはじめる →</button>
 
               <div style={{marginTop:20,padding:"14px 16px",background:"#f8f7ff",borderRadius:14,textAlign:"left"}}>
                 <div style={{fontSize:11,fontWeight:900,color:"#9990cc",letterSpacing:".06em",marginBottom:10}}>📋 はじめる前に</div>
                 {[
-                  ["🔑","APIキーなしでもストック問題で遊べます。　　　　　　　キーを入れると問題が自動補充されより快適になります。"],
-                  ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
-                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
-                  ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
+                  ["🔑","APIキーはGoogle公式サイトから無料で取得できます。上記のリンクから取得してください。"],
+                  ["📦","問題はバックグラウンドで自動生成・ストックされます。アプリを開いたまま放置するほど快適になります。"],
+                  ["⏳","はじめて起動するときは、アプリを開いたまま15〜20分ほど放置してください。通信混雑により、午後時間ではうまくいかない場合があります。"],
+                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、安定して動作します（Googleアカウントの数だけ取得可）"],
+                  ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。「問題を報告」ボタンで復習リストから除外できます。"],
                 ].map(([icon,text])=>(
                   <div key={icon} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
                     <span style={{flexShrink:0}}>{icon}</span>
@@ -1570,6 +1635,35 @@ function App(){
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SETUP ── */}
+        {screen==="setup"&&(
+          <div style={{maxWidth:440,margin:"40px auto"}}>
+            <div className="card" style={{textAlign:"center",padding:"32px 24px"}}>
+              <div style={{fontSize:48,marginBottom:10}}>📚</div>
+              <h1 style={{fontSize:22,fontWeight:900,color:"#5b3ff8",marginBottom:6}}>問題を準備しています…</h1>
+              <p style={{color:"#9990cc",fontSize:13,marginBottom:24}}>はじめての起動なので全科目の問題を生成します。<br/>このまましばらくお待ちください ✨</p>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {setupProgress.map(({subj,status})=>{
+                  const icons={waiting:"⏳",generating:"⚡",done:"✅",error:"⚠️"};
+                  const colors={waiting:"#9990cc",generating:"#5b3ff8",done:"#16a34a",error:"#dc2626",retry1:"#f59e0b",retry2:"#f59e0b"};
+                  const labels={waiting:"待機中",generating:"生成中…",done:"完了！",error:"スキップ",retry1:"混雑中…再試行(1/3)",retry2:"混雑中…再試行(2/3)"};
+                  return(
+                    <div key={subj} style={{display:"flex",alignItems:"center",gap:12,background:status==="done"?"#f0fdf4":status==="generating"?"#ede9ff":"#f8f7ff",border:`1.5px solid ${status==="done"?"#86efac":status==="generating"?"#a78bfa":"#e8e3ff"}`,borderRadius:14,padding:"12px 16px",transition:"all .3s"}}>
+                      <span style={{fontSize:22}}>{icons[status]}</span>
+                      <div style={{flex:1,textAlign:"left"}}>
+                        <div style={{fontWeight:900,fontSize:15,color:"#1e1e3a"}}>{subj}</div>
+                        <div style={{fontSize:12,color:colors[status],fontWeight:700}}>{labels[status]}</div>
+                      </div>
+                      {status==="generating"&&<span className="refill-dot"></span>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{marginTop:20,fontSize:12,color:"#bbb"}}>全{setupProgress.length}科目 完了次第、自動でスタートします</div>
             </div>
           </div>
         )}
@@ -1687,14 +1781,15 @@ function App(){
                     isReview={!!currentReviewItemId}
                     isNorma={!currentReviewItemId&&!dailyGoalMet}
                     todaySess={todaySessions}
-                    onReport={()=>{
+                    onReport={async ()=>{
                       const rid=currentReviewItemId;
-                      const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
                       // normalize済みで id は常に存在する。idなしの場合は安全側に倒して削除しない。
                       setLogs(p=>{const n=JSON.parse(JSON.stringify(p));
                         if(rid){n.reviewQueue=(n.reviewQueue||[]).filter(q=>q.id!==rid);}
-                        saveLogs(n);return n;});
-                      alert("報告しました。復習リストから削除されます。");
+                        saveLogs(n);logsR.current=n;return n;});
+                      setReportMsg("⚠️ 報告しました。復習リストから削除されます。");
+                      setTimeout(()=>setReportMsg(""),3000);
+                      await handleNext();
                     }}
                   />
                 )}
@@ -1868,7 +1963,7 @@ function App(){
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                     <div className="section-title" style={{margin:0}}>📦 問題ストック</div>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      {isRefilling&&<span className="refill-dot"></span>}
+                      {(isRefilling||isEmergencyGen)&&<span className="refill-dot"></span>}
                       <span style={{fontSize:12,fontWeight:900,color:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}>{damTotal}/{DAM_MAX*subjects.length}問</span>
                     </div>
                   </div>
@@ -1880,7 +1975,7 @@ function App(){
                       <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
                     </div>
                   );})}
-                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:waitingForStock?"⏳ 問題を待機中...（バックグラウンドで補充します）":`✓ ${autoRefill?"自動更新ON（常に最新）":"自動更新ON（ストックが満たされたら停止）"}`}</div>
+                  <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isEmergencyGen?"⚡ 緊急生成中...（3問をすぐ作っています）":isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:waitingForStock?"⏳ 問題を待機中...（バックグラウンドで補充します）":`✓ ${autoRefill?"自動更新ON（常に最新）":"自動更新ON（ストックが満たされたら停止）"}`}</div>
                   {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🚫 品質フィルター棄却: {rejectCount}問（ローカル検証不合格）</div>}
                 </div>
               </React.Fragment>
