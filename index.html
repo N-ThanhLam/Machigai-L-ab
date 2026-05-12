@@ -144,9 +144,12 @@ JSONのみ出力。説明文・コードブロック・前置き禁止。
 
 // ─── INSPECT FUNCTION ────────────────────────────────────────────
 // 戻り値: "pass"（合格）| "fail"（不合格）| "unchecked"（検査不能）
-const INSPECT_TIMEOUT_MS = 10000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
+const INSPECT_TIMEOUT_MS = 30000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
 const inspectQuestion = async (q, grade, key) => {
-  if (!key || !key.trim()) return "unchecked"; // キーなし → 未検査扱い
+  if (!key || !key.trim()) {
+  console.error("inspect key empty");
+  return "unchecked";
+  } // キーなし → 未検査扱い
   const payload = JSON.stringify({
     grade,
     subject: displaySubject(q.subject, grade), // 中高生なら「算数」→「数学」に変換して検査
@@ -173,8 +176,15 @@ const inspectQuestion = async (q, grade, key) => {
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal }
     );
     clearTimeout(timer);
-    if (!res.ok) return "unchecked";         // HTTPエラー → 検査不能
+    console.log("inspect status", res.status);
+
+     if (!res.ok) {
+      const text = await res.text();
+      console.error("inspect error body:", text);
+       return "unchecked";
+      }         // HTTPエラー → 検査不能
     const data = await res.json();
+      console.log("inspect response", data);
     if (data.error) return "unchecked";      // APIエラー → 検査不能
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) return "unchecked";           // 空レスポンス → 検査不能
@@ -1158,7 +1168,12 @@ function App(){
           totalRejected+=localRejected;
           if(!localPassed.length)return;
           // ② LLM検査AI（"pass"|"fail"|"unchecked" の三値）
-          const inspKey=keys[i%keys.length];
+          const validKeys = keys.filter(k => k && k.trim());
+          if (!validKeys.length) {
+           console.error("No valid inspect keys");
+            return;
+          }
+          const inspKey = validKeys[i % validKeys.length];
           const inspResults=await Promise.all(localPassed.map(q=>inspectQuestion(q,g,inspKey)));
           if(cancelled)return; // fetch完了後も離脱済みなら結果を捨てる
           let llmRejected=0;
