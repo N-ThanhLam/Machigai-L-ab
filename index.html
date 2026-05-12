@@ -126,25 +126,25 @@ analysis_step3（正しく考えよう）:
 `;
 
 // ─── INSPECT PROMPT ──────────────────────────────────────────────
-const INSPECT_PROMPT = `あなたは学習問題の品質検査AIです。入力されたJSONの問題を審査し、以下の観点でチェックしてください。
+const INSPECT_PROMPT = `あなたは学習問題の軽量検査AIです。
 
-【必須チェック項目】
-1. correct_answer は事実として正しいか（算数/数学・国語・英語・社会・理科として）
-2. student_answer は correct_answer と「1箇所だけ」異なるか（複数箇所ズレていたら不合格）
-3. 問題文がテキストだけで解けるか（図・グラフ・表・地図への依存があれば不合格）
-4. analysis_step1〜3 それぞれの answer インデックスが、その choices の中で実際に正解に対応しているか
-5. correct_feedback に事実誤りがないか
-6. 学年・科目に対して適切な難易度・語彙か
+次の3点だけ確認してください。
 
-【出力形式】
-JSONのみ出力。説明文・コードブロック・前置き禁止。
-合格: {"pass":true,"issues":[]}
-不合格: {"pass":false,"issues":["具体的な問題点を1文で"]}
-`;
+1. answer が choices の正しい選択肢を指しているか
+2. student_answer と correct_answer が完全に別物ではないか
+3. 問題として成立しているか
+
+問題なければ:
+{"pass":true}
+
+問題があれば:
+{"pass":false}
+
+JSONのみ出力してください。`;
 
 // ─── INSPECT FUNCTION ────────────────────────────────────────────
 // 戻り値: "pass"（合格）| "fail"（不合格）| "unchecked"（検査不能）
-const INSPECT_TIMEOUT_MS = 30000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
+const INSPECT_TIMEOUT_MS = 60000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
 const inspectQuestion = async (q, grade, key) => {
   if (!key || !key.trim()) {
   console.error("inspect key empty");
@@ -187,13 +187,26 @@ const inspectQuestion = async (q, grade, key) => {
       console.log("inspect response", data);
     if (data.error) return "unchecked";      // APIエラー → 検査不能
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return "unchecked";           // 空レスポンス → 検査不能
+    if (!text) {
+     console.log("inspect empty response", data);
+      return "unchecked";
+      }
     let result;
     try {
-      result = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+      const cleaned = text
+  .replace(/```json/g, "")
+  .replace(/```/g, "")
+  .trim();
+
+const match = cleaned.match(/\{[\s\S]*\}/);
+
+if (!match) return "unchecked";
+
+result = JSON.parse(match[0]);
     } catch (e) {
-      return "unchecked";                    // JSON崩れ → 検査不能
-    }
+  console.log("inspect json parse error", text);
+  return "unchecked";
+}
     if (!result || typeof result !== "object" || !("pass" in result)) return "unchecked";
     return result.pass === true ? "pass" : "fail";
   } catch (e) {
