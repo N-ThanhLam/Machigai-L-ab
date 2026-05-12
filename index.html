@@ -1166,7 +1166,7 @@ function App(){
           const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
           // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
           const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
           try{
             const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
             if(!res.ok)return{subj:target.subj,valid:[]};
@@ -1179,6 +1179,8 @@ function App(){
               const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
               // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
               if(target.subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+              // 「理科」の別表記を吸収（Geminiが「科学」「自然科学」「自然」等を返す場合）
+              if(target.subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
               return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
             return{subj:target.subj,valid};
