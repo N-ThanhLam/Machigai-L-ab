@@ -1027,14 +1027,9 @@ function App(){
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
-      const dam=getDam();
-      // 復習キューの科目を優先、足りなければ少ない順に全科目を対象にする
-      const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))].filter(s=>(dam[s]||[]).length<DAM_MAX);
-      const byCount=lowestBuckets(curSubjects.length,curSubjects);
-      const seen=new Set();const targets=[];
-      for(const s of reviewSubjs){if(!seen.has(s)){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
-      for(const t of byCount){if(!seen.has(t.subj)){targets.push(t);seen.add(t.subj);}}
-      const filtered=targets.filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
+      // 全科目をストック数昇順（少ない順）で並べ、補充対象を決定する
+      // 復習科目の優先度は生成順ではなく保存時の addToDamFront で担保する
+      const filtered=lowestBuckets(curSubjects.length,curSubjects).filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
