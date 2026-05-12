@@ -152,7 +152,6 @@ const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
 const jstYesterday=()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});};
 let _ki=0;
-const pickKey=keys=>{const k=keys[_ki%keys.length];_ki++;return k;};
 
 // ─── STEP SHUFFLE ─────────────────────────────────────────────────
 const shuffleStep=step=>{
@@ -179,8 +178,7 @@ const hasValidAnalysis=q=>{
   return[1,2,3].every(i=>{const s=q[`analysis_step${i}`];return s&&s.question&&Array.isArray(s.choices)&&s.choices.length===4&&typeof s.answer==="number";});
 };
 
-// ─── ローカルバリデーション（LLM検査前の軽量チェック） ─────────────
-// 構造チェック＋意味チェック＋「1箇所だけ違う」ヒューリスティックの3層
+// ─── バリデーション（構造チェック＋意味チェック＋「1箇所だけ違う」ヒューリスティックの3層） ───
 const VALID_SUBJECTS=new Set(["国語","算数","英語","社会","理科"]);
 // 外部ビジュアルへの参照が明確なパターン（図形・年表・発表など正当な語は除外）
 const VISUAL_REF_RE=/グラフ|地図|イラスト|[次下右左上]の図|図を見|[次下右左上]の表|表を見/;
@@ -661,6 +659,10 @@ function App(){
   const prevSessionsRef=useRef(0);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
   const [importMsg,setImportMsg]=useState("");
+  // エラー後リトライのクールダウン（秒）。0 = ボタン有効
+  const [retryCooldown,setRetryCooldown]=useState(0);
+  const retryCooldownRef=useRef(0);
+  const retryTimerRef=useRef(null);
   const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
   const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
   const waitingForStockR=useRef(null);
@@ -668,6 +670,9 @@ function App(){
   // polling 無効化トークン。setWaitingForStock を呼ぶ直前にインクリメントすることで、
   // React commit 遅延に依らず次の tick を即キャンセルできる。
   const pollingCancelRef=useRef(0);
+  // 緊急生成（ストック空時に即座に3問生成）
+  const emergencyGenLk=useRef(false);
+  const [isEmergencyGen,setIsEmergencyGen]=useState(false);
   const autoRefillR=useRef(autoRefill);
 
   // 学年に応じた科目リスト（gradeが変わると自動更新）
@@ -890,7 +895,7 @@ function App(){
       next.subjectStats[subj].q++;if(correct)next.subjectStats[subj].c++;
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       next.dailyLog[td].q++;if(correct)next.dailyLog[td].c++;
-      next.dailyLog[td].sessions++; // 正解・不正解問わず分析完了でカウント
+      if(correct)next.dailyLog[td].sessions++; // 3/3正解のセッションのみノルマカウント
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
@@ -1024,6 +1029,8 @@ function App(){
     let cancelled=false;
     const doRefill=async()=>{
       if(cancelled||refillLk.current)return false;
+      // 緊急生成と同時実行しない（同じ科目への二重API呼び出しを防ぐ）
+      if(emergencyGenLk.current)return false;
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
@@ -1035,7 +1042,7 @@ function App(){
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
-        // ─ 生成: 1件ずつ順番に実行 ─────────────────────────────
+        // ─ 生成 ──────────────────────────────────────────────────
         const genResults=[];
         for(let i=0;i<filtered.length;i++){
           if(cancelled)break;
@@ -1065,7 +1072,7 @@ function App(){
           }catch(e){genResults.push({subj:target.subj,valid:[]});}
         }
         if(cancelled)return false;
-        // ─ バリデーション: ローカルチェックのみ ───────────────────
+        // ─ バリデーション ────────────────────────────────────────
         let totalRejected=0;let anyPassed=false;
         genResults.forEach(({subj,valid})=>{
           if(!valid.length||cancelled)return;
@@ -1092,10 +1099,45 @@ function App(){
     };
     const loop=async()=>{let delay=15000;while(!cancelled){await new Promise(r=>setTimeout(r,delay));if(cancelled)break;const ok=await doRefill();if(cancelled)break;const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;delay=isWaiting?15000:hasReview?45000:ok?120000:90000;}};
     loop();
-    return()=>{cancelled=true;};
+    return()=>{cancelled=true;if(retryTimerRef.current)clearInterval(retryTimerRef.current);};
   },[screen]);
 
-  const fetchQ=useCallback(async(g,subj,review,reviewItem)=>{
+  // ─── 緊急生成: ストックが空のとき即座に3問生成してDAMに積む ──────────
+  const generateEmergency=useCallback(async(subj,g)=>{
+    if(emergencyGenLk.current)return null;
+    const keys=keysR.current.filter(k=>k.trim());
+    if(!keys.length)return null;
+    emergencyGenLk.current=true;setIsEmergencyGen(true);
+    // キーローテーション: バックグラウンド補充と同じ方式で偏りを防ぐ
+    const key=keys[_ki%keys.length];_ki++;
+    try{
+      const currentGrade=g||gradeR.current;
+      const promptSubj=(subj==="算数"&&(currentGrade.startsWith("中")||currentGrade.startsWith("高")))?"数学":subj;
+      const damTopics=[...new Set((getDam()[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
+      const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を3問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${currentGrade}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(!res.ok)return null;
+      const data=await res.json();if(data.error)return null;
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return null;
+      let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return null;}
+      if(!Array.isArray(parsed))parsed=[parsed];
+      const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+        const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
+        if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+        if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
+        return{...q,subject:normSubj};
+      }).filter(q=>q.subject===subj);
+      const localPassed=valid.filter(q=>localValidate(q));
+      if(!localPassed.length)return null;
+      const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
+      addToDam(subj,toStore);
+      const pop=popFromDam(subj,1);
+      return pop.length?pop[0]:null;
+    }catch(e){return null;}
+    finally{emergencyGenLk.current=false;setIsEmergencyGen(false);}
+  },[]);
+
+  const fetchQ=useCallback(async(g,subj)=>{
     if(fetchLk.current)return;fetchLk.current=true;
     // ⑦ fetch開始時点の学年をスナップショット固定（途中の学年変更を無視）
     const currentGrade=g||gradeR.current;
@@ -1103,8 +1145,7 @@ function App(){
     const stale=()=>reqId.current!==rid;
     try{
       if(!stale()){resetState();setAppError("");}
-      // 常にストックから出題。直接生成しない。
-      // 指定科目を優先、0なら他科目へズレる、全科目0なら待機。
+      // ストック優先。指定科目を優先、0なら他科目へズレる、全科目0なら緊急生成→失敗時のみ待機。
       const subs=subjectsR.current;
       const st=popFromDam(subj,1);
       if(st.length){
@@ -1126,10 +1167,26 @@ function App(){
         }
         return;
       }
-      // 全科目0 → 待機モード
-      if(!stale()){pollingCancelRef.current++;setWaitingForStock(subj);}
+      // 全科目0 → 緊急生成（3問）
+      if(!stale()){
+        const generated=await generateEmergency(subj,currentGrade);
+        if(!stale()){
+          if(generated){setQuiz(generated);setDamStats(getDamStats(subs));}
+          else{pollingCancelRef.current++;setWaitingForStock(subj);}
+        }
+      }
     }catch(e){
-      if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
+      if(!stale()){
+        setAppError("AIにつながれなかったよ！もう一度おしてみてね");
+        // 15秒クールダウン開始
+        if(retryTimerRef.current)clearInterval(retryTimerRef.current);
+        retryCooldownRef.current=15;setRetryCooldown(15);
+        retryTimerRef.current=setInterval(()=>{
+          retryCooldownRef.current--;
+          setRetryCooldown(retryCooldownRef.current);
+          if(retryCooldownRef.current<=0)clearInterval(retryTimerRef.current);
+        },1000);
+      }
     }
     finally{fetchLk.current=false;}
   },[]);
@@ -1139,7 +1196,7 @@ function App(){
     // fetchLk/nextLkを明示リセット。rAF前に解放しないとfetchQ冒頭ガードで弾かれる。
     fetchLk.current=false;nextLk.current=false;
     resetState();setGs(init);setSubject(subj);pollingCancelRef.current++;setWaitingForStock(null);
-    const g=sg||grade;requestAnimationFrame(()=>fetchQ(g,subj,false,null));
+    const g=sg||grade;requestAnimationFrame(()=>fetchQ(g,subj));
   },[grade,fetchQ]);
 
   // 分析ステップ回答（useCallback: quiz/analysisStep/stepAns が変わるたび更新）
@@ -1225,8 +1282,13 @@ function App(){
           let shifted=null,shiftedSubj=ns;
           for(const s of subs){if(s===ns)continue;const any=popFromDam(s,1);if(any.length){shifted=any[0];shiftedSubj=s;break;}}
           if(shifted){setSubject(shiftedSubj);setDamStats(getDamStats(subs));setQuiz(shifted);if(shiftedSubj!==ns){setSubjectSlideMsg(`📦 ${displaySubject(ns,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}return;}
-          // 全科目0 → 待機モード
-          enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);return;
+          // 全科目0 → 緊急生成（3問）
+          {
+            const generated=await generateEmergency(ns,currentGrade);
+            if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
+            else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);}
+            return;
+          }
         }
       }
       // フリーモード
@@ -1241,11 +1303,15 @@ function App(){
           
           setQuiz(fromDamReview[0]);return;
         }
-        // 復習キューがあるのにストックが0 → バックグラウンドが補充するまで待機（スキップしない）
-        // waitingForStockポーリングは全科目チェックするので、他に問題があれば自動でズレる
-        setCurrentReviewItemId(item.id);  // normalize済みで必ずidあり
+        // 復習キューがあるのにストックが0 → 緊急生成（3問）
+        setCurrentReviewItemId(item.id);
         setSubject(item.subject);setIsReview(true);
-        enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(item.subject);return;
+        {
+          const generated=await generateEmergency(item.subject,currentGrade);
+          if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
+          else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(item.subject);}
+        }
+        return;
       }
       const cand=subjR.current;
       let fromDam=popFromDam(cand,1),ns=cand;
@@ -1257,8 +1323,12 @@ function App(){
         setQuiz(fromDam[0]);return;
       }
       setIsReview(false);if(ns!==subjR.current)setSubject(ns);
-      // ストック空 → 待機モード
-      enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);
+      // ストック空 → 緊急生成（3問）
+      {
+        const generated=await generateEmergency(ns,currentGrade);
+        if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
+        else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);}
+      }
     }finally{
       // 待機モード突入時は polling にすぐ制御を渡すため即解放。
       // quiz取得成功時は連打防止のため 150ms 維持。
@@ -1538,18 +1608,18 @@ function App(){
               <React.Fragment>
                 {/* ④ 昨日比較 */}
                 {compareMsg&&<div style={{textAlign:"center",fontSize:12,fontWeight:800,color:"#5b3ff8",background:"#f0edff",borderRadius:10,padding:"6px 12px",marginBottom:8}}>{compareMsg}</div>}
-                {waitingForStock&&!quiz&&(
+                {(waitingForStock||isEmergencyGen)&&!quiz&&(
                   <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
                     {apiKeys.some(k=>k.trim())?(
                       <>
                         <div className="spin" style={{marginBottom:14}}></div>
                         <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>
-                          {!!currentReviewItemId?"📝 復習問題を準備中...":"⚡ 問題を準備中です..."}
+                          {isEmergencyGen?"⚡ 問題を生成中...":(!!currentReviewItemId?"📝 復習問題を準備中...":"⚡ 問題を準備中です...")}
                         </div>
                         <div style={{color:"#9990cc",fontSize:12,fontWeight:700}}>
-                          {isRefilling
+                          {isEmergencyGen?"ストックがないため3問を直接生成しています...":(isRefilling
                             ?(!!currentReviewItemId?"復習問題をバックグラウンドで補充中。もうすぐ出題されます！":"ストックを補充中。もうすぐ出題されます！")
-                            :(!!currentReviewItemId?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！")}
+                            :(!!currentReviewItemId?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！"))}
                         </div>
                       </>
                     ):(
@@ -1565,7 +1635,11 @@ function App(){
                 {appError&&(
                   <div className="card">
                     <div className="err">😅 {appError}</div>
-                    <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(grade,subjR.current,false,null);}}>もう一度</button>
+                    <button
+                      className="btn btn-primary"
+                      disabled={retryCooldown>0}
+                      onClick={()=>{setAppError("");setRetryCooldown(0);if(retryTimerRef.current)clearInterval(retryTimerRef.current);fetchQ(grade,subjR.current);}}
+                    >{retryCooldown>0?`⏳ もう一度（${retryCooldown}秒）`:"もう一度"}</button>
                   </div>
                 )}
 
