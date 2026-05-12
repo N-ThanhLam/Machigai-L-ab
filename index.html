@@ -13,14 +13,15 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-// 学年に応じて科目リストを返す（小学生は算数、中学・高校は数学）
-const calcSubjects = (grade) => {
-  if (grade && (grade.startsWith("中") || grade.startsWith("高"))) {
-    return ["国語", "数学", "英語", "社会", "理科"];
-  }
-  return ["国語", "算数", "英語", "社会", "理科"];
-};
+// 内部キーは常に「算数」で統一（ストック・統計・科目リスト共通）
+const calcSubjects = (_grade) => ["国語", "算数", "英語", "社会", "理科"];
 const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"]; // 初期値（ロード前の表示用）
+
+// 表示用変換: 中学・高校生には「算数」→「数学」と表示する
+const displaySubject = (subj, grade) =>
+  subj === "算数" && grade && (grade.startsWith("中") || grade.startsWith("高"))
+    ? "数学"
+    : subj;
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
 const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。児童・生徒が「どこで間違えたか」に気づき、正しい考え方を理解できるよう支援することが目的です。問題は「ある生徒のよくある誤答」をもとに作成し、対象学年に合った自然な学習支援にしてください。
@@ -128,7 +129,7 @@ analysis_step3（正しく考えよう）:
 const INSPECT_PROMPT = `あなたは学習問題の品質検査AIです。入力されたJSONの問題を審査し、以下の観点でチェックしてください。
 
 【必須チェック項目】
-1. correct_answer は事実として正しいか（算数・国語・英語・社会・理科として）
+1. correct_answer は事実として正しいか（算数/数学・国語・英語・社会・理科として）
 2. student_answer は correct_answer と「1箇所だけ」異なるか（複数箇所ズレていたら不合格）
 3. 問題文がテキストだけで解けるか（図・グラフ・表・地図への依存があれば不合格）
 4. analysis_step1〜3 それぞれの answer インデックスが、その choices の中で実際に正解に対応しているか
@@ -143,12 +144,12 @@ JSONのみ出力。説明文・コードブロック・前置き禁止。
 
 // ─── INSPECT FUNCTION ────────────────────────────────────────────
 // 戻り値: "pass"（合格）| "fail"（不合格）| "unchecked"（検査不能）
-const INSPECT_TIMEOUT_MS = 20000;
+const INSPECT_TIMEOUT_MS = 10000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
 const inspectQuestion = async (q, grade, key) => {
   if (!key || !key.trim()) return "unchecked"; // キーなし → 未検査扱い
   const payload = JSON.stringify({
     grade,
-    subject: q.subject,
+    subject: displaySubject(q.subject, grade), // 中高生なら「算数」→「数学」に変換して検査
     topic_tag: q.topic_tag,
     question: q.question,
     student_answer: q.student_answer,
@@ -197,9 +198,13 @@ const DAM_MAX=60;
 const DAM_BATCH=5;
 const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}catch(e){return{};}};
 const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
-const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));dam[subj]=[...ex,...qs.filter(q=>!keys.has((q.question||"").slice(0,30)))].slice(-DAM_MAX);saveDam(dam);};
+// 重複判定キー: 問題全文 + 誤答 + 正答 を連結。
+// question.slice(0,30) だけだと「次の計算をしましょう」等の固定頭で衝突するため、
+// 内容の差異（数値・答え）まで含めた複合キーで同一問題を識別する。
+const dupKey=q=>`${(q.question||"")}|${(q.student_answer||"")}|${(q.correct_answer||"")}`;
+const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(dupKey));dam[subj]=[...ex,...qs.filter(q=>!keys.has(dupKey(q)))].slice(-DAM_MAX);saveDam(dam);};
 // 復習問題はストックの「先頭」に挿入して優先使用されるようにする
-const addToDamFront=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(q=>(q.question||"").slice(0,30)));const fresh=qs.filter(q=>!keys.has((q.question||"").slice(0,30)));if(!fresh.length)return;dam[subj]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
+const addToDamFront=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];if(!b.length)return[];
   // checked を優先して先頭に、unchecked を後に並べてから取り出す
   const checked=b.filter(q=>q._checkState==="checked");
@@ -214,8 +219,8 @@ const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects
 
 // ─── UTILS ───────────────────────────────────────────────────────
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
-const today=()=>{const d=new Date();const jst=new Date(d.getTime()+9*60*60*1000);return jst.toISOString().slice(0,10);};
-const jstYesterday=()=>{const d=new Date();const jst=new Date(d.getTime()+9*60*60*1000);jst.setUTCDate(jst.getUTCDate()-1);return jst.toISOString().slice(0,10);};
+const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
+const jstYesterday=()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});};
 let _ki=0;
 const pickKey=keys=>{const k=keys[_ki%keys.length];_ki++;return k;};
 
@@ -245,15 +250,82 @@ const hasValidAnalysis=q=>{
 };
 
 // ─── ローカルバリデーション（LLM検査前の軽量チェック） ─────────────
-// LLM検査より前に実行し、明らかな構造不正・必須項目欠落を排除する
+// 構造チェック＋意味チェック＋「1箇所だけ違う」ヒューリスティックの3層
+const VALID_SUBJECTS=new Set(["国語","算数","英語","社会","理科"]);
+// 外部ビジュアルへの参照が明確なパターン（図形・年表・発表など正当な語は除外）
+const VISUAL_REF_RE=/グラフ|地図|イラスト|[次下右左上]の図|図を見|[次下右左上]の表|表を見/;
+// 並び順依存の禁止表現（プロンプトルール「上記の全て」等）
+const META_CHOICE_RE=/上記の全て|以上の全て|全て正しい|全て誤り/;
+
+// ── 「1箇所だけ違う」ヒューリスティック ─────────────────────────────
+// 目的：「完全別解・桁崩壊・複数箇所ズレ」を落とす。判定できない場合は通す（false負より false正を避ける）
+// 簡易 Levenshtein（short string 向け、O(n*m)）
+const levenshtein=(a,b)=>{
+  if(a===b)return 0;
+  const m=a.length,n=b.length;
+  if(m===0)return n;if(n===0)return m;
+  const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i===0?j:j===0?i:0));
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
+};
+
+// 「明らかに複数箇所ズレている」かを判定。true = 怪しいので落とす
+const looksMultipleErrors=(sa,ca)=>{
+  const a=sa.trim(),b=ca.trim();
+  const la=a.length,lb=b.length;
+
+  // ① 長さ比チェック：長い方が短い方の2倍以上 → 桁崩壊・完全別解
+  //    minLen=1 は除外（「0」→「10」など1箇所変化として正当）
+  const minLen=Math.min(la,lb);
+  if(minLen>1&&Math.max(la,lb)/minLen>=2.0)return true;
+
+  // ② 短い回答（≤8文字）: Levenshteinで判定しない
+  //    「Paris→London」「123→456」など1語まるごと置換も正当な1箇所ズレ
+  if(la<=8&&lb<=8)return false;
+
+  // ③ 中程度（9〜30文字）: 文字bigram の Jaccard距離で判定
+  //    2文字n-gramの共通割合が 0.30 未満 → ほぼ別物
+  if(la<=30&&lb<=30){
+    const bigrams=s=>{const r=new Set();for(let i=0;i<s.length-1;i++)r.add(s.slice(i,i+2));return r;};
+    const ba=bigrams(a),bb=bigrams(b);
+    const inter=[...ba].filter(g=>bb.has(g)).length;
+    const union=new Set([...ba,...bb]).size;
+    if(union>0&&inter/union<0.30)return true;
+    return false;
+  }
+
+  // ④ 長い回答（>30文字）: トークン差分
+  //    読点・スペース等で分割したトークンが両側3つ以上不一致 → 複数箇所
+  const tokenize=s=>s.split(/[\s、。，．,.\-・]+/).filter(Boolean);
+  const ta=new Set(tokenize(a)),tb=new Set(tokenize(b));
+  const onlyInA=[...ta].filter(t=>!tb.has(t));
+  const onlyInB=[...tb].filter(t=>!ta.has(t));
+  if(onlyInA.length>=3&&onlyInB.length>=3)return true;
+  return false;
+};
+
 const localValidate=q=>{
   if(!q||typeof q!=="object")return false;
+
+  // ── 構造チェック ───────────────────────────────────────
   // 必須フィールドが存在し非空文字列であること
   const req=["question","student_answer","correct_answer","correct_feedback","mistake_type","topic_tag","subject"];
   if(req.some(k=>!q[k]||typeof q[k]!=="string"||!q[k].trim()))return false;
   // 問題文の文字数（プロンプト指定200文字、多少の余裕を持たせる）
   if(q.question.length>300)return false;
-  // analysis_step1〜3 の構造チェック
+
+  // ── 意味チェック ───────────────────────────────────────
+  // 誤答と正答が同一→間違い問題として成立しない
+  if(q.student_answer.trim()===q.correct_answer.trim())return false;
+  // 科目が既知の5科目以外→subject フィールドのハルシネーション
+  if(!VALID_SUBJECTS.has(q.subject.trim()))return false;
+  // 問題文に外部ビジュアルへの参照がある→テキストだけで解けない
+  if(VISUAL_REF_RE.test(q.question))return false;
+  // 「1箇所だけ違う」ヒューリスティック：明らかに複数箇所ズレていれば落とす
+  if(looksMultipleErrors(q.student_answer,q.correct_answer))return false;
+
+  // ── analysis_step1〜3 ────────────────────────────────
   for(let i=1;i<=3;i++){
     const s=q[`analysis_step${i}`];
     if(!s||typeof s!=="object")return false;
@@ -263,6 +335,12 @@ const localValidate=q=>{
     // answer は 0〜3 の整数
     if(typeof s.answer!=="number"||!Number.isInteger(s.answer)||s.answer<0||s.answer>3)return false;
     if(!s.feedback||typeof s.feedback!=="string"||!s.feedback.trim())return false;
+    // 選択肢100文字以内（プロンプト指定）
+    if(s.choices.some(c=>c.length>100))return false;
+    // 選択肢内に重複がある→「正解は1つ」が保証できない
+    if(new Set(s.choices.map(c=>c.trim())).size!==4)return false;
+    // 並び順依存の禁止表現が含まれる
+    if(s.choices.some(c=>META_CHOICE_RE.test(c)))return false;
   }
   return true;
 };
@@ -270,39 +348,56 @@ const localValidate=q=>{
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
 const calcSubjRates=h=>{if(!h||!h.length)return{};const m={};for(const r of h.slice(-100)){if(!m[r.subject])m[r.subject]={q:0,c:0};m[r.subject].q++;if(r.correct)m[r.subject].c++;}return m;};
 
+// ─── 当日スコア計算（コンボ×1.82、100点上限） ──────────────────────
+const calcTodayScore=h=>{
+  const td=today();
+  const entries=(h||[]).filter(r=>r.date===td);
+  let combo=0,score=0;
+  for(const e of entries){if(e.correct){combo+=1;score+=combo*1.82;}else{combo=0;}}
+  return{score:Math.min(100,Math.floor(score*10)/10),combo};
+};
+const calcNextScore=(score,combo)=>Math.min(100,Math.floor((score+(combo+1)*1.82)*10)/10);
+
 // ─── BADGES ──────────────────────────────────────────────────────
 const BADGES=[
   // ─ かんたん ─
   {id:"first",      icon:"🌱",label:"はじめの一歩",    desc:"初めて問題に挑戦した",                  cond:s=>s.totalQ>=1},
-  {id:"debug1",     icon:"💪",label:"弱点克服！",        desc:"苦手科目で初めて正解した",               cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=3&&v.c/v.q<0.5&&v.c>=1);}},
-  {id:"streak3",    icon:"🔥",label:"3連続！",          desc:"3問連続正解",                            cond:s=>s.bestStreak>=3},
   {id:"q10",        icon:"📖",label:"10問達成",          desc:"合計10問を解いた",                       cond:s=>s.totalQ>=10},
+  {id:"streak3",    icon:"🔥",label:"3連続！",          desc:"3問連続正解",                            cond:s=>s.bestStreak>=3},
+  {id:"debug1",     icon:"💪",label:"弱点克服！",        desc:"苦手な科目（正解率50%未満）で正解した",   cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=3&&v.c/v.q<0.5&&v.c>=1);}},
   {id:"day3",       icon:"📅",label:"3日連続",           desc:"3日連続で学習した",                      cond:s=>s.loginStreak>=3},
   // ─ ふつう ─
-  {id:"perfect5",   icon:"✨",label:"完璧な5問",         desc:"5問連続正解",                            cond:s=>s.bestStreak>=5},
   {id:"allsubject", icon:"🌈",label:"全科目制覇",        desc:"5科目すべてを経験",                      cond:s=>Object.keys(s.subjectStats||{}).length>=5},
-  {id:"check10",    icon:"🔎",label:"成長の証",          desc:"25問を解いた",                           cond:s=>s.totalQ>=25},
+  {id:"perfect5",   icon:"✨",label:"完璧な5問",         desc:"5問連続正解",                            cond:s=>s.bestStreak>=5},
+  {id:"check10",    icon:"📈",label:"成長の証",          desc:"25問を解いた",                           cond:s=>s.totalQ>=25},
   {id:"streak7",    icon:"⚡",label:"7連続！！",          desc:"7問連続正解",                            cond:s=>s.bestStreak>=7},
   {id:"q50",        icon:"🏆",label:"50問の壁",           desc:"合計50問を解いた",                       cond:s=>s.totalQ>=50},
   // ─ むずかしい ─
+  {id:"week1",      icon:"🗓️",label:"一週間の星",        desc:"7日連続で学習した",                      cond:s=>(s.bestLoginStreak||0)>=7},
   {id:"mastery3",   icon:"🗺️",label:"単元マスター",     desc:"3単元を習熟した",                        cond:s=>Object.values(s.topicMastery||{}).filter(t=>t.mastered).length>=3},
+  {id:"q100",       icon:"🗻",label:"100問の山",         desc:"累計100問を解いた",                      cond:s=>s.totalQ>=100},
   {id:"debug10",    icon:"⚖️",label:"バランス学習者",    desc:"全科目で正解率50%以上を達成",            cond:(s,subs)=>{const r=calcSubjRates(s.recentHistory);const sub=subs||SUBJECTS;return sub.every(sub=>r[sub]&&r[sub].q>=3&&r[sub].c/r[sub].q>=0.5);}},
-  {id:"debugPerf",  icon:"🧠",label:"完璧な分析",        desc:"分析3ステップをすべて正解した",           cond:s=>(s.debugStats?.perfect||0)>=1},
-  {id:"q100",       icon:"🎖️",label:"100問の山",         desc:"累計100問を解いた",                      cond:s=>s.totalQ>=100},
-  {id:"recent80", icon:"🎯",label:"直近80%超え", desc:"直近100問で正解率80%以上", cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=80;}},
+  {id:"recent80",   icon:"🎯",label:"直近80%超え",       desc:"直近100問で正解率80%以上",               cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=80;}},
   // ─ とてもむずかしい ─
-  {id:"debugMaster",icon:"🏅",label:"名コーチ",          desc:"完璧な分析（3問全正解）を10回達成",       cond:s=>(s.debugStats?.perfect||0)>=10},
   {id:"debug50",    icon:"🎓",label:"科目マスター",      desc:"同じ科目で50問以上挑戦した",             cond:s=>{const r=calcSubjRates(s.recentHistory);return Object.values(r).some(v=>v.q>=50);}},
+  {id:"month1",     icon:"🌙",label:"月の戦士",          desc:"30日連続で学習した",                     cond:s=>(s.bestLoginStreak||0)>=30},
   {id:"genius",     icon:"👑",label:"努力の天才",        desc:"累計300問を達成",                        cond:s=>s.totalQ>=300},
-  {id:"runner",     icon:"⏳",label:"不屈のランナー",   desc:"累計365日学習した",                       cond:s=>Object.keys(s.dailyLog||{}).length>=365},
-  {id:"legend",   icon:"💎",label:"レジェンド",  desc:"直近100問で正解率100%以上",          cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=100;}},
+  {id:"runner",     icon:"🏃",label:"不屈のランナー",   desc:"累計365日学習した",                       cond:s=>Object.keys(s.dailyLog||{}).length>=365},
+  {id:"legend",     icon:"💎",label:"レジェンド",        desc:"直近100問をすべて正解した",              cond:s=>{const r=calcRecent100(s.recentHistory);return r&&r.count>=100&&r.rate>=100;}},
 ];
 
 // ─── CSS ─────────────────────────────────────────────────────────
 const css=`
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap');
-*{box-sizing:border-box;margin:0;padding:0}
+*{box-sizing:border-box;margin:0;padding:0;
+  /* mobile Safari: 300ms タップ遅延を除去 */
+  touch-action:manipulation;
+  /* iOS タップ時の青いハイライトを消す */
+  -webkit-tap-highlight-color:transparent;
+}
 body{background:#f0f4ff;font-family:'Nunito','M PLUS Rounded 1c',sans-serif;color:#1e1e3a}
+/* スクロール対象をGPUレイヤーへ。カードは静的なのでwill-change不要、rootのみ */
+.root{contain:layout style;}
 .root{min-height:100vh;background:linear-gradient(135deg,#f0f4ff 0%,#fdf0ff 100%);padding:12px}
 .card{background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;box-shadow:0 2px 12px rgba(100,80,200,.08)}
 .tabs{display:flex;background:#ede9ff;border-radius:14px;padding:4px;margin-bottom:14px;gap:2px}
@@ -443,7 +538,7 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .correct-burst-2{position:fixed;top:50%;left:50%;width:72px;height:72px;border-radius:50%;border:4px solid #86efac;pointer-events:none;z-index:2000;animation:burst-expand .6s .12s ease-out both}
 /* ⑥⑦⑨⑪ トースト共通 */
 @keyframes toast-in{from{transform:translateX(-50%) translateY(-14px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
-.toast-base{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:996;border-radius:18px;padding:12px 22px;font-weight:800;font-size:13px;text-align:center;white-space:nowrap;animation:toast-in .4s cubic-bezier(.34,1.56,.64,1) both;max-width:92vw;box-shadow:0 4px 20px rgba(0,0,0,.13)}
+.toast-base{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:996;border-radius:18px;padding:12px 22px;font-weight:800;font-size:13px;text-align:center;animation:toast-in .4s cubic-bezier(.34,1.56,.64,1) both;max-width:calc(100vw - 32px);box-sizing:border-box;box-shadow:0 4px 20px rgba(0,0,0,.13)}
 /* ② あと1問ハイライト */
 @keyframes norma-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .norma-last{background:linear-gradient(135deg,#fef3c7,#fde68a)!important;border-color:#f59e0b!important;animation:norma-pulse 1s ease-in-out infinite}
@@ -458,10 +553,133 @@ const initLogs=()=>({
   bestStreak:0,loginStreak:0,bestLoginStreak:0,lastLogin:"",
   earnedBadges:[],reviewQueue:[],recentHistory:[],
   debugStats:{completed:0,perfect:0},
-  checkStats:{total:0,correct:0},
   topicMastery:{},
   debugHistory:[],
+  bestDayScore:0,
 });
+
+// ─── AnalysisPanel ───────────────────────────────────────────────
+// quiz / analysisStep / stepAns が変わらない限り再レンダーしない
+const AnalysisPanel=React.memo(({quiz,analysisStep,stepAns,stepResults,currentStep,stageClr,stageIcon,onAnswer,onNext,onReport,currentReviewItemId,setLogs,saveLogs,isReview,isNorma,todaySess})=>{
+  if(!quiz||!analysisStep)return null;
+  const ModeBanner=()=>{
+    if(isReview) return(
+      <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:16}}>📝</span>
+        <div>
+          <div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div>
+          <div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div>
+        </div>
+      </div>
+    );
+    if(isNorma) return(
+      <div style={{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:16}}>🎯</span>
+        <div>
+          <div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div>
+          <div style={{fontSize:11,color:"#4c1d95"}}>3問クリアでノルマ達成！</div>
+        </div>
+      </div>
+    );
+    return null;
+  };
+  if(analysisStep!=="done"&&currentStep){
+    return(
+      <div className="an-card">
+        <ModeBanner/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#5b3ff8",letterSpacing:".04em"}}>🔍 誤答分析チャレンジ</div>
+          <span style={{fontSize:12,fontWeight:800,color:"#9990cc"}}>{analysisStep} / 3</span>
+        </div>
+        <div className="an-qbox">
+          <div className="an-qbox-label">📌 問題</div>
+          <div className="an-qbox-text">{quiz.question}</div>
+        </div>
+        <div className="an-wrong">
+          <div className="an-wrong-label">❌ ある生徒の答え</div>
+          <div className="an-wrong-text">「{quiz.student_answer}」</div>
+        </div>
+        <div className={`an-stage ${stageClr[analysisStep-1]}`}>
+          {stageIcon[analysisStep-1]} {currentStep.name}
+        </div>
+        <div className="an-q">{currentStep.question}</div>
+        {currentStep.choices.map((c,i)=>{
+          let cls="an-choice";
+          if(stepAns!==null){if(i===currentStep.answer)cls+=" correct";else if(i===stepAns)cls+=" wrong";else cls+=" dim";}
+          return(
+            <button key={i} className={cls} onClick={()=>onAnswer(i)} disabled={stepAns!==null}>
+              <span className="an-num">{i+1}</span>{c}
+            </button>
+          );
+        })}
+        {stepAns!==null&&(
+          <React.Fragment>
+            <div className="an-fb">
+              <strong style={{color:stepAns===currentStep.answer?"#059669":"#dc2626"}}>{stepAns===currentStep.answer?"✓ 正確に特定！":"✗ ここに注目しよう"}</strong><br/>
+              {currentStep.feedback}
+            </div>
+            <button className="an-next" onClick={onNext}>
+              {analysisStep<3?`次のステップへ（${analysisStep+1}/3）→`:"結果を見る ✨"}
+            </button>
+          </React.Fragment>
+        )}
+      </div>
+    );
+  }
+  if(analysisStep==="done"){
+    const sc=stepResults.filter(Boolean).length;
+    return(
+      <div className="an-card">
+        <ModeBanner/>
+        <div className="an-complete">
+          <span className="an-complete-icon">{sc===3?"🧠":sc===2?"🌟":sc===1?"🌱":"😅"}</span>
+          <div style={{fontSize:21,fontWeight:900,color:"#1e1e3a",marginBottom:4}}>
+            {sc===3?"完璧な分析！":sc===2?"惜しい！もう少し！":sc===1?"もう一息！":"まだまだ伸びしろあり！"}
+          </div>
+          <div style={{fontSize:13,color:"#7c6fb0",marginBottom:8}}>
+            {sc===3?"3問全問正解！すばらしい思考力だね 🎉":sc===2?"2問正解！あと1問で完璧だったよ 🎯":sc===1?"1問正解！次は3問全問を目指そう 🌱":"難しかったね。次こそ一緒に考えよう 💪"}
+          </div>
+          <div style={{fontSize:11,color:"#bbb",marginBottom:12}}>{sc} / 3 ステップ正解</div>
+          <div className="an-score-row">
+            {stepResults.map((r,i)=><div key={i} className={`an-score-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>)}
+          </div>
+          <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:12,textAlign:"left"}}>
+            <div style={{fontSize:11,fontWeight:900,color:"#16a34a",marginBottom:4}}>✅ 正解</div>
+            <div style={{fontSize:16,fontWeight:800,color:"#166534"}}>{quiz.correct_answer}</div>
+            <div style={{fontSize:12,color:"#166534",marginTop:6,lineHeight:1.65}}>{quiz.correct_feedback}</div>
+          </div>
+          {quiz.mistake_type&&quiz.mistake_type!=="不明"&&(
+            <div style={{background:"#f0edff",border:"1.5px solid #ddd6fe",borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"left"}}>
+              <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",marginBottom:4,letterSpacing:".04em"}}>💡 この間違いのポイント</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
+            </div>
+          )}
+          {quiz._inspected&&<div style={{textAlign:"center",fontSize:10,color:"#9990cc",fontWeight:700,marginTop:4}}>🔍 検査AI通過済み</div>}
+        </div>
+        <button className="btn-green" style={{marginBottom:8}} onClick={onNext}>次の問題へ →</button>
+        <button className="report-btn" onClick={onReport}>⚠️ この問題の内容がおかしい</button>
+      </div>
+    );
+  }
+  return null;
+});
+
+// ─── BadgeGrid ───────────────────────────────────────────────────
+// logs.earnedBadges が変わらない限り再レンダーしない
+const BadgeGrid=React.memo(({earnedBadges,totalBadges})=>(
+  <div className="card">
+    <div className="section-title">実績 {earnedBadges?.length||0} / {totalBadges}</div>
+    <div className="badge-grid">
+      {BADGES.map(b=>{const e=earnedBadges?.includes(b.id);return(
+        <div key={b.id} className={`badge ${e?"earned":"locked"}`}>
+          <div className="badge-icon">{b.icon}</div>
+          <div className="badge-name">{b.label}</div>
+          <div className="badge-desc">{b.desc}</div>
+        </div>
+      );})}
+    </div>
+  </div>
+));
 
 // ─── MAIN ────────────────────────────────────────────────────────
 function App(){
@@ -505,6 +723,8 @@ function App(){
   const [subjectImprovedMsg,setSubjectImprovedMsg]=useState("");
   // ⑪ 休み明けメッセージ
   const [showRestartMsg,setShowRestartMsg]=useState(false);
+  // 他科目スライドメッセージ
+  const [subjectSlideMsg,setSubjectSlideMsg]=useState("");
   const normaQueueR=useRef([]);
   const prevRatesRef=useRef({});
   const welcomeShownRef=useRef(false);
@@ -515,6 +735,9 @@ function App(){
   const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
   const waitingForStockR=useRef(null);
   useEffect(()=>{waitingForStockR.current=waitingForStock;},[waitingForStock]);
+  // polling 無効化トークン。setWaitingForStock を呼ぶ直前にインクリメントすることで、
+  // React commit 遅延に依らず次の tick を即キャンセルできる。
+  const pollingCancelRef=useRef(0);
   const autoRefillR=useRef(autoRefill);
 
   // 学年に応じた科目リスト（gradeが変わると自動更新）
@@ -526,24 +749,33 @@ function App(){
   // ストック待機中: 補充されたら自動で問題を表示（全科目チェック、あればズレて出題）
   useEffect(()=>{
     if(!waitingForStock)return;
+    // 科目・学年・トークンをeffect起動時にスナップショット固定。
+    // pollingCancelRef は setWaitingForStock を呼ぶ直前に必ずインクリメントされるため、
+    // React commit 遅延に依らず次の tick で即キャンセルできる。
+    const snapshotSubj=waitingForStock;
+    const currentGrade=gradeR.current;
+    const myToken=pollingCancelRef.current; // 自分のトークン番号を記憶
     const timer=setInterval(()=>{
+      // トークン不一致 = 外部から cancelPolling() が呼ばれた → 即停止
+      if(pollingCancelRef.current!==myToken)return;
+      // nextLk/fetchLk が立っている間（handleNext・fetchQ処理中）は上書きしない
+      if(nextLk.current||fetchLk.current)return;
       const subs=subjectsR.current;
-      // 元の科目を優先、なければ他科目へズレる
-      for(const s of [waitingForStock,...subs.filter(x=>x!==waitingForStock)]){
+      // スナップショット科目を優先、なければ他科目へズレる
+      for(const s of [snapshotSubj,...subs.filter(x=>x!==snapshotSubj)]){
         const q=popFromDam(s,1);
         if(q.length){
+          pollingCancelRef.current++; // 自分を含む旧tickを全て無効化してからsetState
           setWaitingForStock(null);
-          if(s!==waitingForStock){setSubject(s);setIsReview(false);}
+          if(s!==snapshotSubj){setSubject(s);setIsReview(false);setSubjectSlideMsg(`📦 ${displaySubject(snapshotSubj,currentGrade)}のストックがなかったため、${displaySubject(s,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
           // 復習待機中に問題が来てもキュー削除はしない（分析完了後にIDで削除）
-          if(isReviewR.current&&s===waitingForStock){}
           setQuiz(q[0]);
           setDamStats(getDamStats(subs));
-          
           return;
         }
       }
     },3000);
-    return()=>clearInterval(timer);
+    return()=>{clearInterval(timer);};
   },[waitingForStock]);
 
   // ── 誤答分析ステート（フラット） ──
@@ -582,7 +814,7 @@ function App(){
     const yk=jstYesterday();
     const yl=logsR.current.dailyLog?.[yk];
     if(yl&&yl.q>0){
-      const subjs=(yl.subjects||[]).join("・");
+      const subjs=(yl.subjects||[]).map(s=>displaySubject(s,grade)).join("・");
       const msg=subjs?`昨日は${subjs}を${yl.q}問頑張ったね！今日もいこう ✨`:`昨日は${yl.q}問頑張ったね！今日もいこう ✨`;
       setWelcomeMsg(msg);
       setTimeout(()=>setWelcomeMsg(""),4000);
@@ -598,7 +830,7 @@ function App(){
       if(r&&r.q>=5&&p&&p.q>=5){
         const pr=p.c/p.q;const cr=r.c/r.q;
         if(pr<0.5&&cr>=0.5){
-          setSubjectImprovedMsg(`📈 ${s}の正解率が${Math.round(pr*100)}%→${Math.round(cr*100)}%にアップ！`);
+          setSubjectImprovedMsg(`📈 ${displaySubject(s,gradeR.current)}の正解率が${Math.round(pr*100)}%→${Math.round(cr*100)}%にアップ！`);
           setTimeout(()=>setSubjectImprovedMsg(""),4500);
         }
       }
@@ -626,27 +858,96 @@ function App(){
     loadLogs();setDamStats(getDamStats(subjectsR.current));
   },[]);
 
+  // ─── 旧データの "数学" → 内部キー "算数" 正規化 ────────────────────
+  // loadLogs / importData でロード直後に呼ぶ。in-memory を常にクリーンに保つ。
+  const normalizeSubjectsInLogs=logs=>{
+    const out={...logs};
+    // reviewQueue: 科目正規化 + idなし旧エントリに id を補完
+    // id がないと updateAnalysisStats の topic fallback 削除が誤爆するため、
+    // ロード時に一括で id を付与して id ベース削除に一本化する。
+    if(Array.isArray(out.reviewQueue)){
+      out.reviewQueue=out.reviewQueue.map(q=>{
+        const normalized=q.subject==="数学"?{...q,subject:"算数"}:q;
+        return normalized.id?normalized:{...normalized,id:crypto.randomUUID()};
+      });
+    }
+    // debugHistory
+    if(Array.isArray(out.debugHistory)){
+      out.debugHistory=out.debugHistory.map(h=>
+        h.subj==="数学"?{...h,subj:"算数"}:h
+      );
+    }
+    // recentHistory
+    if(Array.isArray(out.recentHistory)){
+      out.recentHistory=out.recentHistory.map(r=>
+        r.subject==="数学"?{...r,subject:"算数"}:r
+      );
+    }
+    // subjectStats: "数学" キーがあれば "算数" にマージして削除
+    if(out.subjectStats?.["数学"]){
+      const m=out.subjectStats["数学"];
+      const a=out.subjectStats["算数"]||{q:0,c:0};
+      out.subjectStats={...out.subjectStats,"算数":{q:a.q+m.q,c:a.c+m.c}};
+      delete out.subjectStats["数学"];
+    }
+    // dailyLog の subjects 配列
+    if(out.dailyLog){
+      const dl={};
+      for(const [k,v] of Object.entries(out.dailyLog)){
+        dl[k]=Array.isArray(v.subjects)
+          ?{...v,subjects:v.subjects.map(s=>s==="数学"?"算数":s)}
+          :v;
+      }
+      out.dailyLog=dl;
+    }
+    return out;
+  };
+
+  // ─── localStorage 肥大化防止 ──────────────────────────────────────
+  // 保存前に呼ぶ。in-memory の state は触らず、書き込み用オブジェクトだけ刈る。
+  const pruneLogs=nl=>{
+    const out={...nl};
+    // topicMastery: LLM生成キーが無限増殖するため300件上限
+    // attempts が少ない（＝ほぼ触っていない）エントリから削除
+    const tm={...(out.topicMastery||{})};
+    const tmKeys=Object.keys(tm);
+    if(tmKeys.length>300){
+      tmKeys.sort((a,b)=>(tm[a].attempts||0)-(tm[b].attempts||0));
+      tmKeys.slice(0,tmKeys.length-300).forEach(k=>delete tm[k]);
+      out.topicMastery=tm;
+    }
+    // dailyLog: 1日1エントリで永続増殖するため365日上限
+    // キーが "YYYY-MM-DD" 形式なので辞書順ソート＝日付順
+    const dl={...(out.dailyLog||{})};
+    const dlKeys=Object.keys(dl).sort();
+    if(dlKeys.length>365){
+      dlKeys.slice(0,dlKeys.length-365).forEach(k=>delete dl[k]);
+      out.dailyLog=dl;
+    }
+    return out;
+  };
+
   const loadLogs=()=>{
     try{
       const r=localStorage.getItem(STORE);
       if(r){
         const p=JSON.parse(r);
         if(!p.debugStats)p.debugStats={completed:0,perfect:0};
-        if(!p.checkStats)p.checkStats={total:0,correct:0};
         if(!p.topicMastery)p.topicMastery={};
         if(!p.debugHistory)p.debugHistory=[];
         if(!p.bestLoginStreak)p.bestLoginStreak=0;
+        if(!p.bestDayScore)p.bestDayScore=0;
         const td=today();
         const yk2=jstYesterday();
         const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
         if(!isGap&&p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
         if(isGap){setShowRestartMsg(true);setTimeout(()=>setShowRestartMsg(false),5000);}
-        setLogs(p);
+        setLogs(normalizeSubjectsInLogs(p));
       }
     }catch(e){}
   };
-  const saveLogs=nl=>{try{localStorage.setItem(STORE,JSON.stringify(nl));}catch(e){}};
+  const saveLogs=nl=>{try{localStorage.setItem(STORE,JSON.stringify(pruneLogs(nl)));}catch(e){}};
 
   const checkBadges=(next)=>{
     const subs=subjectsR.current;
@@ -654,7 +955,7 @@ function App(){
     if(earned.length){next.earnedBadges=[...next.earnedBadges,...earned.map(b=>b.id)];setNewBadges(earned);setTimeout(()=>setNewBadges([]),3500);}
   };
 
-  const updateLogs=(correct,subj,wrongItem,newBest)=>{
+  const updateLogs=useCallback((correct,subj,wrongItem,newBest)=>{
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));const td=today();
       if(!next.subjectStats[subj])next.subjectStats[subj]={q:0,c:0};
@@ -670,6 +971,10 @@ function App(){
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
       if(next.lastLogin!==td){const ys=jstYesterday();next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
+      // 当日スコアを計算してbestDayScoreを更新
+      const {score:dayScore}=calcTodayScore(next.recentHistory);
+      if(!next.bestDayScore)next.bestDayScore=0;
+      if(dayScore>next.bestDayScore)next.bestDayScore=dayScore;
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){
         if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
@@ -678,23 +983,20 @@ function App(){
       }
       checkBadges(next);saveLogs(next);return next;
     });
-  };
+  },[quiz]);
 
-  const updateAnalysisStats=(results,subj)=>{
+  const updateAnalysisStats=useCallback((results,subj)=>{
     const perfect=results.every(Boolean);
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));
       if(!next.debugStats)next.debugStats={completed:0,perfect:0};
       next.debugStats.completed++;if(perfect)next.debugStats.perfect++;
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
-      // 問題ID単位で該当アイテムのみ削除（同一単元の別誤答を巻き込まない）
+      // 問題ID単位で削除。旧データは normalizeSubjectsInLogs でロード時に id を補完済みなので
+      // topic fallback は不要。id がない場合は削除しない（安全側に倒す）。
       const reviewId=currentReviewItemIdR.current;
       if(reviewId){
         next.reviewQueue=(next.reviewQueue||[]).filter(q=>q.id!==reviewId);
-      }else if(topic){
-        // IDなし旧データの後方互換: 同じtopicの最初の1件だけ削除
-        const idx=(next.reviewQueue||[]).findIndex(q=>q.topic===topic&&!q.id);
-        if(idx!==-1)next.reviewQueue.splice(idx,1);
       }
       if(topic&&next.topicMastery[topic]){
       next.topicMastery[topic].debugDone++;
@@ -704,7 +1006,7 @@ function App(){
       if(next.debugHistory.length>100)next.debugHistory=next.debugHistory.slice(0,100);
       checkBadges(next);saveLogs(next);return next;
     });
-  };
+  },[quiz]);
 
   const getFireLevel=n=>{if(n>=30)return 5;if(n>=14)return 4;if(n>=7)return 3;if(n>=3)return 2;if(n>=1)return 1;return 0;};
   const pickSubject=cur=>{
@@ -749,10 +1051,30 @@ function App(){
       const[first,...rest]=nq;
       setNormaQueue(rest);normaQueueR.current=rest;
       setNormaReason(first.reason);
+      // ノルマ1問目が復習由来かどうかチェック（reason で判定）
+      if(first.reason==="復習タイム！"){
+        const reviewItem=cur.reviewQueue?.[0];
+        if(reviewItem){
+          setCurrentReviewItemId(reviewItem.id);
+          currentReviewItemIdR.current=reviewItem.id;
+          setIsReview(true);
+          isReviewR.current=true;
+        }
+      }
       resetFetch(first.subj,g);
     }else{
       setNormaReason("");
-      resetFetch(pickSubject(cur),g);
+      // ノルマ達成済み → 復習キューがあれば復習モードで開始
+      if(cur.reviewQueue?.length){
+        const item=cur.reviewQueue[0];
+        setCurrentReviewItemId(item.id);
+        currentReviewItemIdR.current=item.id;
+        setIsReview(true);
+        isReviewR.current=true;
+        resetFetch(item.subject,g);
+      }else{
+        resetFetch(pickSubject(cur),g);
+      }
     }
   };
 
@@ -778,7 +1100,9 @@ function App(){
     setAnalysisStep(null);setStepAns(null);
     stepResultsR.current=[null,null,null];
     setStepResults([null,null,null]);
-    setCurrentReviewItemId(null);
+    // currentReviewItemId はここでリセットしない
+    // （startWithNorma でセット後に resetFetch→resetState が呼ばれて上書きされるため）
+    // リセットは handleNext の冒頭で行う
   };
 
   // バックグラウンド補充
@@ -836,6 +1160,7 @@ function App(){
           // ② LLM検査AI（"pass"|"fail"|"unchecked" の三値）
           const inspKey=keys[i%keys.length];
           const inspResults=await Promise.all(localPassed.map(q=>inspectQuestion(q,g,inspKey)));
+          if(cancelled)return; // fetch完了後も離脱済みなら結果を捨てる
           let llmRejected=0;
           const toStore=[];
           localPassed.forEach((q,j)=>{
@@ -862,13 +1187,15 @@ function App(){
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
-    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled){const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;const next=isWaiting?15000:hasReview?45000:ok?120000:90000;loop(next);}};
+    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled){const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;const next=isWaiting?15000:hasReview?45000:ok?120000:90000;await loop(next);}};
     loop(15000);
     return()=>{cancelled=true;};
   },[screen]);
 
   const fetchQ=useCallback(async(g,subj,review,reviewItem)=>{
     if(fetchLk.current)return;fetchLk.current=true;
+    // ⑦ fetch開始時点の学年をスナップショット固定（途中の学年変更を無視）
+    const currentGrade=g||gradeR.current;
     const rid=Date.now()+Math.random();reqId.current=rid;
     const stale=()=>reqId.current!==rid;
     try{
@@ -890,14 +1217,14 @@ function App(){
       }
       if(shifted){
         if(!stale()){
-          if(shiftedSubj!==subj)setSubject(shiftedSubj);
+          if(shiftedSubj!==subj){setSubject(shiftedSubj);setSubjectSlideMsg(`📦 ${displaySubject(subj,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
           setQuiz(shifted);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subs));
           
         }
         return;
       }
       // 全科目0 → 待機モード
-      if(!stale()){setLoading(false);setWaitingForStock(subj);}
+      if(!stale()){setLoading(false);pollingCancelRef.current++;setWaitingForStock(subj);}
     }catch(e){
       if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
@@ -906,12 +1233,14 @@ function App(){
 
   const resetFetch=useCallback((subj,sg)=>{
     const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:0,qNum:1};
-    resetState();setGs(init);setSubject(subj);setWaitingForStock(null);
+    // fetchLk/nextLkを明示リセット。rAF前に解放しないとfetchQ冒頭ガードで弾かれる。
+    fetchLk.current=false;nextLk.current=false;
+    resetState();setGs(init);setSubject(subj);pollingCancelRef.current++;setWaitingForStock(null);
     const g=sg||grade;requestAnimationFrame(()=>fetchQ(g,subj,false,null));
   },[grade,fetchQ]);
 
-  // 分析ステップ回答
-  const handleStepAnswer=idx=>{
+  // 分析ステップ回答（useCallback: quiz/analysisStep/stepAns が変わるたび更新）
+  const handleStepAnswer=useCallback(idx=>{
     if(stepAns!==null||!analysisStep||analysisStep==="done")return;
     const step=quiz[`analysis_step${analysisStep}`];
     const correct=idx===step.answer;
@@ -919,10 +1248,10 @@ function App(){
     setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;stepResultsR.current=n;return n;});
     // ① 正解バースト
     if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
-  };
+  },[stepAns,analysisStep,quiz]);
 
-  // 次のステップへ / 完了
-  const handleStepNext=()=>{
+  // 次のステップへ / 完了（useCallback: gs/analysisStep/quiz/subject が変わるたび更新）
+  const handleStepNext=useCallback(()=>{
     if(!analysisStep||analysisStep==="done")return;
     if(analysisStep<3){
       setAnalysisStep(p=>p+1);
@@ -930,14 +1259,14 @@ function App(){
     }else{
       const finalResults=[...stepResultsR.current];
       const score=finalResults.filter(Boolean).length;
-      const correct=score>=2;
+      const correct=score>=3;
       // ⑥ 連続正解が途切れたとき
       if(!correct&&gs.streak>=3){
         setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
         setTimeout(()=>setStreakBrokenMsg(""),3500);
       }
       const wrongItem=!correct?{
-      id:`rq_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+      id:crypto.randomUUID(),
       topic:quiz.topic_tag||quiz.question.slice(0,20),
       subject,
       mistakeType:quiz.mistake_type||"不明"
@@ -949,10 +1278,17 @@ function App(){
       setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
       setAnalysisStep("done");
     }
-  };
+  },[analysisStep,gs,quiz,subject,updateLogs,updateAnalysisStats]);
 
   const handleNext=async()=>{
     if(nextLk.current)return;nextLk.current=true;
+    // ⑦ handleNext開始時点の学年をスナップショット固定（途中の学年変更を無視）
+    const currentGrade=gradeR.current;
+    // 待機モード突入フラグ: finally でロック解放タイミングを切り替えるため
+    let enteredWaiting=false;
+    // 次の問題へ進む前に復習IDをリセット（次のsetIsReview/setCurrentReviewItemIdで上書きされる）
+    setCurrentReviewItemId(null);currentReviewItemIdR.current=null;
+    setIsReview(false);isReviewR.current=false;
     resetState();
     try{
       const cur=logsR.current;
@@ -966,11 +1302,19 @@ function App(){
           const[next,...rest]=q;
           setNormaQueue(rest);normaQueueR.current=rest;
           ns=next.subj;reason=next.reason;
+          // ノルマキューの次が復習由来ならcurrentReviewItemIdをセット
+          if(reason==="復習タイム！"){
+            const reviewItem=cur.reviewQueue?.[0];
+            if(reviewItem){
+              setCurrentReviewItemId(reviewItem.id);currentReviewItemIdR.current=reviewItem.id;
+              setIsReview(true);isReviewR.current=true;
+            }
+          }
         }else{
           // キュー切れ（不正解続き）: バランスで補填
           ns=pickSubject(cur);reason="バランス調整";
         }
-        setNormaReason(reason);setSubject(ns);setIsReview(false);
+        setNormaReason(reason);setSubject(ns);
         // 指定科目のストックを確認、0なら他科目へズレる
         {
           const subs=subjectsR.current;
@@ -979,9 +1323,9 @@ function App(){
           // 指定科目が0 → 他科目へズレる
           let shifted=null,shiftedSubj=ns;
           for(const s of subs){if(s===ns)continue;const any=popFromDam(s,1);if(any.length){shifted=any[0];shiftedSubj=s;break;}}
-          if(shifted){setSubject(shiftedSubj);setDamStats(getDamStats(subs));setQuiz(shifted);return;}
+          if(shifted){setSubject(shiftedSubj);setDamStats(getDamStats(subs));setQuiz(shifted);if(shiftedSubj!==ns){setSubjectSlideMsg(`📦 ${displaySubject(ns,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}return;}
           // 全科目0 → 待機モード
-          setWaitingForStock(ns);return;
+          enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);return;
         }
       }
       // フリーモード
@@ -991,30 +1335,35 @@ function App(){
         const fromDamReview=popFromDam(item.subject,1);
         if(fromDamReview.length){
           // 解消済みは分析完了後にIDで削除するため、ここでは削除しない
-          setCurrentReviewItemId(item.id||null);
+          setCurrentReviewItemId(item.id);  // normalize済みで必ずidあり
           setSubject(item.subject);setIsReview(true);setDamStats(getDamStats(subjectsR.current));
           
           setQuiz(fromDamReview[0]);return;
         }
         // 復習キューがあるのにストックが0 → バックグラウンドが補充するまで待機（スキップしない）
         // waitingForStockポーリングは全科目チェックするので、他に問題があれば自動でズレる
-        setCurrentReviewItemId(item.id||null);
+        setCurrentReviewItemId(item.id);  // normalize済みで必ずidあり
         setSubject(item.subject);setIsReview(true);
-        setWaitingForStock(item.subject);return;
+        enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(item.subject);return;
       }
       const cand=subjR.current;
       let fromDam=popFromDam(cand,1),ns=cand;
       if(!fromDam.length){for(const s of subjectsR.current){if(s===cand)continue;const any=popFromDam(s,1);if(any.length){fromDam=any;ns=s;break;}}}
       if(fromDam.length){
-        if(ns!==subjR.current)setSubject(ns);
+        if(ns!==subjR.current){setSubject(ns);setSubjectSlideMsg(`📦 ${displaySubject(subjR.current,currentGrade)}のストックがなかったため、${displaySubject(ns,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
         setIsReview(false);setDamStats(getDamStats(subjectsR.current));
         
         setQuiz(fromDam[0]);return;
       }
       setIsReview(false);if(ns!==subjR.current)setSubject(ns);
       // ストック空 → 待機モード
-      setWaitingForStock(ns);
-    }finally{setTimeout(()=>{nextLk.current=false;},150);}
+      enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);
+    }finally{
+      // 待機モード突入時は polling にすぐ制御を渡すため即解放。
+      // quiz取得成功時は連打防止のため 150ms 維持。
+      if(enteredWaiting){nextLk.current=false;}
+      else{setTimeout(()=>{nextLk.current=false;},150);}
+    }
   };
 
   const saveSettings=()=>{
@@ -1072,12 +1421,12 @@ function App(){
         const d=JSON.parse(ev.target.result);
         if(d.app!=="まちがいラボ")throw new Error("invalid app");
         if(!d.logs||typeof d.logs!=="object")throw new Error("invalid logs");
-        const restored={...initLogs(),...d.logs};
+        const restored=normalizeSubjectsInLogs({...initLogs(),...d.logs});
         if(!restored.debugStats)restored.debugStats={completed:0,perfect:0};
-        if(!restored.checkStats)restored.checkStats={total:0,correct:0};
         if(!restored.topicMastery)restored.topicMastery={};
         if(!restored.debugHistory)restored.debugHistory=[];
         if(!restored.bestLoginStreak)restored.bestLoginStreak=0;
+        if(!restored.bestDayScore)restored.bestDayScore=0;
         setLogs(restored);saveLogs(restored);
         if(d.dam&&typeof d.dam==="object"){
           const current=getDam();
@@ -1088,8 +1437,8 @@ function App(){
             const targetSubj=(subj==="数学"&&!importSubjects.includes("数学"))?"算数":subj;
             if(Array.isArray(d.dam[subj])&&d.dam[subj].length){
               const merged=current[targetSubj]||[];
-              const existingKeys=new Set(merged.map(q=>(q.question||"").slice(0,30)));
-              const incoming=d.dam[subj].filter(q=>!existingKeys.has((q.question||"").slice(0,30)));
+              const existingKeys=new Set(merged.map(dupKey));
+              const incoming=d.dam[subj].filter(q=>!existingKeys.has(dupKey(q)));
               current[targetSubj]=[...merged,...incoming].slice(-DAM_MAX);
             }
           }
@@ -1116,7 +1465,7 @@ function App(){
   const subjRateMap=calcSubjRates(logs.recentHistory);
   const subjectRates=subjects.map(s=>{const r=subjRateMap[s];return r&&r.q>0?{s,rate:Math.round(r.c/r.q*100),q:r.q}:{s,rate:null,q:0};});
   // ④ 昨日との比較メッセージ
-  const yesterdayKey=(()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})();
+  const yesterdayKey=jstYesterday();
   const todayQ=logs.dailyLog?.[today()]?.q||0;
   const yesterdayQ=logs.dailyLog?.[yesterdayKey]?.q||0;
   const compareMsg=(todayQ>0&&yesterdayQ>0)?(todayQ>yesterdayQ?`昨日より${todayQ-yesterdayQ}問多いよ！🎉`:todayQ===yesterdayQ?`昨日と同じペース！`:null):null;
@@ -1132,6 +1481,10 @@ function App(){
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
   const dailyGoalMet=todaySessions>=3;
   const reviewCount=logs.reviewQueue?.length||0;
+  // 当日スコア計算
+  const {score:todayScore,combo:todayCombo}=calcTodayScore(logs.recentHistory);
+  const nextScore=calcNextScore(todayScore,todayCombo);
+  const bestDayScore=Math.min(100,logs.bestDayScore||0);
 
   const cal28=Array.from({length:28},(_,i)=>{
     const base=new Date();const jst=new Date(base.getTime()+9*60*60*1000);
@@ -1154,23 +1507,27 @@ function App(){
       <div className="root">
 
         {showLoginBonus&&(
-        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",zIndex:1000,background:"linear-gradient(135deg,#ff6b35,#f7931e)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(255,107,53,.4)",textAlign:"center",minWidth:240,animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
-          <div style={{fontSize:28,marginBottom:4}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</div>
-          <div style={{fontSize:15,fontWeight:900}}>{logs.loginStreak}日連続！すごい！</div>
-          {logs.loginStreak===logs.bestLoginStreak&&<div style={{fontSize:11,marginTop:4,opacity:.9}}>🏆 自己最高記録更新！</div>}
+        <div style={{position:"fixed",top:20,left:0,right:0,zIndex:1000,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
+          <div style={{background:"linear-gradient(135deg,#ff6b35,#f7931e)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(255,107,53,.4)",textAlign:"center",maxWidth:"calc(100vw - 32px)",boxSizing:"border-box",pointerEvents:"auto",animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
+            <div style={{fontSize:28,marginBottom:4}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</div>
+            <div style={{fontSize:15,fontWeight:900}}>{logs.loginStreak}日連続！すごい！</div>
+            {logs.loginStreak===logs.bestLoginStreak&&<div style={{fontSize:11,marginTop:4,opacity:.9}}>🏆 自己最高記録更新！</div>}
+          </div>
         </div>
       )}
 
       {showNormaBanner&&(
-        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",zIndex:1001,background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(34,197,94,.4)",textAlign:"center",minWidth:240,animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
-          <div style={{fontSize:28,marginBottom:4}}>🎉</div>
-          <div style={{fontSize:15,fontWeight:900}}>ノルマ達成！あとは自由に！</div>
-          <div style={{fontSize:11,marginTop:4,opacity:.9}}>科目も自分で選べるよ ✨</div>
+        <div style={{position:"fixed",top:20,left:0,right:0,zIndex:1001,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
+          <div style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",borderRadius:20,padding:"14px 24px",boxShadow:"0 8px 32px rgba(34,197,94,.4)",textAlign:"center",maxWidth:"calc(100vw - 32px)",boxSizing:"border-box",pointerEvents:"auto",animation:"bounce .5s cubic-bezier(.34,1.56,.64,1) both"}}>
+            <div style={{fontSize:28,marginBottom:4}}>🎉</div>
+            <div style={{fontSize:15,fontWeight:900}}>ノルマ達成！頑張りました！</div>
+            <div style={{fontSize:11,marginTop:4,opacity:.9}}>科目を選んでハイスコアを狙おう ✨</div>
+          </div>
         </div>
       )}
 
         {newBadges.length>0&&(
-          <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:"#5b3ff8",color:"#fff",borderRadius:16,padding:"12px 20px",fontWeight:800,fontSize:14,boxShadow:"0 4px 20px rgba(91,63,248,.4)",textAlign:"center",whiteSpace:"nowrap"}}>
+          <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:"#5b3ff8",color:"#fff",borderRadius:16,padding:"12px 20px",fontWeight:800,fontSize:14,boxShadow:"0 4px 20px rgba(91,63,248,.4)",textAlign:"center",maxWidth:"calc(100vw - 32px)",boxSizing:"border-box"}}>
             🏆 新実績: {newBadges.map(b=>b.icon+b.label).join(" · ")}
           </div>
         )}
@@ -1183,6 +1540,8 @@ function App(){
         {streakBrokenMsg&&<div className="toast-base" style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",top:20}}>{streakBrokenMsg}</div>}
         {/* ⑪ 休み明け */}
         {showRestartMsg&&<div className="toast-base" style={{background:"#f0fdf4",border:"2px solid #86efac",color:"#166534",top:20}}>久しぶり！また一緒に頑張ろう 🌱</div>}
+        {/* 他科目スライド */}
+        {subjectSlideMsg&&<div className="toast-base" style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",top:20}}>{subjectSlideMsg}</div>}
         {/* ① 正解バースト */}
         {showCorrectBurst&&<React.Fragment><div className="correct-burst"/><div className="correct-burst-2"/></React.Fragment>}
 
@@ -1240,8 +1599,8 @@ function App(){
                 <div>
                   <div style={{fontSize:11,color:"#9990cc",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>{grade}<span style={{letterSpacing:"-2px"}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</span></div>
                   <div style={{fontSize:19,fontWeight:900,display:"flex",alignItems:"center",flexWrap:"wrap",gap:6}}>
-                    {subject}
-                    {isReview&&<span className="pill pill-review">復習</span>}
+                    {displaySubject(subject, grade)}
+                    {!!currentReviewItemId&&<span className="pill pill-review">復習</span>}
                     {analysisStep&&analysisStep!=="done"&&<span className="pill pill-analysis">🔍 分析 {analysisStep}/3</span>}
                     {!dailyGoalMet&&normaReason&&<span style={{fontSize:11,background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 9px",fontWeight:800,border:"1px solid #fde68a"}}>{normaReason}</span>}
                   </div>
@@ -1254,9 +1613,11 @@ function App(){
                 <div className="stat"><div className="stat-n" style={{color:"#f59e0b"}}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#7c6fb0"}}>{gs.wrong}</div><div className="stat-l">{gs.wrong>0?"問から学んだ":"ミスなし！"}</div></div>
-                <div className="stat">
-                  <div className="stat-n" style={{color:dailyGoalMet?"#22c55e":"#f59e0b"}}>{todaySessions}/3</div>
-                  <div className="stat-l">今日</div>
+                <div className="stat" style={{background:todayScore>=80?"#f0fdf4":todayScore>=50?"#fffbeb":"#f8f7ff",border:todayScore>=100?"2px solid #22c55e":"none"}}>
+                  <div className="stat-n" style={{color:todayScore>=80?"#16a34a":todayScore>=50?"#d97706":"#5b3ff8",fontSize:13}}>
+                    {todayScore>=100?"💯":`${Math.floor(todayScore)}→${Math.floor(nextScore)}`}
+                  </div>
+                  <div className="stat-l">分析点数</div>
                 </div>
               </div>
             </div>
@@ -1288,12 +1649,12 @@ function App(){
                       <>
                         <div className="spin" style={{marginBottom:14}}></div>
                         <div style={{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>
-                          {isReview?"📝 復習問題を準備中...":"⚡ 問題を準備中です..."}
+                          {!!currentReviewItemId?"📝 復習問題を準備中...":"⚡ 問題を準備中です..."}
                         </div>
                         <div style={{color:"#9990cc",fontSize:12,fontWeight:700}}>
                           {isRefilling
-                            ?(isReview?"復習問題をバックグラウンドで補充中。もうすぐ出題されます！":"ストックを補充中。もうすぐ出題されます！")
-                            :(isReview?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！")}
+                            ?(!!currentReviewItemId?"復習問題をバックグラウンドで補充中。もうすぐ出題されます！":"ストックを補充中。もうすぐ出題されます！")
+                            :(!!currentReviewItemId?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！")}
                         </div>
                       </>
                     ):(
@@ -1333,105 +1694,31 @@ function App(){
                   </div>
                 )}
 
-                {/* ─── 分析ステージ 1〜3 ─── */}
-                {quiz&&!loading&&analysisStep&&analysisStep!=="done"&&currentStep&&(
-                  <div className="an-card">
-                    {/* タイトル */}
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                      <div style={{fontSize:13,fontWeight:900,color:"#5b3ff8",letterSpacing:".04em"}}>🔍 誤答分析チャレンジ</div>
-                      <span style={{fontSize:12,fontWeight:800,color:"#9990cc"}}>{analysisStep} / 3</span>
-                    </div>
-
-                    {/* 問題 */}
-                    <div className="an-qbox">
-                      <div className="an-qbox-label">📌 問題</div>
-                      <div className="an-qbox-text">{quiz.question}</div>
-                    </div>
-
-                    {/* 生徒の誤答 */}
-                    <div className="an-wrong">
-                      <div className="an-wrong-label">❌ ある生徒の答え</div>
-                      <div className="an-wrong-text">「{quiz.student_answer}」</div>
-                    </div>
-
-                    {/* ステージラベル */}
-                    <div className={`an-stage ${stageClr[analysisStep-1]}`}>
-                      {stageIcon[analysisStep-1]} {currentStep.name}
-                    </div>
-                    <div className="an-q">{currentStep.question}</div>
-
-                    {/* 選択肢 */}
-                    {currentStep.choices.map((c,i)=>{
-                      let cls="an-choice";
-                      if(stepAns!==null){if(i===currentStep.answer)cls+=" correct";else if(i===stepAns)cls+=" wrong";else cls+=" dim";}
-                      return(
-                        <button key={i} className={cls} onClick={()=>handleStepAnswer(i)} disabled={stepAns!==null}>
-                          <span className="an-num">{i+1}</span>{c}
-                        </button>
-                      );
-                    })}
-
-                    {/* フィードバック */}
-                    {stepAns!==null&&(
-                      <React.Fragment>
-                        <div className="an-fb">
-                          <strong style={{color:stepAns===currentStep.answer?"#059669":"#dc2626"}}>{stepAns===currentStep.answer?"✓ 正確に特定！":"✗ ここに注目しよう"}</strong><br/>
-                          {currentStep.feedback}
-                        </div>
-                        <button className="an-next" onClick={handleStepNext}>
-                          {analysisStep<3?`次のステップへ（${analysisStep+1}/3）→`:"結果を見る ✨"}
-                        </button>
-                      </React.Fragment>
-                    )}
-
-                  </div>
-                )}
-
-                {/* ─── 分析完了 ─── */}
-                {quiz&&!loading&&analysisStep==="done"&&(
-                  <div className="an-card">
-                    <div className="an-complete">
-                      {(()=>{const sc=stepResults.filter(Boolean).length;return(<React.Fragment>
-                      <span className="an-complete-icon">
-                        {sc===3?"🧠":sc===2?"🌟":"🌱"}
-                      </span>
-                      <div style={{fontSize:21,fontWeight:900,color:"#1e1e3a",marginBottom:4}}>
-                        {sc===3?"完璧な分析！":sc===2?"もう少しで完璧！":"まだまだ伸びしろあり！"}
-                      </div>
-                      <div style={{fontSize:13,color:"#7c6fb0",marginBottom:8}}>
-                        {sc===3?"3問全問正解！すばらしい思考力だね 🎉":sc===2?"2問正解！あと1問で完璧だったよ 🎯":"難しかったね。次こそ一緒に考えよう 💪"}
-                      </div>
-                      <div style={{fontSize:11,color:"#bbb",marginBottom:12}}>{sc} / 3 ステップ正解</div>
-                      </React.Fragment>);})()}
-                      <div className="an-score-row">
-                        {stepResults.map((r,i)=><div key={i} className={`an-score-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>)}
-                      </div>
-                      <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:12,textAlign:"left"}}>
-                        <div style={{fontSize:11,fontWeight:900,color:"#16a34a",marginBottom:4}}>✅ 正解</div>
-                        <div style={{fontSize:16,fontWeight:800,color:"#166534"}}>{quiz.correct_answer}</div>
-                        <div style={{fontSize:12,color:"#166534",marginTop:6,lineHeight:1.65}}>{quiz.correct_feedback}</div>
-                      </div>
-                      {/* ⑤ mistake_type */}
-                      {quiz.mistake_type&&quiz.mistake_type!=="不明"&&(
-                        <div style={{background:"#f0edff",border:"1.5px solid #ddd6fe",borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"left"}}>
-                          <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",marginBottom:4,letterSpacing:".04em"}}>💡 この間違いのポイント</div>
-                          <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
-                        </div>
-                      )}
-                      {quiz._inspected&&<div style={{textAlign:"center",fontSize:10,color:"#9990cc",fontWeight:700,marginTop:4}}>🔍 検査AI通過済み</div>}
-                    </div>
-
-                    <button className="btn-green" style={{marginBottom:8}} onClick={handleNext}>次の問題へ →</button>
-                    <button className="report-btn" onClick={()=>{
+                {/* ─── 分析ステージ 1〜3 ＆ 完了 → AnalysisPanel ─── */}
+                {quiz&&!loading&&analysisStep&&(
+                  <AnalysisPanel
+                    quiz={quiz}
+                    analysisStep={analysisStep}
+                    stepAns={stepAns}
+                    stepResults={stepResults}
+                    currentStep={currentStep}
+                    stageClr={stageClr}
+                    stageIcon={stageIcon}
+                    onAnswer={handleStepAnswer}
+                    onNext={analysisStep==="done"?handleNext:handleStepNext}
+                    isReview={!!currentReviewItemId}
+                    isNorma={!currentReviewItemId&&!dailyGoalMet}
+                    todaySess={todaySessions}
+                    onReport={()=>{
                       const rid=currentReviewItemId;
                       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
+                      // normalize済みで id は常に存在する。idなしの場合は安全側に倒して削除しない。
                       setLogs(p=>{const n=JSON.parse(JSON.stringify(p));
                         if(rid){n.reviewQueue=(n.reviewQueue||[]).filter(q=>q.id!==rid);}
-                        else if(topic){const idx=(n.reviewQueue||[]).findIndex(q=>q.topic===topic&&!q.id);if(idx!==-1)n.reviewQueue.splice(idx,1);}
                         saveLogs(n);return n;});
                       alert("報告しました。復習リストから削除されます。");
-                    }}>⚠️ この問題の内容がおかしい</button>
-                  </div>
+                    }}
+                  />
                 )}
 
                 {/* ノルマ中インジケーター */}
@@ -1448,7 +1735,7 @@ function App(){
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                         {subjects.map(s=>(
-                          <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} disabled={loading}>{s}</button>
+                          <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} disabled={loading}>{displaySubject(s,grade)}</button>
                         ))}
                         <button className="btn btn-ghost" style={{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick={()=>setShowSubjSel(false)} disabled={loading}>もどる</button>
                       </div>
@@ -1481,22 +1768,6 @@ function App(){
                   <div style={{fontSize:13,opacity:.85,marginTop:4}}>この調子で続けよう 🔥</div>
                 </div>
 
-                {/* デイリー目標 */}
-                <div className={`daily-goal-card${dailyGoalMet?" done":""}`}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{fontWeight:900,fontSize:14,color:dailyGoalMet?"#166534":"#92400e"}}>
-                      {dailyGoalMet?"🎉 今日の目標達成！":"🎯 デイリー目標"}
-                    </div>
-                    <div style={{fontWeight:900,fontSize:20,color:dailyGoalMet?"#16a34a":"#d97706"}}>{todaySessions}/3</div>
-                  </div>
-                  <div className="daily-goal-bar-wrap">
-                    <div className={`daily-goal-bar${dailyGoalMet?" done":""}`} style={{width:`${Math.min(100,todaySessions/3*100)}%`}}></div>
-                  </div>
-                    <div style={{fontSize:11,color:dailyGoalMet?"#166534":"#92400e",fontWeight:700}}>
-                       3問クリアで目標達成！
-                   </div>
-                </div>
-
                 {/* 正解率カード */}
                 <div style={{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -1522,7 +1793,7 @@ function App(){
                   <div className="section-title">科目別 正解率（直近100問）</div>
                   {subjectRates.map(({s,rate,q})=>(
                     <div key={s} className="subj-row">
-                      <span className="subj-name">{s}</span>
+                      <span className="subj-name">{displaySubject(s,grade)}</span>
                       <div style={{flex:1}}><div className="bar-wrap"><div className="bar" style={{width:rate!==null?`${rate}%`:"0%",background:rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
                       <span style={{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>{rate!==null?`${rate}%`:"未挑戦"}</span>
                       <span style={{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>{q>0?`${q}問`:""}</span>
@@ -1542,7 +1813,7 @@ function App(){
                       {logs.debugHistory.slice(0,5).map((h,i)=>(
                         <div key={i} className="anhist-row">
                           <span style={{fontSize:11,color:"#7c6fb0",minWidth:36}}>{h.date.slice(5)}</span>
-                          <span className="anhist-subj">{h.subj}</span>
+                          <span className="anhist-subj">{displaySubject(h.subj,grade)}</span>
                           <span style={{flex:1,fontSize:11,color:"#5b3ff8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.topic}</span>
                           <div className="anhist-score">
                             {(h.results||[]).map((r,j)=>(
@@ -1596,7 +1867,7 @@ function App(){
                         const labels={fresh:"学習中",learning:"定着中",mastered:"習熟済み"};
                         return(
                           <div key={topic} className={`mastery-card ${state}`}>
-                            <div className="mastery-tag">{labels[state]} ｜ {subj}</div>
+                            <div className="mastery-tag">{labels[state]} ｜ {displaySubject(subj,grade)}</div>
                             <div className="mastery-topic">{topic}</div>
                             <div className="mastery-meta">{attempts}問 正解率{rate}%</div>
                           </div>
@@ -1626,7 +1897,7 @@ function App(){
                   <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*subjects.length)*100)}%`,background:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}></div></div></div>
                   {subjects.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
                     <div key={s} className="dam-row">
-                      <span className="dam-label">{s}</span>
+                      <span className="dam-label">{displaySubject(s,grade)}</span>
                       <div className="dam-bw"><div className="dam-bf" style={{width:`${pct}%`,background:c}}></div></div>
                       <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
                     </div>
@@ -1640,18 +1911,7 @@ function App(){
 
             {/* ── BADGE ── */}
             {tab==="badge"&&(
-              <div className="card">
-                <div className="section-title">実績 {logs.earnedBadges?.length||0} / {BADGES.length}</div>
-                <div className="badge-grid">
-                  {BADGES.map(b=>{const e=logs.earnedBadges?.includes(b.id);return(
-                    <div key={b.id} className={`badge ${e?"earned":"locked"}`}>
-                      <div className="badge-icon">{b.icon}</div>
-                      <div className="badge-name">{b.label}</div>
-                      <div className="badge-desc">{b.desc}</div>
-                    </div>
-                  );})}
-                </div>
-              </div>
+              <BadgeGrid earnedBadges={logs.earnedBadges} totalBadges={BADGES.length}/>
             )}
 
             {/* ── SETTINGS ── */}
