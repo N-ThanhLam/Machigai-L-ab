@@ -125,95 +125,7 @@ analysis_step3（正しく考えよう）:
 ・心理・性格・注意不足を書かない
 `;
 
-// ─── INSPECT PROMPT ──────────────────────────────────────────────
-const INSPECT_PROMPT = `あなたは学習問題の軽量検査AIです。
 
-次の3点だけ確認してください。
-
-1. answer が choices の正しい選択肢を指しているか
-2. student_answer と correct_answer が完全に別物ではないか
-3. 問題として成立しているか
-
-問題なければ:
-{"pass":true}
-
-問題があれば:
-{"pass":false}
-
-JSONのみ出力してください。`;
-
-// ─── INSPECT FUNCTION ────────────────────────────────────────────
-// 戻り値: "pass"（合格）| "fail"（不合格）| "unchecked"（検査不能）
-const INSPECT_TIMEOUT_MS = 10000; // ⑨ mobile考慮・Gemini Flash向けに10sに短縮
-const inspectQuestion = async (q, grade, key) => {
-  if (!key || !key.trim()) {
-  console.error("inspect key empty");
-  return "unchecked";
-  } // キーなし → 未検査扱い
-  const payload = JSON.stringify({
-    grade,
-    subject: displaySubject(q.subject, grade), // 中高生なら「算数」→「数学」に変換して検査
-    topic_tag: q.topic_tag,
-    question: q.question,
-    student_answer: q.student_answer,
-    correct_answer: q.correct_answer,
-    correct_feedback: q.correct_feedback,
-    mistake_type: q.mistake_type,
-    analysis_step1: q.analysis_step1,
-    analysis_step2: q.analysis_step2,
-    analysis_step3: q.analysis_step3,
-  });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), INSPECT_TIMEOUT_MS);
-  try {
-    const body = {
-      systemInstruction: { parts: [{ text: INSPECT_PROMPT }] },
-      contents: [{ role: "user", parts: [{ text: payload }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.1, topP: 0.8, topK: 10 }
-    };
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal }
-    );
-    clearTimeout(timer);
-    console.log("inspect status", res.status);
-
-     if (!res.ok) {
-      const text = await res.text();
-      console.error("inspect error body:", text);
-       return "unchecked";
-      }         // HTTPエラー → 検査不能
-    const data = await res.json();
-      console.log("inspect response", data);
-    if (data.error) return "unchecked";      // APIエラー → 検査不能
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-     console.log("inspect empty response", data);
-      return "unchecked";
-      }
-    let result;
-    try {
-      const cleaned = text
-  .replace(/```json/g, "")
-  .replace(/```/g, "")
-  .trim();
-
-const match = cleaned.match(/\{[\s\S]*\}/);
-
-if (!match) return "unchecked";
-
-result = JSON.parse(match[0]);
-    } catch (e) {
-  console.log("inspect json parse error", text);
-  return "unchecked";
-}
-    if (!result || typeof result !== "object" || !("pass" in result)) return "unchecked";
-    return result.pass === true ? "pass" : "fail";
-  } catch (e) {
-    clearTimeout(timer);
-    return "unchecked"; // タイムアウト・ネットワークエラー → 検査不能
-  }
-};
 
 // ─── DAM ─────────────────────────────────────────────────────────
 const DAM_KEY="manabi_dam_v3";
@@ -229,15 +141,10 @@ const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Se
 // 復習問題はストックの「先頭」に挿入して優先使用されるようにする
 const addToDamFront=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];if(!b.length)return[];
-  // checked を優先して先頭に、unchecked を後に並べてから取り出す
-  const checked=b.filter(q=>q._checkState==="checked");
-  const unchecked=b.filter(q=>q._checkState!=="checked");
-  const ordered=[...checked,...unchecked];
-  const take=Math.min(n,ordered.length);const r=ordered.slice(0,take);
-  dam[subj]=ordered.slice(take);saveDam(dam);return r;};
+  const take=Math.min(n,b.length);const r=b.slice(0,take);
+  dam[subj]=b.slice(take);saveDam(dam);return r;};
 const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
 const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
-const getDamUncheckedTotal=(subjects=SUBJECTS)=>{const dam=getDam();return subjects.reduce((t,s)=>t+(dam[s]||[]).filter(q=>q._checkState!=="checked").length,0);};
 const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
 
 // ─── UTILS ───────────────────────────────────────────────────────
@@ -677,7 +584,7 @@ const AnalysisPanel=React.memo(({quiz,analysisStep,stepAns,stepResults,currentSt
               <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
             </div>
           )}
-          {quiz._inspected&&<div style={{textAlign:"center",fontSize:10,color:"#9990cc",fontWeight:700,marginTop:4}}>🔍 検査AI通過済み</div>}
+
         </div>
         <button className="btn-green" style={{marginBottom:8}} onClick={onNext}>次の問題へ →</button>
         <button className="report-btn" onClick={onReport}>⚠️ この問題の内容がおかしい</button>
@@ -716,8 +623,6 @@ function App(){
   const [subject,setSubject]=useState("");
   const [gs,setGs]=useState({streak:0,best:0,wrong:0,qNum:1});
   const [quiz,setQuiz]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [isCooldown,setIsCooldown]=useState(false);
   const [startError,setStartError]=useState("");
   const [appError,setAppError]=useState("");
   const [showSubjSel,setShowSubjSel]=useState(false);
@@ -1103,23 +1008,6 @@ function App(){
     }
   };
 
-  const buildPrompt=(g,subj,s,review,reviewItem,cur)=>{
-    const mon=new Date().getMonth()+1;
-    const rates=calcSubjRates(cur.recentHistory);
-    const weak=calcSubjects(g).filter(sub=>{const r=rates[sub];return r&&r.q>=3&&r.c/r.q<.6;});
-    const dam=getDam();
-    const damTopics=[...new Set((dam[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-    // 中学・高校で「算数」が渡された場合は「数学」としてGeminiに要求
-    const promptSubj=(subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":subj;
-    let p=`\n学年:${g}\n時期:${mon}月\n科目:${promptSubj}\n日本公立学校の進度に合わせること。${mon}月時点で未習内容は禁止。\n`;
-    p+=`【出題済み単元】以下の単元はストックに存在する。同じ単元でも問題文・題材・数値が異なれば出題可。完全に同じ問題は禁止:${damTopics}\n`;
-    if(review&&reviewItem)p+=`【復習】科目「${promptSubj}」で過去に間違えたテーマ:${reviewItem.topic}の類似問題を1問。`;
-    else p+=`科目「${promptSubj}」から1問。`;
-    p+=`\nmistake_type を必ず含めること。`;
-    p+=`\n「誤答付き問題」形式で student_answer・correct_answer・analysis_step1〜3 を必ず含めること。`;
-    return p;
-  };
-
   const resetState=()=>{
     setQuiz(null);
     setAnalysisStep(null);setStepAns(null);
@@ -1140,39 +1028,32 @@ function App(){
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
       const dam=getDam();
-      // 復習キューの科目を優先、足りなければ最少バケツで埋める
-      // ※ APIキーが1本でも全科目を順番に補充できるよう、並列数上限を keys.length ではなく
-      //   全科目数（curSubjects.length）にする。直列実行になるが取りこぼしを防ぐ。
-      const maxTargets=Math.max(keys.length,curSubjects.length);
+      // 復習キューの科目を優先、足りなければ少ない順に全科目を対象にする
       const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))].filter(s=>(dam[s]||[]).length<DAM_MAX);
-      const byCount=lowestBuckets(maxTargets,curSubjects);
+      const byCount=lowestBuckets(curSubjects.length,curSubjects);
       const seen=new Set();const targets=[];
-      for(const s of reviewSubjs){if(!seen.has(s)&&targets.length<maxTargets){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
-      for(const t of byCount){if(!seen.has(t.subj)&&targets.length<maxTargets){targets.push(t);seen.add(t.subj);}}
+      for(const s of reviewSubjs){if(!seen.has(s)){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
+      for(const t of byCount){if(!seen.has(t.subj)){targets.push(t);seen.add(t.subj);}}
       const filtered=targets.filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
-        // ─ キー分割: 生成用 / inspect用 ──────────────────────
-        // キー1本 → 両方で共用（しょうがない）
-        // キー2本以上 → 前半を生成用、後半をinspect用に分割
-        // 例) 2本: gen=[0], insp=[1] / 4本: gen=[0,1], insp=[2,3]
-        const genKeyCount=keys.length===1?1:Math.floor(keys.length/2);
-        const genKeys=keys.slice(0,genKeyCount);
-        const inspKeys=keys.length===1?keys:keys.slice(genKeyCount);
-        // ─ 生成: genKeys分を並列実行 ─────────────────────────
-        const genResults=await Promise.all(filtered.map(async(target,i)=>{
-          const key=genKeys[i%genKeys.length];
+        // ─ 生成: 1件ずつ順番に実行 ─────────────────────────────
+        const genResults=[];
+        for(let i=0;i<filtered.length;i++){
+          if(cancelled)break;
+          const target=filtered[i];
+          const key=keys[i%keys.length];
           const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
           // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
           const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
           const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
           try{
             const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-            if(!res.ok)return{subj:target.subj,valid:[]};
-            const data=await res.json();if(data.error)return{subj:target.subj,valid:[]};
-            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return{subj:target.subj,valid:[]};
-            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return{subj:target.subj,valid:[]};}
+            if(!res.ok){genResults.push({subj:target.subj,valid:[]});continue;}
+            const data=await res.json();if(data.error){genResults.push({subj:target.subj,valid:[]});continue;}
+            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text){genResults.push({subj:target.subj,valid:[]});continue;}
+            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){genResults.push({subj:target.subj,valid:[]});continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
             const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
               // subjectの前後空白を正規化（全角スペース含む）
@@ -1183,48 +1064,28 @@ function App(){
               if(target.subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
               return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
-            return{subj:target.subj,valid};
-          }catch(e){return{subj:target.subj,valid:[]};}
-        }));
+            genResults.push({subj:target.subj,valid});
+          }catch(e){genResults.push({subj:target.subj,valid:[]});}
+        }
         if(cancelled)return false;
-        // ─ 検査: ローカルバリデーション → 検査AI（科目ごと並列） ─────────────
+        // ─ バリデーション: ローカルチェックのみ ───────────────────
         let totalRejected=0;let anyPassed=false;
-        await Promise.all(genResults.map(async({subj,valid},i)=>{
+        genResults.forEach(({subj,valid})=>{
           if(!valid.length||cancelled)return;
-          // ① ローカルバリデーション（LLM前の軽量チェック）
+          // ローカルバリデーション
           const localPassed=valid.filter(q=>localValidate(q));
           const localRejected=valid.length-localPassed.length;
           totalRejected+=localRejected;
           if(!localPassed.length)return;
-          // ② LLM検査AI（"pass"|"fail"|"unchecked" の三値）
-          // inspKeys は生成とは別キーを優先（キー1本時は genKeys と同じ）
-          if (!inspKeys.length) {
-            console.error("No valid inspect keys");
-            return;
-          }
-          // 問題を inspKeys 数ごとにバッチ化して並列実行
-          // 例) inspKeys=2本, localPassed=10問 → 各キーが5問ずつ担当
-          const inspResults=await Promise.all(localPassed.map((q,j)=>inspectQuestion(q,g,inspKeys[j%inspKeys.length])));
-          if(cancelled)return; // fetch完了後も離脱済みなら結果を捨てる
-          let llmRejected=0;
-          const toStore=[];
-          localPassed.forEach((q,j)=>{
-            const result=inspResults[j];
-            if(result==="fail"){llmRejected++;return;}          // 不合格 → 棄却
-            const checkState=result==="pass"?"checked":"unchecked"; // pass or unchecked
-            toStore.push(shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_checkState:checkState,_inspected:checkState==="checked"}));
-          });
-          totalRejected+=llmRejected;
+          if(cancelled)return;
+          const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
           if(toStore.length&&!cancelled){
-            // checked を先頭に配置してストックの品質を高める
-            const checkedItems=toStore.filter(q=>q._checkState==="checked");
-            const uncheckedItems=toStore.filter(q=>q._checkState!=="checked");
             const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
-            if(isReviewSubj)addToDamFront(subj,[...checkedItems,...uncheckedItems]);
-            else addToDam(subj,[...checkedItems,...uncheckedItems]);
+            if(isReviewSubj)addToDamFront(subj,toStore);
+            else addToDam(subj,toStore);
             anyPassed=true;
           }
-        }));
+        });
         // ─────────────────────────────────────────────────────
         if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
         if(!cancelled)setDamStats(getDamStats(subjectsR.current));
@@ -1250,7 +1111,7 @@ function App(){
       const subs=subjectsR.current;
       const st=popFromDam(subj,1);
       if(st.length){
-        if(!stale()){setQuiz(st[0]);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subs));}
+        if(!stale()){setQuiz(st[0]);setDamStats(getDamStats(subs));}
         return;
       }
       // 指定科目が0 → 他科目へズレる
@@ -1263,17 +1124,17 @@ function App(){
       if(shifted){
         if(!stale()){
           if(shiftedSubj!==subj){setSubject(shiftedSubj);setSubjectSlideMsg(`📦 ${displaySubject(subj,currentGrade)}のストックがなかったため、${displaySubject(shiftedSubj,currentGrade)}に切り替えました`);setTimeout(()=>setSubjectSlideMsg(""),3500);}
-          setQuiz(shifted);setLoading(false);setIsCooldown(false);setDamStats(getDamStats(subs));
+          setQuiz(shifted);setDamStats(getDamStats(subs));
           
         }
         return;
       }
       // 全科目0 → 待機モード
-      if(!stale()){setLoading(false);pollingCancelRef.current++;setWaitingForStock(subj);}
+      if(!stale()){pollingCancelRef.current++;setWaitingForStock(subj);}
     }catch(e){
       if(!stale())setAppError("AIにつながれなかったよ！もう一度おしてみてね");
     }
-    finally{if(reqId.current===rid)setLoading(false);fetchLk.current=false;}
+    finally{fetchLk.current=false;}
   },[]);
 
   const resetFetch=useCallback((subj,sg)=>{
@@ -1516,7 +1377,6 @@ function App(){
   const rateBg=recent100?(recent100.rate>=80?"#f0fdf4":recent100.rate>=60?"#fffbeb":"#fff7f7"):"#f8f7ff";
   const rateBorder=recent100?(recent100.rate>=80?"#86efac":recent100.rate>=60?"#fde68a":"#fca5a5"):"#e8e3ff";
   const damTotal=getDamTotal(subjects);
-  const damUncheckedTotal=getDamUncheckedTotal(subjects);
   const stageClr=["s1","s2","s3"];
   const stageIcon=["🔍","🧩","✅"];
   const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
@@ -1608,6 +1468,7 @@ function App(){
                   ストックに問題があれば解答できる。この仕様を削除・変更しないこと。 */}
               <button className="btn btn-primary" onClick={()=>{
                 if(!birthday){setStartError("生年月日を入力してください");return;}
+                setStartError("");
                 // APIキー未入力でも先に進める（キーなし時はストックから出題、補充・生成はスキップ）
                 try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
@@ -1678,15 +1539,9 @@ function App(){
             {/* ── LEARN ── */}
             {tab==="learn"&&(
               <React.Fragment>
-                {/* ④ 昨日比較・② あと1問ハイライト */}
+                {/* ④ 昨日比較 */}
                 {compareMsg&&<div style={{textAlign:"center",fontSize:12,fontWeight:800,color:"#5b3ff8",background:"#f0edff",borderRadius:10,padding:"6px 12px",marginBottom:8}}>{compareMsg}</div>}
-                {loading&&(
-                  <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
-                    <div className="spin" style={{marginBottom:14}}></div>
-                    <div style={{color:"#9990cc",fontSize:14,fontWeight:700}}>{isCooldown?"AIが休憩中... ☕":"問題を生成中... 🚀"}</div>
-                  </div>
-                )}
-                {!loading&&waitingForStock&&!quiz&&(
+                {waitingForStock&&!quiz&&(
                   <div className="card" style={{textAlign:"center",padding:"36px 20px"}}>
                     {apiKeys.some(k=>k.trim())?(
                       <>
@@ -1710,35 +1565,30 @@ function App(){
                     )}
                   </div>
                 )}
-                {appError&&!loading&&(
+                {appError&&(
                   <div className="card">
                     <div className="err">😅 {appError}</div>
                     <button className="btn btn-primary" onClick={()=>{setAppError("");fetchQ(grade,subjR.current,false,null);}}>もう一度</button>
                   </div>
                 )}
-                {!loading&&quiz&&isCooldown&&(
-                  <div style={{background:"#fffbeb",borderLeft:"3px solid #f59e0b",padding:"10px 14px",marginBottom:12,borderRadius:"0 10px 10px 0",fontSize:13,color:"#92400e",fontWeight:700}}>
-                    ☕ 問題を準備中（AI補充待ち）
-                  </div>
-                )}
 
                 {/* データ不正フォールバック */}
-                {quiz&&!loading&&!analysisStep&&!hasValidAnalysis(quiz)&&(
+                {quiz&&!analysisStep&&!hasValidAnalysis(quiz)&&(
                   <div className="card" style={{textAlign:"center",padding:"24px"}}>
                     <div style={{fontSize:13,color:"#9990cc",marginBottom:12}}>問題データが読み込めませんでした</div>
-                    <button className="btn btn-ghost" onClick={handleNext} disabled={loading}>次の問題へ →</button>
+                    <button className="btn btn-ghost" onClick={handleNext} >次の問題へ →</button>
                   </div>
                 )}
 
                 {/* 初期ロード中（analysisStep セット待ち） */}
-                {quiz&&!loading&&!analysisStep&&hasValidAnalysis(quiz)&&(
+                {quiz&&!analysisStep&&hasValidAnalysis(quiz)&&(
                   <div className="card" style={{textAlign:"center",padding:"24px"}}>
                     <div className="spin" style={{marginBottom:8}}></div>
                   </div>
                 )}
 
                 {/* ─── 分析ステージ 1〜3 ＆ 完了 → AnalysisPanel ─── */}
-                {quiz&&!loading&&analysisStep&&(
+                {quiz&&analysisStep&&(
                   <AnalysisPanel
                     quiz={quiz}
                     analysisStep={analysisStep}
@@ -1778,15 +1628,15 @@ function App(){
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                         {subjects.map(s=>(
-                          <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} disabled={loading}>{displaySubject(s,grade)}</button>
+                          <button key={s} className="btn btn-primary" style={{padding:"10px 8px",fontSize:14}} onClick={()=>{setShowSubjSel(false);resetFetch(s);}} >{displaySubject(s,grade)}</button>
                         ))}
-                        <button className="btn btn-ghost" style={{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick={()=>setShowSubjSel(false)} disabled={loading}>もどる</button>
+                        <button className="btn btn-ghost" style={{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick={()=>setShowSubjSel(false)} >もどる</button>
                       </div>
                     </div>
                   ):(
                     <React.Fragment>
                       <div className="row2" style={{marginTop:4}}>
-                        <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} disabled={loading}>科目選択</button>
+                        <button className="btn btn-ghost" onClick={()=>setShowSubjSel(true)} >科目選択</button>
                         <button className="btn btn-ghost" onClick={()=>{
                           const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
                           const un=subjects.filter(s=>!rates[s]||rates[s].q===0);
@@ -1795,7 +1645,7 @@ function App(){
                           for(const s of subjects){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
                           if(!found){const qc=subjects.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
                           resetFetch(ws);
-                        }} disabled={loading}>苦手科目</button>
+                        }} >苦手科目</button>
                       </div>
                     </React.Fragment>
                   )
@@ -1946,8 +1796,7 @@ function App(){
                     </div>
                   );})}
                   <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:waitingForStock?"⏳ 問題を待機中...（バックグラウンドで補充します）":`✓ ${autoRefill?"自動更新ON（常に最新）":"自動更新ON（ストックが満たされたら停止）"}`}</div>
-                  {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🚫 品質フィルター棄却: {rejectCount}問（ローカル検証 or 検査AI不合格）</div>}
-                  {damUncheckedTotal>0&&<div style={{fontSize:10,color:"#9990cc",marginTop:2,textAlign:"center",fontWeight:700}}>⏳ 未検査（検査エラー）: {damUncheckedTotal}問 ← checked問題が優先出題</div>}
+                  {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🚫 品質フィルター棄却: {rejectCount}問（ローカル検証不合格）</div>}
                 </div>
               </React.Fragment>
             )}
@@ -2054,7 +1903,6 @@ function App(){
                     <div>📚 まちがいラボ</div>
                     <div>🔍 誤答分析型 学習エンジン</div>
                     <div>⚡ Gemini 2.5 Flash 使用</div>
-                    <div>🛡️ 検査AI（品質フィルター）搭載</div>
                   </div>
                 </div>
               </React.Fragment>
