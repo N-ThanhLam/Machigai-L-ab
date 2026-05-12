@@ -144,7 +144,7 @@ JSONのみ出力してください。`;
 
 // ─── INSPECT FUNCTION ────────────────────────────────────────────
 // 戻り値: "pass"（合格）| "fail"（不合格）| "unchecked"（検査不能）
-const INSPECT_TIMEOUT_MS = 60000; // ⑨ mobile考慮・Gemini Flash向けに20s→10sに短縮
+const INSPECT_TIMEOUT_MS = 10000; // ⑨ mobile考慮・Gemini Flash向けに10sに短縮
 const inspectQuestion = async (q, grade, key) => {
   if (!key || !key.trim()) {
   console.error("inspect key empty");
@@ -706,6 +706,8 @@ const BadgeGrid=React.memo(({earnedBadges,totalBadges})=>(
 
 // ─── MAIN ────────────────────────────────────────────────────────
 function App(){
+  const STORE="manabi_logs_v4";const PROF="manabi_profile_v2";const SESS="manabi_session_v2";
+
   const [screen,setScreen]=useState("start");
   const [tab,setTab]=useState("learn");
   const [apiKeys,setApiKeys]=useState(["","","",""]);
@@ -806,8 +808,6 @@ function App(){
   const [stepAns,setStepAns]=useState(null);
   const [stepResults,setStepResults]=useState([null,null,null]);
   const stepResultsR=useRef([null,null,null]);
-
-  const STORE="manabi_logs_v4";const PROF="manabi_profile_v2";const SESS="manabi_session_v2";
 
   const logsR=useRef(logs);const gsR=useRef(gs);const subjR=useRef(subject);
   const keysR=useRef(apiKeys);const gradeR=useRef(grade);const bdR=useRef(birthday);
@@ -1048,9 +1048,13 @@ function App(){
     const rates=calcSubjRates(cur.recentHistory);
     const result=[];const used=new Set();
     // 優先1: 復習キューの科目
-    const reviewSubj=cur.reviewQueue?.[0]?.subject;
-    if(reviewSubj&&result.length<needed&&!used.has(reviewSubj)){
-      result.push({subj:reviewSubj,reason:"復習タイム！"});used.add(reviewSubj);
+    // reviewItemId をこの時点で確定して埋め込む。
+    // handleNext で logsR.current.reviewQueue[0] を参照すると
+    // 直前の updateAnalysisStats で削除済みの場合に別アイテムを指すため。
+    const reviewItem0=cur.reviewQueue?.[0];
+    if(reviewItem0&&result.length<needed&&!used.has(reviewItem0.subject)){
+      result.push({subj:reviewItem0.subject,reason:"復習タイム！",reviewItemId:reviewItem0.id});
+      used.add(reviewItem0.subject);
     }
     // 優先2: 未挑戦・苦手順
     const sorted=subs.filter(s=>!used.has(s))
@@ -1074,15 +1078,13 @@ function App(){
       const[first,...rest]=nq;
       setNormaQueue(rest);normaQueueR.current=rest;
       setNormaReason(first.reason);
-      // ノルマ1問目が復習由来かどうかチェック（reason で判定）
-      if(first.reason==="復習タイム！"){
-        const reviewItem=cur.reviewQueue?.[0];
-        if(reviewItem){
-          setCurrentReviewItemId(reviewItem.id);
-          currentReviewItemIdR.current=reviewItem.id;
-          setIsReview(true);
-          isReviewR.current=true;
-        }
+      // ノルマ1問目が復習由来かどうかチェック
+      // reviewItemId は buildNormaQueue 時点で確定済み → logsR を再参照しない
+      if(first.reason==="復習タイム！"&&first.reviewItemId){
+        setCurrentReviewItemId(first.reviewItemId);
+        currentReviewItemIdR.current=first.reviewItemId;
+        setIsReview(true);
+        isReviewR.current=true;
       }
       resetFetch(first.subj,g);
     }else{
@@ -1138,19 +1140,29 @@ function App(){
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
       const dam=getDam();
-      // 復習キューの科目を優先、足りなければ最少バケツで埋める（キー数分まで）
+      // 復習キューの科目を優先、足りなければ最少バケツで埋める
+      // ※ APIキーが1本でも全科目を順番に補充できるよう、並列数上限を keys.length ではなく
+      //   全科目数（curSubjects.length）にする。直列実行になるが取りこぼしを防ぐ。
+      const maxTargets=Math.max(keys.length,curSubjects.length);
       const reviewSubjs=[...new Set((logsR.current.reviewQueue||[]).map(q=>q.subject).filter(Boolean))].filter(s=>(dam[s]||[]).length<DAM_MAX);
-      const byCount=lowestBuckets(keys.length,curSubjects);
+      const byCount=lowestBuckets(maxTargets,curSubjects);
       const seen=new Set();const targets=[];
-      for(const s of reviewSubjs){if(!seen.has(s)&&targets.length<keys.length){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
-      for(const t of byCount){if(!seen.has(t.subj)&&targets.length<keys.length){targets.push(t);seen.add(t.subj);}}
+      for(const s of reviewSubjs){if(!seen.has(s)&&targets.length<maxTargets){targets.push({subj:s,cnt:(dam[s]||[]).length});seen.add(s);}}
+      for(const t of byCount){if(!seen.has(t.subj)&&targets.length<maxTargets){targets.push(t);seen.add(t.subj);}}
       const filtered=targets.filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
-        // ─ 生成: キー数分を並列実行 ──────────────────────────
+        // ─ キー分割: 生成用 / inspect用 ──────────────────────
+        // キー1本 → 両方で共用（しょうがない）
+        // キー2本以上 → 前半を生成用、後半をinspect用に分割
+        // 例) 2本: gen=[0], insp=[1] / 4本: gen=[0,1], insp=[2,3]
+        const genKeyCount=keys.length===1?1:Math.floor(keys.length/2);
+        const genKeys=keys.slice(0,genKeyCount);
+        const inspKeys=keys.length===1?keys:keys.slice(genKeyCount);
+        // ─ 生成: genKeys分を並列実行 ─────────────────────────
         const genResults=await Promise.all(filtered.map(async(target,i)=>{
-          const key=keys[i%keys.length];
+          const key=genKeys[i%genKeys.length];
           const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
           // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
           const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
@@ -1163,9 +1175,11 @@ function App(){
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return{subj:target.subj,valid:[]};}
             if(!Array.isArray(parsed))parsed=[parsed];
             const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+              // subjectの前後空白を正規化（全角スペース含む）
+              const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
               // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
-              if(target.subj==="算数"&&q.subject==="数学")return{...q,subject:"算数"};
-              return q;
+              if(target.subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+              return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
             return{subj:target.subj,valid};
           }catch(e){return{subj:target.subj,valid:[]};}
@@ -1181,13 +1195,14 @@ function App(){
           totalRejected+=localRejected;
           if(!localPassed.length)return;
           // ② LLM検査AI（"pass"|"fail"|"unchecked" の三値）
-          const validKeys = keys.filter(k => k && k.trim());
-          if (!validKeys.length) {
-           console.error("No valid inspect keys");
+          // inspKeys は生成とは別キーを優先（キー1本時は genKeys と同じ）
+          if (!inspKeys.length) {
+            console.error("No valid inspect keys");
             return;
           }
-          const inspKey = validKeys[i % validKeys.length];
-          const inspResults=await Promise.all(localPassed.map(q=>inspectQuestion(q,g,inspKey)));
+          // 問題を inspKeys 数ごとにバッチ化して並列実行
+          // 例) inspKeys=2本, localPassed=10問 → 各キーが5問ずつ担当
+          const inspResults=await Promise.all(localPassed.map((q,j)=>inspectQuestion(q,g,inspKeys[j%inspKeys.length])));
           if(cancelled)return; // fetch完了後も離脱済みなら結果を捨てる
           let llmRejected=0;
           const toStore=[];
@@ -1195,7 +1210,7 @@ function App(){
             const result=inspResults[j];
             if(result==="fail"){llmRejected++;return;}          // 不合格 → 棄却
             const checkState=result==="pass"?"checked":"unchecked"; // pass or unchecked
-            toStore.push(shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_checkState:checkState}));
+            toStore.push(shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_checkState:checkState,_inspected:checkState==="checked"}));
           });
           totalRejected+=llmRejected;
           if(toStore.length&&!cancelled){
@@ -1330,13 +1345,11 @@ function App(){
           const[next,...rest]=q;
           setNormaQueue(rest);normaQueueR.current=rest;
           ns=next.subj;reason=next.reason;
-          // ノルマキューの次が復習由来ならcurrentReviewItemIdをセット
-          if(reason==="復習タイム！"){
-            const reviewItem=cur.reviewQueue?.[0];
-            if(reviewItem){
-              setCurrentReviewItemId(reviewItem.id);currentReviewItemIdR.current=reviewItem.id;
-              setIsReview(true);isReviewR.current=true;
-            }
+          // ノルマキューの次が復習由来なら reviewItemId をセット
+          // buildNormaQueue 時点で確定した id を使う → logsR.reviewQueue[0] を再参照しない
+          if(reason==="復習タイム！"&&next.reviewItemId){
+            setCurrentReviewItemId(next.reviewItemId);currentReviewItemIdR.current=next.reviewItemId;
+            setIsReview(true);isReviewR.current=true;
           }
         }else{
           // キュー切れ（不正解続き）: バランスで補填
