@@ -1027,9 +1027,11 @@ function App(){
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
-      // 全科目をストック数昇順（少ない順）で並べ、補充対象を決定する
-      // 復習科目の優先度は生成順ではなく保存時の addToDamFront で担保する
-      const filtered=lowestBuckets(curSubjects.length,curSubjects).filter(t=>autoRefillR.current||t.cnt<DAM_MAX);
+      // 全科目をストック数昇順で並べ、不足科目を全部補充対象にする
+      // 全科目が満タンの場合は autoRefillON のときだけ先頭1科目（最古ストック）を差し替え対象にする
+      const sorted=lowestBuckets(curSubjects.length,curSubjects);
+      const lacking=sorted.filter(t=>t.cnt<DAM_MAX);
+      const filtered=lacking.length>0?lacking:(autoRefillR.current?sorted.slice(0,1):[]);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
@@ -1088,8 +1090,8 @@ function App(){
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
-    const loop=async delay=>{await new Promise(r=>setTimeout(r,delay));if(cancelled)return;const ok=await doRefill();if(!cancelled){const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;const next=isWaiting?15000:hasReview?45000:ok?120000:90000;await loop(next);}};
-    loop(15000);
+    const loop=async()=>{let delay=15000;while(!cancelled){await new Promise(r=>setTimeout(r,delay));if(cancelled)break;const ok=await doRefill();if(cancelled)break;const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;delay=isWaiting?15000:hasReview?45000:ok?120000:90000;}};
+    loop();
     return()=>{cancelled=true;};
   },[screen]);
 
