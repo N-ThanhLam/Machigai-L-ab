@@ -511,30 +511,10 @@ const getDamSubjTotal=(subj)=>{const dam=getDam();const b=dam[subj]||{};return (
 const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:getDamSubjTotal(s)}),{});
 const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+getDamSubjTotal(s),0);
 // 補充ターゲット: 不足が最も大きい(科目, 難易度)ペアの上位N個
-// 同点バケットはランダムタイブレイカーで順序を散らす（同じ科目が常に最初/最後にならないように）
 const lowestBuckets=(n=1,subjects=SUBJECTS)=>{
   const dam=getDam();const all=[];
   for(const s of subjects){for(const d of DIFFS){all.push({subj:s,diff:d,cnt:(dam[s]?.[d]||[]).length});}}
-  return all.sort((a,b)=>a.cnt-b.cnt||Math.random()-0.5).slice(0,n);
-};
-
-// Geminiが返す科目名のゆれを内部キーに正規化（社会→「社会科/歴史/地理」、英語→「English」等を吸収）
-const SUBJECT_ALIASES={
-  "国語":["国語","japanese","日本語","現代文","古文","漢文"],
-  "算数":["算数","数学","math","mathematics"],
-  "英語":["英語","english","英会話","英文法"],
-  "社会":["社会","社会科","歴史","地理","公民","世界史","日本史","政治経済","現代社会","social","social studies"],
-  "理科":["理科","科学","自然科学","自然","理科学","サイエンス","science","物理","化学","生物","地学"]
-};
-const _subjectLookup=(()=>{const m={};for(const canon of Object.keys(SUBJECT_ALIASES)){for(const a of SUBJECT_ALIASES[canon]){m[a.toLowerCase()]=canon;}}return m;})();
-const normalizeSubject=(raw,target)=>{
-  const trimmed=(raw||"").replace(/^[\s　]+|[\s　]+$/g,"");
-  const canon=_subjectLookup[trimmed.toLowerCase()];
-  // 既知の別名 → 正規名へ。ターゲット科目と一致すれば吸収（target指定時のみ）
-  if(canon){
-    if(!target||canon===target)return canon;
-  }
-  return trimmed;
+  return all.sort((a,b)=>a.cnt-b.cnt).slice(0,n);
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────
@@ -2490,8 +2470,13 @@ function App(){
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){genResults.push({subj:target.subj,valid:[]});continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
             const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
-              // Geminiが返す科目名のゆれを吸収（社会→社会科/歴史/地理、英語→English、理科→科学 等）
-              return{...q,subject:normalizeSubject(q.subject,target.subj)};
+              // subjectの前後空白を正規化（全角スペース含む）
+              const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
+              // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
+              if(target.subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+              // 「理科」の別表記を吸収（Geminiが「科学」「自然科学」「自然」等を返す場合）
+              if(target.subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
+              return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
             genResults.push({subj:target.subj,diff:target.diff,valid});
           }catch(e){genResults.push({subj:target.subj,diff:target.diff,valid:[]});}
@@ -2601,7 +2586,10 @@ function App(){
       let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return null;}
       if(!Array.isArray(parsed))parsed=[parsed];
       const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
-        return{...q,subject:normalizeSubject(q.subject,subj)};
+        const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
+        if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
+        if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
+        return{...q,subject:normSubj};
       }).filter(q=>q.subject===subj);
       const localPassed=valid.filter(q=>localValidate(q));
       // doRefill と同様に棄却数を記録する
