@@ -2,20 +2,185 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>まちがいラボ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>まちがいラボ — ミスを直して、解ける状態へ</title>
+  <meta name="description" content="AIが生成する4択問題で、子どもがやりがちな『思考のズレ』を見える化。ミスの再発防止に特化した学習アプリ。">
+  <meta name="theme-color" content="#5b3ff8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="まちがいラボ">
+  <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235b3ff8'/%3E%3Cstop offset='1' stop-color='%239b59f8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='180' height='180' rx='40' fill='url(%23g)'/%3E%3Ctext x='50%25' y='62%25' font-size='100' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%93%9A%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235b3ff8'/%3E%3Ctext x='50%25' y='62%25' font-size='38' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%93%9A%3C/text%3E%3C/svg%3E">
+  <link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22%E3%81%BE%E3%81%A1%E3%81%8C%E3%81%84%E3%83%A9%E3%83%9C%22%2C%22short_name%22%3A%22%E3%81%BE%E3%81%A1%E3%81%8C%E3%81%84%E3%83%A9%E3%83%9C%22%2C%22description%22%3A%22AI%E3%81%8C%E7%94%9F%E6%88%90%E3%81%99%E3%82%8B4%E6%8A%9E%E5%95%8F%E9%A1%8C%E3%81%A7%E3%80%81%E3%83%9F%E3%82%B9%E3%81%AE%E5%86%8D%E7%99%BA%E9%98%B2%E6%AD%A2%E3%81%AB%E7%89%B9%E5%8C%96%E3%81%97%E3%81%9F%E5%AD%A6%E7%BF%92%E3%82%A2%E3%83%97%E3%83%AA%22%2C%22start_url%22%3A%22.%22%2C%22scope%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22orientation%22%3A%22portrait%22%2C%22background_color%22%3A%22%23f0f4ff%22%2C%22theme_color%22%3A%22%235b3ff8%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM1YjNmZjgiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM5YjU5ZjgiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjQyIiBmaWxsPSJ1cmwoI2cpIi8+PHRleHQgeD0iNTAlIiB5PSI2MiUiIGZvbnQtc2l6ZT0iMTEwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIj7wn5OaPC90ZXh0Pjwvc3ZnPg%3D%3D%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%2C%22purpose%22%3A%22any%20maskable%22%7D%2C%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM1YjNmZjgiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM5YjU5ZjgiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjExNCIgZmlsbD0idXJsKCNnKSIvPjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBmb250LXNpemU9IjMxMCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSI+8J+TmjwvdGV4dD48L3N2Zz4%3D%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%7D">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    // ─── PWA: Service Worker via Blob URL（単一HTMLで動作）──
+    // file:// では動かない／http(s) 配信時のみ有効。失敗しても無視。
+    if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1')){
+      window.addEventListener('load',()=>{
+        try{
+          const swCode = "const CACHE='manabi-v14';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.open(CACHE).then(c=>c.match(e.request).then(r=>{const f=fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){try{c.put(e.request,res.clone());}catch(_){}};return res;}).catch(()=>r);return r||f;})));});";
+          const blob=new Blob([swCode],{type:'application/javascript'});
+          const url=URL.createObjectURL(blob);
+          navigator.serviceWorker.register(url).catch(()=>{});
+        }catch(e){}
+      });
+    }
+  </script>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+// ─── Safari/PrivateMode 対応 localStorage ラッパー ─────────────────
+// iOS Safari の ITP は7日アクセスなしでlocalStorageを消去する。
+// プライベートモードや容量超過でも setItem が throw する。
+// インメモリ＋IndexedDBミラーで透過的に救済する。
+const _memStore = (()=>{ try{ return new Map(); }catch(e){ return null; } })();
+const _safeLS = {
+  get(k){
+    try{ const v = localStorage.getItem(k); if(v!==null) return v; }catch(e){}
+    return _memStore ? (_memStore.has(k) ? _memStore.get(k) : null) : null;
+  },
+  set(k,v){
+    try{ localStorage.setItem(k,v); }catch(e){}
+    if(_memStore) _memStore.set(k,v);
+    // 重要キーは IndexedDB にも複製（非同期・失敗無視）
+    // manabi_logs_v4 / manabi_dam_v4 / manabi_profile_v2 などのバージョン番号末尾、
+    // および __u{id} のユーザー接尾辞付きも対象にする。
+    if(/^manabi_/.test(k) && /(_v\d+|profile|session|dam|logs|users|curUser|theme|autorefill|reject_count|advanced)(?:__u[a-z0-9]+)?$/.test(k)){
+      try{ _idbSet(k,v); }catch(e){}
+    }
+  },
+  remove(k){
+    try{ localStorage.removeItem(k); }catch(e){}
+    if(_memStore) _memStore.delete(k);
+    try{ _idbRemove(k); }catch(e){}
+  }
+};
+
+// ─── IndexedDB ミラー（Safari ITP 対策の本丸）─────────────────────
+let _idbP=null;
+const _idbOpen=()=>{
+  if(_idbP) return _idbP;
+  _idbP = new Promise((resolve,reject)=>{
+    try{
+      const r=indexedDB.open("manabi_mirror",1);
+      r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("kv")) db.createObjectStore("kv"); };
+      r.onsuccess=()=>resolve(r.result);
+      r.onerror=()=>reject(r.error);
+    }catch(e){ reject(e); }
+  });
+  return _idbP;
+};
+const _idbSet=async(k,v)=>{ try{ const db=await _idbOpen(); const tx=db.transaction("kv","readwrite"); tx.objectStore("kv").put(v,k); }catch(e){} };
+const _idbGet=async(k)=>{ try{ const db=await _idbOpen(); return await new Promise((res,rej)=>{ const r=db.transaction("kv","readonly").objectStore("kv").get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }catch(e){ return null; } };
+const _idbRemove=async(k)=>{ try{ const db=await _idbOpen(); db.transaction("kv","readwrite").objectStore("kv").delete(k); }catch(e){} };
+const _idbKeys=async()=>{ try{ const db=await _idbOpen(); return await new Promise((res,rej)=>{ const r=db.transaction("kv","readonly").objectStore("kv").getAllKeys(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }catch(e){ return []; } };
+// ロード時に localStorage が空 & IndexedDB に複製がある場合は復元（ITP救済）
+const restoreFromIdbIfNeeded=async()=>{
+  try{
+    const keys=await _idbKeys();
+    let restored=0;
+    for(const k of keys){
+      try{ if(localStorage.getItem(k)===null){ const v=await _idbGet(k); if(v!=null){ try{ localStorage.setItem(k,v); }catch(_){ _memStore && _memStore.set(k,v); } restored++; } } }catch(e){}
+    }
+    return restored;
+  }catch(e){ return 0; }
+};
+
+// ─── マルチユーザー: 現在ユーザーの ID で localStorage キーをスコープ化 ─
+const USERS_KEY="manabi_users_v1";       // ユーザー定義一覧
+const CUR_USER_KEY="manabi_curUser_v1";  // 現在のユーザーID
+const DEFAULT_USER={id:"u1",name:"わたし",icon:"😀"};
+const getUsers=()=>{
+  try{ const r=_safeLS.get(USERS_KEY); if(r){ const a=JSON.parse(r); if(Array.isArray(a)&&a.length) return a; } }catch(e){}
+  return [{...DEFAULT_USER}];
+};
+const saveUsers=us=>_safeLS.set(USERS_KEY,JSON.stringify(us));
+const getCurrentUserId=()=>{
+  const id=_safeLS.get(CUR_USER_KEY);
+  if(id){ const us=getUsers(); if(us.find(u=>u.id===id)) return id; }
+  return getUsers()[0].id;
+};
+const setCurrentUserId=id=>_safeLS.set(CUR_USER_KEY,id);
+// 現在ユーザーIDをユーザーキーに付与（"u1" は後方互換のため接尾辞なしも許容）
+let _CURRENT_UID=getCurrentUserId();
+const userKey=(base)=>_CURRENT_UID==="u1"?base:`${base}__${_CURRENT_UID}`;
+const switchUser=id=>{ _CURRENT_UID=id; setCurrentUserId(id); };
 
 // 内部キーは常に「算数」で統一（ストック・統計・科目リスト共通）
-const calcSubjects = (_grade) => ["国語", "算数", "英語", "社会", "理科"];
-const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"]; // 初期値（ロード前の表示用）
+// 学年別科目: 小1-2は国算のみ / 小3-4は理科社会追加 / 小5以降で英語追加
+const calcSubjects = (grade) => {
+  if (!grade) return ["国語", "算数", "英語", "社会", "理科"];
+  if (grade.startsWith("小学1") || grade.startsWith("小学2")) return ["国語", "算数"];
+  if (grade.startsWith("小学3") || grade.startsWith("小学4")) return ["国語", "算数", "社会", "理科"];
+  return ["国語", "算数", "英語", "社会", "理科"];
+};
+const SUBJECTS = ["国語", "算数", "英語", "社会", "理科"]; // 全集合（DAM初期化等で使う）
+
+// ─── お試しサンプル問題（APIキー不要） ──────────────────────────────
+const SAMPLE_QUESTIONS=[
+  {topic_tag:"たし算・ひき算",subject:"算数",
+    question:"53 − 28 = ?",
+    choices:["25","35","15","24"],correct:0,
+    correct_feedback:"53−28は、まず3−8ができないから10借りて13−8=5、4−2=2で25。",
+    mistake_type:"桁ミス",short_feedback:"繰り下がりは上の桁から1借りるのを忘れずに",
+    hint:"一の位が引けないとき、十の位から1借りる（繰り下がり）",
+    wrong_analysis:[
+      {index:1,why_chosen:"繰り下がりを忘れて単純に引く",why_wrong:"5−2=3、3−8=…と無理に計算して桁が破綻"},
+      {index:2,why_chosen:"28を足してしまう",why_wrong:"ひき算なのに足してしまっている"},
+      {index:3,why_chosen:"繰り下がりを2回してしまう",why_wrong:"一の位だけ借りればよく、十の位はそのまま"},
+    ]},
+  {topic_tag:"漢字の読み",subject:"国語",
+    question:"「重要な書類」の「重要」の読み方は？",
+    choices:["じゅうよう","じゅよう","ちょうよう","じょうよう"],correct:0,
+    correct_feedback:"「重」は音読みで「ジュウ」、「要」は「ヨウ」と読みます。",
+    mistake_type:"用語逆転",short_feedback:"「重」は「ジュウ（重い）」、「ちょう」と読む熟語もあるが「重要」は「ジュウ」",
+    hint:"「重」には「ジュウ・チョウ・おも(い)・かさ(ねる)」の読み方があります",
+    wrong_analysis:[
+      {index:1,why_chosen:"「じゅう」を短く読んでしまう",why_wrong:"「重」は「じゅう」と長音で読む"},
+      {index:2,why_chosen:"「重」を「ちょう」と読む熟語と混同",why_wrong:"「重複(ちょうふく)」と混ぜている"},
+      {index:3,why_chosen:"音をぼかして覚えている",why_wrong:"「じょう」ではなく「じゅう」"},
+    ]},
+  {topic_tag:"be動詞",subject:"英語",
+    question:"次の文の(  )に入る語は？  She (  ) a student.",
+    choices:["is","am","are","be"],correct:0,
+    correct_feedback:"主語が She（三人称単数）なので be動詞は is。",
+    mistake_type:"規則の過剰適用",short_feedback:"主語に合わせて be動詞を変える（I→am, you/we/they→are, he/she/it→is）",
+    hint:"be動詞は主語によって形が変わります",
+    wrong_analysis:[
+      {index:1,why_chosen:"I am との混同",why_wrong:"am は I のときだけ"},
+      {index:2,why_chosen:"複数形と混同",why_wrong:"are は you/we/they のとき"},
+      {index:3,why_chosen:"原形のまま使ってしまう",why_wrong:"主語があるときは活用形を使う"},
+    ]},
+  {topic_tag:"地理・都道府県",subject:"社会",
+    question:"日本でいちばん大きい湖はどれ？",
+    choices:["琵琶湖","霞ヶ浦","サロマ湖","猪苗代湖"],correct:0,
+    correct_feedback:"琵琶湖（滋賀県）が日本最大の湖。約670km²の面積があります。",
+    mistake_type:"用語逆転",short_feedback:"「日本最大の湖＝琵琶湖（滋賀県）」と覚える",
+    hint:"日本三大湖は 琵琶湖・霞ヶ浦・サロマ湖。順位を覚えましょう。",
+    wrong_analysis:[
+      {index:1,why_chosen:"2番目の霞ヶ浦と混同",why_wrong:"霞ヶ浦は2位（茨城県）"},
+      {index:2,why_chosen:"3番目のサロマ湖と混同",why_wrong:"サロマ湖は3位（北海道）"},
+      {index:3,why_chosen:"福島の有名な湖と混同",why_wrong:"猪苗代湖は4位"},
+    ]},
+  {topic_tag:"光と音",subject:"理科",
+    question:"雷が光ってから音が聞こえるまで時間がかかるのはなぜ？",
+    choices:["音の方が光より遅いから","光の方が音より遅いから","音と光は同時だが耳が遅れるから","距離が遠いと光が曲がるから"],correct:0,
+    correct_feedback:"光の速さ(秒速30万km)は音の速さ(秒速340m)よりずっと速いため、先に光が届きます。",
+    mistake_type:"因果逆転",short_feedback:"光は一瞬で届く・音は遅れて届く、と覚える",
+    hint:"光の速さと音の速さを比べると、光は約88万倍速い",
+    wrong_analysis:[
+      {index:1,why_chosen:"逆に覚えている",why_wrong:"音より光のほうが圧倒的に速い"},
+      {index:2,why_chosen:"耳の反応の話だと思った",why_wrong:"耳の反応ではなく音そのものが遅い"},
+      {index:3,why_chosen:"光は直進するという知識を誤適用",why_wrong:"光は曲がらず直進する。これは時間差の原因ではない"},
+    ]},
+];
 
 // 表示用変換: 中学・高校生には「算数」→「数学」と表示する
 const displaySubject = (subj, grade) =>
@@ -24,130 +189,266 @@ const displaySubject = (subj, grade) =>
     : subj;
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
-const SYSTEM_PROMPT = `あなたは日本のAI学習コーチです。児童・生徒が「どこで間違えたか」に気づき、正しい考え方を理解できるよう支援することが目的です。問題は「ある生徒のよくある誤答」をもとに作成し、対象学年に合った自然な学習支援にしてください。
+// 設計方針：
+//   1. 正解を教えるのではなく「思考のズレ」を選択肢に仕込んで気づかせる
+//   2. 誤答3つは A.手順の途中欠落 / B.似たルール混同 / C.条件読み落とし の3類型を埋める
+//   3. wrong_analysis は「観測できる思考のズレ」のみ書く（性格・不注意は禁止）
+//   4. 難易度（easy/standard/hard）で語彙・選択肢の鋭さを変える
+//   5. 出力先頭に "thought_process" を強制し、論理破綻によるハルシネーションを抑制する
+//   6. 出力末尾の自己検閲で、正解の唯一性と事実誤認をAI自身に確認させる
+const SYSTEM_PROMPT_BASE = `あなたは日本の学習コーチ「まちがいラボ」。
+ゴールは「ミスの再発防止」。正解の暗記ではなく、子どもがよく
+やる「思考のズレ」を選択肢に仕込み、気づかせて修正させる。
 
-【対象】指定された学年・科目・単元に準拠（学習指導要領ベース）
-・現在の学習月に合わせること。その月時点で未習の内容は出さない。
+━━━ 出題の設計原則 ━━━
+1. 1問で確認することは1つだけ（複合問題は禁止）
+2. 学習指導要領に準拠。学年・現在月までの既習範囲のみ
+3. テキストだけで完結（図・表・地図・実験器具への参照禁止）
+4. 未習漢字はひらがな。問題文は200文字以内
+5. 英語問題でも指示文は日本語
+6. 国語では文法の分類目的の不自然な問いは作らない
 
-【問題ルール】
-・テキストだけで解ける問題にする（図・地図・表への言及は不可）
-・未習漢字はひらがなで書く。問題文は200文字以内
-・1問で確認することは1つだけ
-・教師が授業で実際に使う、自然な問題にする
-・英語問題でも指示文は日本語
-・国語では文法の分類を目的にした不自然な問いにしない
+━━━ 選択肢の作り方（最重要） ━━━
+正解1つ + 認知ミスを仕込んだ誤答3つ。
+誤答3つは原則「異なる型」で埋める：
 
-【誤答の生成】
-・その学年の子がよくやる思考のズレ・混同を1つ選び、student_answer に入れる
-・正解を correct_answer に必ず入れる
-・誤答は「1箇所だけ」ズレている答えにする。複数箇所がちがう誤答は禁止
-・例：筆算なら「一の位だけ間違えた」「繰り下がりの1箇所だけミスした」など1点のみ
-・誤答と正答を並べたとき、どこが違うかが1箇所に特定できない場合は問題を作り直す
+  A. 手順の途中欠落系
+     例: 53−28 → 35（繰り下がりを忘れた）
+  B. 似たルール・似た用語との混同系
+     例: 「重要」→「ちょうふく」と読み間違える系
+  C. 条件読み落とし系
+     例: 「3の倍数で5の倍数でないもの」を「3の倍数」と読む
 
-【3段階の分析設問（analysis_step1〜3）】
+【鉄則】
+・各誤答が「なぜ選ばれがちか」は必ず別の理由にする
+・選択肢の文字数を揃える（長さで正解がバレないように）
+・選択肢は100文字以内、重複禁止
+・「上記の全て」「以上の全て」など並び依存表現は禁止
+・無関係な数字・語を入れる雑な誤答は禁止
 
-各ステップ共通ルール：
-・4択、正解は1つ、各選択肢100文字以内
-・その学年で習った言葉だけを使う
-・未習漢字を使わない
-・正解が明確に1つに絞れる問いだけ作る
-・「部分的には正しい」「場合によっては正しい」選択肢は禁止
-・心理・性格・注意不足を推測しない
-・不正解は、明確に不正解と判断できる内容にする
-・feedback は1〜2文で短く、否定せず寄り添う表現にする
-・「上記の全て」「以上の全て」など、選択肢の並び順に依存する表現は禁止
+━━━ wrong_analysis の書き方 ━━━
+誤答3つに対して：
+  index: choices内のインデックス（正解以外）
+  why_chosen: 「どんな思考でその誤答に辿り着くか」を1文で
+              ★性格・不注意・うっかりを理由にしない
+              ★観測できる「思考のズレ」だけを書く
+  why_wrong: 「その思考のどこがズレているか」を1文で
+              ★「不正解だから」「違うから」は禁止
 
-analysis_step1（考え方のズレを探そう）:
-この生徒が「どこで考え方がズレたか」の原因を4択で問う。
+良い例:
+  why_chosen「繰り下がりを忘れて上の桁だけそのまま引いた」
+  why_wrong「一の位が引けないときは十の位から1借りる必要がある」
 
-・正解だけが、この誤答を引き起こした思考のズレを正確に指す
-・不正解は、この誤答とは関係ない原因にする（「計算が苦手だから」などの一般論・性格推測は禁止）
-・「これしか正解ない」と明確に分かる選択肢にする
-・設問文では「あなた」ではなく「このズレ」を主語にすること
+━━━ ミスの型分類（mistake_type） ━━━
+以下から最適なものを選ぶ：
+符号ミス / 条件読み落とし / 公式混同 / 時制混同 /
+用語逆転 / 因果逆転 / 単位変換ミス / 桁ミス /
+助詞混同 / 前置詞混同 / 規則の過剰適用 / 例外の見落とし
 
-analysis_step2（正解との違いを確認）:
-生徒の答えと正解の「具体的な差分」を4択で問う。
+━━━ hint（前提ヒント） ━━━
+「このルールを知っていれば解ける」という1〜2行。
+まだ習っていない人にも、必要な前提知識だけ書けば解けるように。
 
-・正解だけが、誤答と正答のズレを具体的に指す（数値・語句・手順など）
-・不正解は、誤答と正答の比較と関係ない内容にする
-・用語説明や一般論は禁止
-・「これしか正解ない」と明確に分かる選択肢にする
-・設問文では「あなた」ではなく「このズレ」を主語にすること
+━━━ short_feedback（ミス防止コーチング） ━━━
+次回ミスを防ぐ1つのコツを端的に1行で。
+例:「繰り下がりは上の桁から1借りるのを忘れずに」
 
-analysis_step3（次に活かす）:
-次に同じタイプの問題が来たとき「まず何を確認するか」を4択で問う。
+━━━ correct_feedback（正解の説明） ━━━
+なぜそれが正解か、1文で簡潔に。子どもが「そうか！」と
+納得する核心だけ書く。冗長な解説は禁止。
 
-・正解だけが、今回のズレを防ぐための具体的な確認ポイントになる
-・不正解は、このズレとは関係ない確認、または逆効果な手順にする
-・「次にどう動くか」が1つに絞れる選択肢にする
-・「これしか正解ない」と明確に分かる選択肢にする
+━━━ 思考プロセス（thought_process）— ハルシネーション抑制の要 ━━━
+いきなり問題を書き出すのではなく、各問の "thought_process" フィールドに
+以下を必ず日本語で書く。これにより内部の整合性を担保する：
+  1. この問題で確認する1点（学習目標）
+  2. 正解に至る論理的根拠（手順を箇条書き・3〜5項目）
+  3. 各誤答がなぜ誤りか（事実・規則の観点で）
+  4. 学年・既習範囲を逸脱していないことの自己確認
 
-【出力形式】
-・要素数1のJSON配列のみを出力
-・説明・コードブロック・前置き・後置き禁止
-・JSONとして正しい形式で出力すること
+thought_process は 4 項目を含む 300〜600 文字程度。
+読み手向けではなく、AI 自身の論理チェック用に書くこと。
+
+━━━ 自己検閲（self_check）— 出力前の最終確認 ━━━
+各問の最後に "self_check" を必ず書く。次の3点を AI 自身が確認した結果：
+  ・unique_correct: 正解が選択肢中に唯一であり、他に正解と取りうる解釈がない
+  ・no_fact_error: 解説（correct_feedback・hint・wrong_analysis）に事実誤認がない
+  ・within_scope: 学年・現在月の既習範囲を逸脱していない
+形式: {"unique_correct":true,"no_fact_error":true,"within_scope":true,"notes":"問題なし"}
+1つでも false がある場合、その問題は出力しないこと（不安な問題を世に出さない）。
+
+━━━ 出力形式（JSON配列のみ） ━━━
+・要素数5のJSON配列のみ。説明・コードブロック・前置き禁止
+・各要素は thought_process → 問題本体 → self_check の順
+・correct は choices の正解インデックス（0始まり）
+・wrong_analysis の index は正解以外の3つの choices インデックス
+
 [{
-"mistake_type":"誤答で起きている具体的なズレを短く書く",
-"topic_tag":"単元名",
-"subject":"科目名",
-"question":"問題文（200文字以内）",
-"student_answer":"生徒の誤答",
-"correct_answer":"正解",
-"correct_feedback":"なぜ正しいかを1文で",
-
-"analysis_step1":{
-"name":"どこで考え方がズレた？",
-"question":"設問文",
-"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
-"answer":0,
-"feedback":"なぜそこでズレたかを1文で"
-},
-
-"analysis_step2":{
-"name":"正解との違いを確認",
-"question":"設問文",
-"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
-"answer":0,
-"feedback":"誤答と正答の差分を1文で"
-},
-
-"analysis_step3":{
-"name":"次に活かす",
-"question":"設問文",
-"choices":["選択肢0","選択肢1","選択肢2","選択肢3"],
-"answer":0,
-"feedback":"次に何を確認すればよいかを1文で"
-}
+  "thought_process": "1. 確認すること: ... / 2. 正解の根拠: ... / 3. 各誤答の誤り: ... / 4. 範囲確認: ...",
+  "topic_tag": "学習指導要領の単元名",
+  "subject": "科目名",
+  "question": "問題文（200文字以内・テキストのみ）",
+  "choices": ["A", "B", "C", "D"],
+  "correct": 0,
+  "correct_feedback": "正解の核心1文",
+  "mistake_type": "上記分類から1つ",
+  "short_feedback": "次回防ぐコツ1行",
+  "hint": "前提知識1〜2行",
+  "wrong_analysis": [
+    {"index": 1, "why_chosen": "...", "why_wrong": "..."},
+    {"index": 2, "why_chosen": "...", "why_wrong": "..."},
+    {"index": 3, "why_chosen": "...", "why_wrong": "..."}
+  ],
+  "self_check": {"unique_correct": true, "no_fact_error": true, "within_scope": true, "notes": "問題なし"}
 }]
-
-※ answer は choices 配列の正解インデックス（0始まり）
-
-【mistake_type のルール】
-・誤答で起きている「観測できるズレ」を短く書く
-・心理・性格・注意不足を書かない
 `;
+
+// ─── 難易度別サフィックス ───
+// "easy"     : 勉強嫌い向け。語彙やさしく、誤答の差を明確に、達成感重視
+// "standard" : 学年標準（学習指導要領水準）
+// "hard"     : 上位5%向け。一見正しく見える誤答、条件の細部
+const DIFFICULTY_HINTS = {
+  easy:
+    "\n━━━ 難易度：やさしい（勉強が苦手な子向け） ━━━\n" +
+    "・問題文は120文字以内・短く明快に\n" +
+    "・選択肢は1〜10文字を目安にコンパクトに\n" +
+    "・誤答は「明らかに違うけど典型的に間違える」レベル\n" +
+    "・身近な題材（食べ物・生き物・スポーツ等）を優先\n" +
+    "・correct_feedback は「だからこうなる」と一言で。難しい用語は使わない\n" +
+    "・hint は『例えば〜』の具体例つきで30字以内",
+  standard: "",
+  hard:
+    "\n━━━ 難易度：ハード（上位5%向け） ━━━\n" +
+    "・「一見正しく見えるが核心が1箇所ズレた」誤答を必ず1つ含める\n" +
+    "・条件を1箇所、注意深く読まないと見落とすように仕込む\n" +
+    "・教科書通りの暗記だけでは解けない、概念理解を問う\n" +
+    "・ただし「ひっかけ」にはしない。丁寧に読めば確実に正解できる設計\n" +
+    "・mistake_type は「規則の過剰適用」「例外の見落とし」「条件読み落とし」を優先",
+};
+
+// ─── buildSystemPrompt ────────────────────────────────────────────
+// difficulty: "easy" | "standard" | "hard"
+// grade / month: 既習範囲を厳密化する（"小学3年生" "5月" など）。曖昧な「現在月までの既習」を排除。
+const monthNameJa=(m)=>["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"][((m||1)-1+12)%12];
+const buildSystemPrompt = (difficulty, opts={}) => {
+  const {grade,month}=opts;
+  let scope="";
+  if(grade && month){
+    scope=`\n━━━ 既習範囲（厳守）━━━\n対象学年: ${grade}\n現在月: ${monthNameJa(month)}\n→ ${grade}の学習指導要領のうち、${monthNameJa(month)}までに学校で学ぶ単元・語彙のみ使用する。\n→ それ以降の単元・漢字・公式を使用しないこと。`;
+  }else if(grade){
+    scope=`\n━━━ 既習範囲（厳守）━━━\n対象学年: ${grade}（月情報なしのため当年度内の範囲）`;
+  }
+  return SYSTEM_PROMPT_BASE + (DIFFICULTY_HINTS[difficulty] || "") + scope;
+};
+
+// ─── Gemini API 呼び出し（モデル自動フォールバック） ────────────────
+// 無料枠の 1日上限（429 / RESOURCE_EXHAUSTED）に当たったら次モデルへ自動切替。
+// 503/500/network/404 等の一時障害・モデル未提供時も次候補へリトライ。
+// 4xx クライアントエラー（400 など本体不正）は即座に失敗を返す（リトライしても無意味）。
+const GEMINI_MODELS=["gemini-3-flash-preview","gemini-2.5-flash","gemini-2.5-flash-lite"];
+// プロセス内メモリ：直近の 429 を受けたモデルを一定時間スキップする（無駄打ち削減）
+const _geminiCooldown={}; // {modelName: cooldownUntilEpochMs}
+const GEMINI_COOLDOWN_MS=60*1000; // 1分はそのモデルへの再試行を抑制
+const _isFallbackStatus=s=>s===429||s===500||s===502||s===503||s===504||s===404;
+const _isFallbackError=err=>{
+  if(!err)return false;
+  const code=err.code;const status=(err.status||"").toString();
+  return code===429||code===503||code===500||status==="RESOURCE_EXHAUSTED"||status==="UNAVAILABLE"||status==="INTERNAL";
+};
+const callGeminiAPI=async(key,body)=>{
+  const now=Date.now();
+  let lastFail=null;
+  for(let i=0;i<GEMINI_MODELS.length;i++){
+    const model=GEMINI_MODELS[i];
+    // クールダウン中のモデルはスキップ（ただし最後の候補だけは必ず試す）
+    if(i<GEMINI_MODELS.length-1 && _geminiCooldown[model] && _geminiCooldown[model]>now)continue;
+    try{
+      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(!res.ok){
+        if(_isFallbackStatus(res.status)){
+          if(res.status===429)_geminiCooldown[model]=Date.now()+GEMINI_COOLDOWN_MS;
+          lastFail={status:res.status,model};
+          try{console.warn(`[gemini] ${model} HTTP ${res.status} → fallback`);}catch(e){}
+          continue;
+        }
+        return{ok:false,status:res.status,data:null,model};
+      }
+      const data=await res.json();
+      if(data.error){
+        if(_isFallbackError(data.error)){
+          if(data.error.code===429||data.error.status==="RESOURCE_EXHAUSTED")_geminiCooldown[model]=Date.now()+GEMINI_COOLDOWN_MS;
+          lastFail={status:data.error.code||500,model,error:data.error};
+          try{console.warn(`[gemini] ${model} ${data.error.status||data.error.code} → fallback`);}catch(e){}
+          continue;
+        }
+        return{ok:false,status:data.error.code||500,data,model,error:data.error};
+      }
+      return{ok:true,status:200,data,model};
+    }catch(e){
+      // ネットワーク障害は次候補へ
+      lastFail={status:0,model,error:e};
+      try{console.warn(`[gemini] ${model} network error → fallback`,e);}catch(_){}
+      continue;
+    }
+  }
+  return{ok:false,status:lastFail?.status||0,data:null,model:lastFail?.model,error:lastFail?.error,exhausted:true};
+};
 
 
 
 // ─── DAM ─────────────────────────────────────────────────────────
-const DAM_KEY="manabi_dam_v3";
-const DAM_MAX=60;
+// 構造: { 科目: { easy:[...], standard:[...], hard:[...] } }
+// 各科目×3難易度=15バケット。1バケット最大20問。Safari の 5MB localStorage を意識して全体300問上限。
+const DAM_KEY_BASE="manabi_dam_v4";
+const DAM_MAX=20;            // 1バケット(科目×難易度)最大問題数
 const DAM_BATCH=5;
-const getDam=()=>{try{return JSON.parse(localStorage.getItem(DAM_KEY)||"{}");}catch(e){return{};}};
-const saveDam=d=>{try{localStorage.setItem(DAM_KEY,JSON.stringify(d));}catch(e){}};
-// 重複判定キー: 問題全文 + 誤答 + 正答 を連結。
-// question.slice(0,30) だけだと「次の計算をしましょう」等の固定頭で衝突するため、
-// 内容の差異（数値・答え）まで含めた複合キーで同一問題を識別する。
-const dupKey=q=>`${(q.question||"")}|${(q.student_answer||"")}|${(q.correct_answer||"")}`;
-const addToDam=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(dupKey));dam[subj]=[...ex,...qs.filter(q=>!keys.has(dupKey(q)))].slice(-DAM_MAX);saveDam(dam);};
-// 復習問題はストックの「先頭」に挿入して優先使用されるようにする
-const addToDamFront=(subj,qs)=>{const dam=getDam(),ex=dam[subj]||[];const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
-const popFromDam=(subj,n=1)=>{const dam=getDam(),b=dam[subj]||[];if(!b.length)return[];
-  const take=Math.min(n,b.length);const r=b.slice(0,take);
-  dam[subj]=b.slice(take);saveDam(dam);return r;};
-const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:(getDam()[s]||[]).length}),{});
-const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+(getDam()[s]||[]).length,0);
-const lowestBuckets=(n=1,subjects=SUBJECTS)=>{const dam=getDam();return subjects.map(s=>({subj:s,cnt:(dam[s]||[]).length})).sort((a,b)=>a.cnt-b.cnt).slice(0,n);};
+const DIFFS=["easy","standard","hard"];
+const DAM_KEY=()=>userKey(DAM_KEY_BASE);
+const getDam=()=>{try{return JSON.parse(_safeLS.get(DAM_KEY())||"{}");}catch(e){return{};}};
+const saveDam=d=>{ _safeLS.set(DAM_KEY(),JSON.stringify(d)); };
+// 旧 v3 構造（科目→配列）から v4 構造（科目→難易度→配列）へのマイグレーション
+(function migrateDam(){
+  try{
+    const oldRaw=_safeLS.get("manabi_dam_v3");
+    if(!oldRaw)return;
+    if(_safeLS.get(DAM_KEY()))return; // すでにv4ある
+    const old=JSON.parse(oldRaw);const nu={};
+    for(const s of Object.keys(old)){nu[s]={easy:[],standard:old[s].slice(0,DAM_MAX),hard:[]};}
+    _safeLS.set(DAM_KEY(),JSON.stringify(nu));
+    _safeLS.remove("manabi_dam_v3");
+  }catch(e){}
+})();
+// 重複判定キー
+const dupKey=q=>`${(q.question||"")}|${(q.correct??"")}|${(q.choices||[]).slice(0,2).join("|")}`;
+const _ensureBucket=(dam,subj,diff)=>{
+  if(!dam[subj])dam[subj]={easy:[],standard:[],hard:[]};
+  if(!Array.isArray(dam[subj][diff]))dam[subj][diff]=[];
+  return dam[subj][diff];
+};
+const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));dam[subj][diff]=[...ex,...qs.filter(q=>!keys.has(dupKey(q)))].slice(-DAM_MAX);saveDam(dam);};
+const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
+// 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
+const popFromDam=(subj,diff="standard",n=1)=>{
+  const dam=getDam();
+  const order=diff==="easy"?["easy","standard","hard"]:diff==="hard"?["hard","standard","easy"]:["standard","easy","hard"];
+  for(const d of order){
+    const b=_ensureBucket(dam,subj,d);
+    if(b.length){
+      const take=Math.min(n,b.length);const r=b.slice(0,take);
+      dam[subj][d]=b.slice(take);saveDam(dam);return r;
+    }
+  }
+  return[];
+};
+const getDamBucketCount=(subj,diff)=>{const dam=getDam();return (dam[subj]?.[diff]||[]).length;};
+const getDamSubjTotal=(subj)=>{const dam=getDam();const b=dam[subj]||{};return (b.easy?.length||0)+(b.standard?.length||0)+(b.hard?.length||0);};
+const getDamStats=(subjects=SUBJECTS)=>subjects.reduce((a,s)=>({...a,[s]:getDamSubjTotal(s)}),{});
+const getDamTotal=(subjects=SUBJECTS)=>subjects.reduce((t,s)=>t+getDamSubjTotal(s),0);
+// 補充ターゲット: 不足が最も大きい(科目, 難易度)ペアの上位N個
+const lowestBuckets=(n=1,subjects=SUBJECTS)=>{
+  const dam=getDam();const all=[];
+  for(const s of subjects){for(const d of DIFFS){all.push({subj:s,diff:d,cnt:(dam[s]?.[d]||[]).length});}}
+  return all.sort((a,b)=>a.cnt-b.cnt).slice(0,n);
+};
 
 // ─── UTILS ───────────────────────────────────────────────────────
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth+"T00:00:00"),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
@@ -155,30 +456,28 @@ const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
 const jstYesterday=()=>{const d=new Date(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}));d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE');};
 let _ki=0;
 
-// ─── STEP SHUFFLE ─────────────────────────────────────────────────
-const shuffleStep=step=>{
-  const origAnswer=typeof step.answer==="number"&&step.answer>=0&&step.answer<step.choices.length?step.answer:0;
-  const ix=step.choices.map((c,i)=>({c,i}));
+// ─── CHOICE SHUFFLE ───────────────────────────────────────────────
+const shuffleChoices=q=>{
+  if(!q.choices||q.choices.length!==4)return q;
+  const orig=typeof q.correct==="number"?q.correct:0;
+  const ix=q.choices.map((c,i)=>({c,i}));
   for(let i=ix.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ix[i],ix[j]]=[ix[j],ix[i]];}
-  const newAnswer=ix.findIndex(x=>x.i===origAnswer);
-  return{...step,choices:ix.map(x=>x.c),answer:newAnswer>=0?newAnswer:0};
+  const newCorrect=ix.findIndex(x=>x.i===orig);
+  const indexMap={};ix.forEach((x,ni)=>{indexMap[x.i]=ni;});
+  const newWrong=(q.wrong_analysis||[]).map(wa=>({...wa,index:typeof wa.index==="number"?(indexMap[wa.index]??wa.index):wa.index}));
+  return{...q,choices:ix.map(x=>x.c),correct:newCorrect>=0?newCorrect:0,wrong_analysis:newWrong};
 };
-const shuffleAllSteps=q=>({
-  ...q,
-  analysis_step1:shuffleStep(q.analysis_step1),
-  analysis_step2:shuffleStep(q.analysis_step2),
-  analysis_step3:shuffleStep(q.analysis_step3),
-});
+const shuffleAllSteps=q=>shuffleChoices(q);
 
-const hasValidAnalysis=q=>{
-  if(
-  !q ||
-  !q.student_answer ||
-  !q.correct_answer ||
-  !q.question
-)return false;
-  return[1,2,3].every(i=>{const s=q[`analysis_step${i}`];return s&&s.question&&Array.isArray(s.choices)&&s.choices.length===4&&typeof s.answer==="number";});
+const hasValidQuiz=q=>{
+  if(!q||!q.question||!Array.isArray(q.choices)||q.choices.length!==4)return false;
+  if(typeof q.correct!=="number"||q.correct<0||q.correct>3)return false;
+  if(!q.correct_feedback||!q.mistake_type||!q.short_feedback)return false;
+  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
+  return true;
 };
+// legacy alias
+const hasValidAnalysis=hasValidQuiz;
 
 // ─── バリデーション（構造チェック＋意味チェック＋「1箇所だけ違う」ヒューリスティックの3層） ───
 const VALID_SUBJECTS=new Set(["国語","算数","英語","社会","理科"]);
@@ -251,56 +550,125 @@ const looksMultipleErrors=(sa,ca)=>{
 
 const localValidate=q=>{
   if(!q||typeof q!=="object")return false;
-
-  // ── 構造チェック ───────────────────────────────────────
-  // 必須フィールドが存在し非空文字列であること
-  const req=["question","student_answer","correct_answer","correct_feedback","mistake_type","topic_tag","subject"];
+  const req=["question","correct_feedback","mistake_type","short_feedback","topic_tag","subject"];
   if(req.some(k=>!q[k]||typeof q[k]!=="string"||!q[k].trim()))return false;
-  // 問題文の文字数（プロンプト指定200文字、多少の余裕を持たせる）
   if(q.question.length>300)return false;
-
-  // ── 意味チェック ───────────────────────────────────────
-  // 誤答と正答が同一→間違い問題として成立しない
-  if(q.student_answer.trim()===q.correct_answer.trim())return false;
-  // 科目が既知の5科目以外→subject フィールドのハルシネーション
-  if(!VALID_SUBJECTS.has(q.subject.trim()))return false;
-  // 問題文に外部ビジュアルへの参照がある→テキストだけで解けない
+  if(!VALID_SUBJECTS.has((q.subject||"").trim()))return false;
   if(VISUAL_REF_RE.test(q.question))return false;
-  // 「1箇所だけ違う」ヒューリスティック：明らかに複数箇所ズレていれば落とす
-  if(looksMultipleErrors(q.student_answer,q.correct_answer))return false;
-
-  // ── analysis_step1〜3 ────────────────────────────────
-  for(let i=1;i<=3;i++){
-    const s=q[`analysis_step${i}`];
-    if(!s||typeof s!=="object")return false;
-    if(!s.question||typeof s.question!=="string"||!s.question.trim())return false;
-    if(!Array.isArray(s.choices)||s.choices.length!==4)return false;
-    if(s.choices.some(c=>!c||typeof c!=="string"||!c.trim()))return false;
-    // answer は 0〜3 の整数
-    if(typeof s.answer!=="number"||!Number.isInteger(s.answer)||s.answer<0||s.answer>3)return false;
-    if(!s.feedback||typeof s.feedback!=="string"||!s.feedback.trim())return false;
-    // 選択肢100文字以内（プロンプト指定）
-    if(s.choices.some(c=>c.length>100))return false;
-    // 選択肢内に重複がある→「正解は1つ」が保証できない
-    if(new Set(s.choices.map(c=>c.trim())).size!==4)return false;
-    // 並び順依存の禁止表現が含まれる
-    if(s.choices.some(c=>META_CHOICE_RE.test(c)))return false;
+  if(!Array.isArray(q.choices)||q.choices.length!==4)return false;
+  if(q.choices.some(c=>!c||typeof c!=="string"||!c.trim()))return false;
+  if(q.choices.some(c=>c.length>100))return false;
+  if(new Set(q.choices.map(c=>c.trim())).size!==4)return false;
+  if(META_CHOICE_RE.test(q.choices.join("")))return false;
+  if(typeof q.correct!=="number"||!Number.isInteger(q.correct)||q.correct<0||q.correct>3)return false;
+  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
+  if(q.wrong_analysis.some(wa=>!wa||typeof wa.why_chosen!=="string"||typeof wa.why_wrong!=="string"))return false;
+  // v14: self_check で1つでも false がある問題は弾く（AI 自身が不安と判定したもの）
+  if(q.self_check && typeof q.self_check==="object"){
+    if(q.self_check.unique_correct===false)return false;
+    if(q.self_check.no_fact_error===false)return false;
+    if(q.self_check.within_scope===false)return false;
   }
   return true;
+};
+
+const calcMistakeTypes=(history)=>{
+  const counts={};
+  for(const r of(history||[])){
+    if(!r.correct&&r.mistake_type){
+      counts[r.mistake_type]=(counts[r.mistake_type]||0)+1;
+    }
+  }
+  return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
 };
 
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
 const calcSubjRates=h=>{if(!h||!h.length)return{};const m={};for(const r of h.slice(-100)){if(!m[r.subject])m[r.subject]={q:0,c:0};m[r.subject].q++;if(r.correct)m[r.subject].c++;}return m;};
 
-// ─── 当日スコア計算（コンボ×1.82、100点上限） ──────────────────────
-const calcTodayScore=h=>{
-  const td=today();
-  const entries=(h||[]).filter(r=>r.date===td);
-  let combo=0,score=0;
-  for(const e of entries){if(e.correct){combo+=1;score+=combo*1.82;}else{combo=0;}}
-  return{score:Math.min(100,Math.floor(score*10)/10),combo};
+// ─── 自動難易度判定 ───────────────────────────────────────────────
+// 直近10問（指定科目）の正解率で easy / standard / hard を切り替える。
+// 80% 以上 → 上げる / 40% 未満 → 下げる / それ以外は維持。
+const getAutoDifficulty=(subj,logs)=>{
+  const cur=(logs?.subjectDifficulty||{})[subj]||"standard";
+  const recent=(logs?.recentHistory||[]).filter(r=>r.subject===subj).slice(-10);
+  if(recent.length<5)return cur; // データ不足は維持
+  const rate=recent.filter(r=>r.correct).length/recent.length;
+  const order=["easy","standard","hard"];
+  let idx=order.indexOf(cur);if(idx<0)idx=1;
+  if(rate>=0.8&&idx<2)return order[idx+1];
+  if(rate<0.4&&idx>0)return order[idx-1];
+  return cur;
 };
-const calcNextScore=(score,combo)=>Math.min(100,Math.floor((score+(combo+1)*1.82)*10)/10);
+
+// ─── 成長スコア（旧「本日スコア」）計算 ──────────────────────────
+// 「今日伸びた能力」(dailyStatGains[today] + 単元力 today) の合計。
+// 20問連続正解で200点 / 全問不正解でも80点 になるよう calcStatGainsForAnswer 側で調整済み。上限なし。
+const calcTodayScore=(logs)=>{
+  const td=today();
+  const dg=logs?.dailyStatGains?.[td]||{};
+  let score=0;
+  for(const k of STAT_ORDER){score+=(dg[k]||0);}
+  const ug=logs?.dailyUnitGains?.[td]||0;
+  score+=ug;
+  return{score:Math.floor(score),combo:0};
+};
+
+// ─── 累積ステータス（基本10項目） ─────────────────────────────────
+// 基本ステータス。各科目の単元力（subjectUnitStats）と合わせて 1+5=6 カテゴリで表示する。
+const STAT_LABELS={
+  retryPower:       {name:"復帰力",   icon:"💪"},
+  consistency:      {name:"継続力",   icon:"📅"},
+  startingPower:    {name:"開始力",   icon:"🚀"},
+  focus:            {name:"集中力",   icon:"🧠"},
+  attention:        {name:"注意力",   icon:"👀"},
+  verificationPower:{name:"確認力",   icon:"🔍"},
+  retryAgain:       {name:"再挑戦力", icon:"🔁"},
+  stability:        {name:"安定力",   icon:"⚖️"},
+  readingAccuracy:  {name:"読解力",   icon:"👁"},
+  logicalReasoning: {name:"論理整理", icon:"🧩"},
+};
+const STAT_ORDER=["retryPower","consistency","startingPower","focus","attention","verificationPower","retryAgain","stability","readingAccuracy","logicalReasoning"];
+// 旧 signControl キーは attention にマイグレーション
+// ミスの型 → 対応ステータス
+const mistakeToStat=mt=>{
+  if(!mt)return"readingAccuracy";
+  if(mt.includes("符号")||mt.includes("単位")||mt.includes("桁"))return"attention";
+  if(mt.includes("条件")||mt.includes("助詞")||mt.includes("読み落とし")||mt.includes("前置詞"))return"readingAccuracy";
+  if(mt.includes("因果")||mt.includes("用語逆転"))return"logicalReasoning";
+  if(mt.includes("公式")||mt.includes("用語"))return"focus";
+  return"readingAccuracy";
+};
+// 正解時に伸びるステータス。値は絶対に減らない（モチベ維持）
+// ★スコア設計（v14）: 20問連続正解で「成長スコア」合計が200点、全問不正解（20問）でも80点伸びる。
+//   成長スコア = 基本ステータス gains + 単元力 gains
+//   単元力: 正解+6 / 不正解+2 （要望仕様）
+//   1問あたり目標:
+//     correct → 単元+6, 基本+4 → 計+10 → 20問で200点
+//     wrong   → 単元+2, 基本+2 → 計+4  → 20問で80点
+const calcStatGainsForAnswer=(correct,mistakeType,opts={})=>{
+  const {wasRetry=false,confidence=null,prevWrong=false,streak=0}=opts;
+  const g={};STAT_ORDER.forEach(k=>g[k]=0);
+  const stat=mistakeToStat(mistakeType);
+  if(correct){
+    // 基本目標: 合計+4
+    g.focus+=2;
+    g[stat]+=2;
+    // 連続ボーナス: 2連目以降、安定力に少しずつ加算（最大2点まで＝基本目標を超えない）
+    if(streak>=2)g.stability+=Math.min(2,Math.floor(streak/3));
+    // 頑張りボーナス（基本+4 とは別腹、上限なし設計）
+    if(wasRetry)g.retryAgain+=2;
+    if(prevWrong)g.retryPower+=2;
+    if(confidence===3)g.verificationPower+=2;
+  }else{
+    // 不正解でも基本+2 は確保（注意力1 + 関連スタッツ1）。20問全不正解で 単元+2*20=40 / 基本+2*20=40 → 計80
+    g.attention+=1;
+    g[stat]+=1;
+  }
+  return g;
+};
+// 単元力（subjectUnitStats）の更新ポイント
+//   correct: +6 / wrong: +2  （v14: 要望に合わせ更新）
+const unitGainForAnswer=correct=>correct?6:2;
 
 // ─── BADGES ──────────────────────────────────────────────────────
 const BADGES=[
@@ -333,17 +701,65 @@ const BADGES=[
 // ─── CSS ─────────────────────────────────────────────────────────
 const css=`
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap');
+/* ─ ライト/ダークテーマ用CSS変数 ─ */
+:root{
+  --bg-grad-1:#f0f4ff; --bg-grad-2:#fdf0ff;
+  --card-bg:#fff; --card-shadow:0 2px 12px rgba(100,80,200,.08);
+  --text-main:#1e1e3a; --text-soft:#9990cc; --text-muted:#bbb;
+  --primary:#5b3ff8; --primary-soft:#f0edff; --primary-border:#e8e3ff;
+  --input-bg:#f8f7ff; --input-border:#e8e3ff;
+  --tabs-bg:#ede9ff; --tab-active-text:#5b3ff8;
+}
+[data-theme="dark"]{
+  --bg-grad-1:#1a1a2e; --bg-grad-2:#2a1a3e;
+  --card-bg:#2a2a40; --card-shadow:0 2px 12px rgba(0,0,0,.4);
+  --text-main:#e8e6f5; --text-soft:#aba6cf; --text-muted:#777;
+  --primary:#a78bfa; --primary-soft:#3a2f5c; --primary-border:#4a3f7c;
+  --input-bg:#1f1f35; --input-border:#3a3a55;
+  --tabs-bg:#1f1f35; --tab-active-text:#a78bfa;
+}
 *{box-sizing:border-box;margin:0;padding:0;
   /* mobile Safari: 300ms タップ遅延を除去 */
   touch-action:manipulation;
   /* iOS タップ時の青いハイライトを消す */
   -webkit-tap-highlight-color:transparent;
 }
-body{background:#f0f4ff;font-family:'Nunito','M PLUS Rounded 1c',sans-serif;color:#1e1e3a}
+body{background:var(--bg-grad-1);font-family:'Nunito','M PLUS Rounded 1c',sans-serif;color:var(--text-main)}
 /* スクロール対象をGPUレイヤーへ。カードは静的なのでwill-change不要、rootのみ */
 .root{contain:layout style;}
-.root{min-height:100vh;background:linear-gradient(135deg,#f0f4ff 0%,#fdf0ff 100%);padding:12px}
-.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;box-shadow:0 2px 12px rgba(100,80,200,.08)}
+.root{min-height:100vh;background:linear-gradient(135deg,var(--bg-grad-1) 0%,var(--bg-grad-2) 100%);padding:12px}
+.card{background:var(--card-bg);border-radius:20px;padding:20px;margin-bottom:12px;box-shadow:var(--card-shadow);color:var(--text-main)}
+[data-theme="dark"] .stat-param-card,[data-theme="dark"] .stat{background:#1f1f35;border-color:#3a3a55}
+[data-theme="dark"] .stat-param-name,[data-theme="dark"] .stat-l{color:#aba6cf}
+[data-theme="dark"] .stat-param-val{color:#c4b5fd}
+[data-theme="dark"] input[type=date],[data-theme="dark"] input[type=password],[data-theme="dark"] input[type=text]{background:#1f1f35;border-color:#3a3a55;color:#e8e6f5;color-scheme:dark}
+[data-theme="dark"] .section-title{color:#aba6cf}
+[data-theme="dark"] .tabs{background:#1f1f35}
+[data-theme="dark"] .tab{color:#777}
+[data-theme="dark"] .tab.active{background:#2a2a40;color:#c4b5fd}
+[data-theme="dark"] .choice-btn{background:#1f1f35;border-color:#3a3a55;color:#e8e6f5}
+[data-theme="dark"] .choice-btn:hover:not(:disabled){background:#2a2a40;border-color:#a78bfa}
+[data-theme="dark"] .q-text{background:#1f1f35;border-color:#3a3a55;color:#e8e6f5}
+[data-theme="dark"] .badge{background:#1f1f35;border-color:#3a3a55}
+[data-theme="dark"] .badge.earned{background:#3a2f5c;border-color:#a78bfa}
+[data-theme="dark"] .badge-name{color:#c4b5fd}
+[data-theme="dark"] .badge-desc{color:#888}
+[data-theme="dark"] .subj-name{color:#c4b5fd}
+[data-theme="dark"] .why-wrong-panel{background:#1f1f35;border-color:#3a3a55}
+[data-theme="dark"] .why-wrong-choice{color:#e8e6f5}
+[data-theme="dark"] .quiz-card{background:#2a2a40;border-color:#3a3a55}
+[data-theme="dark"] .hdr-grade,[data-theme="dark"] .hdr-subject{color:#e8e6f5}
+[data-theme="dark"] .btn-ghost{background:#3a2f5c;color:#c4b5fd}
+[data-theme="dark"] .btn-ghost:hover:not(:disabled){background:#4a3f7c}
+[data-theme="dark"] .dam-bw{background:#3a3a55}
+[data-theme="dark"] .dam-label{color:#c4b5fd}
+[data-theme="dark"] .mastery-card.fresh{background:#3a2e1a;color:#fde047}
+[data-theme="dark"] .mastery-card.learning{background:#1a2a44;color:#93c5fd}
+[data-theme="dark"] .mastery-card.mastered{background:#1a3a24;color:#86efac}
+[data-theme="dark"] .week-dot.empty{background:#2a2a40;color:#555}
+[data-theme="dark"] .anhist-row{border-color:#3a3a55}
+[data-theme="dark"] .setting-row{border-color:#3a3a55}
+[data-theme="dark"] .login-streak{box-shadow:0 4px 18px rgba(167,139,250,.25)}
 .tabs{display:flex;background:#ede9ff;border-radius:14px;padding:4px;margin-bottom:14px;gap:2px}
 .tab{flex:1;padding:8px 0;border:none;background:transparent;border-radius:10px;font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;transition:all .2s;color:#8880bb;position:relative}
 .tab.active{background:#fff;color:#5b3ff8;box-shadow:0 2px 8px rgba(91,63,248,.15)}
@@ -433,27 +849,40 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .report-btn{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:8px;font-size:11px;color:#ef4444;font-weight:700;cursor:pointer;width:100%;font-family:inherit;margin-top:6px}
 .report-btn:hover{background:rgba(239,68,68,.1)}
 
-/* ─── 分析カード（ライトテーマ） ─── */
-.an-card{background:#fff;border:2px solid #ddd6fe;border-radius:20px;padding:18px;margin-bottom:12px;box-shadow:0 2px 16px rgba(91,63,248,.1)}
-.an-qbox{background:#f0edff;border:1px solid #ddd6fe;border-radius:14px;padding:14px;margin-bottom:10px}
-.an-qbox-label{font-size:10px;font-weight:900;color:#7c6fb0;letter-spacing:.06em;margin-bottom:6px}
-.an-qbox-text{font-size:15px;font-weight:800;color:#1e1e3a;line-height:1.75}
-.an-wrong{background:#fff7f7;border:1.5px solid #fca5a5;border-radius:14px;padding:14px;margin-bottom:14px}
-.an-wrong-label{font-size:10px;font-weight:900;color:#ef4444;letter-spacing:.06em;margin-bottom:6px}
-.an-wrong-text{font-size:16px;font-weight:800;color:#991b1b;line-height:1.6}
-.an-stage{font-size:10px;font-weight:900;letter-spacing:.06em;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:8px}
-.an-stage.s1{background:#ede9ff;color:#5b3ff8}
-.an-stage.s2{background:#dbeafe;color:#1d4ed8}
-.an-stage.s3{background:#dcfce7;color:#166534}
-.an-q{background:#f8f7ff;border:1px solid #e8e3ff;border-radius:14px;padding:14px;margin-bottom:12px;font-size:15px;font-weight:800;color:#1e1e3a;line-height:1.75}
-.an-choice{background:#fff;border:2px solid #e8e3ff;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#5b3ff8;cursor:pointer;width:100%;text-align:left;margin-bottom:7px;font-family:inherit;transition:all .18s;display:flex;align-items:center;gap:10px}
-.an-choice:hover:not(:disabled){border-color:#5b3ff8;background:#f0edff}
-.an-choice:disabled{cursor:not-allowed}
-.an-choice.correct{border-color:#22c55e;background:#f0fdf4;color:#166534}
-.an-choice.wrong{border-color:#ef4444;background:#fff7f7;color:#991b1b}
-.an-choice.dim{opacity:.3}
-.an-num{min-width:22px;height:22px;border-radius:6px;background:#ede9ff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#5b3ff8;flex-shrink:0}
-.an-fb{background:#f0edff;border-radius:10px;padding:12px 14px;margin:8px 0;font-size:13px;color:#4c1d95;border-left:3px solid #7c3aed;line-height:1.7;font-weight:600}
+/* ─── クイズカード ─── */
+.quiz-card{background:#fff;border:2px solid #ddd6fe;border-radius:20px;padding:18px;margin-bottom:12px;box-shadow:0 2px 16px rgba(91,63,248,.1)}
+.q-text{background:#f0edff;border:1px solid #ddd6fe;border-radius:14px;padding:14px;margin-bottom:14px;font-size:16px;font-weight:800;color:#1e1e3a;line-height:1.75}
+.choice-btn{background:#fff;border:2px solid #e8e3ff;border-radius:12px;padding:11px 14px;font-size:14px;font-weight:700;color:#1e1e3a;cursor:pointer;width:100%;text-align:left;margin-bottom:8px;font-family:inherit;transition:all .18s;display:flex;align-items:center;gap:10px}
+.choice-btn:hover:not(:disabled){border-color:#5b3ff8;background:#f0edff}
+.choice-btn.correct{border-color:#22c55e;background:#f0fdf4;color:#166534}
+.choice-btn.wrong{border-color:#ef4444;background:#fff7f7;color:#991b1b}
+.choice-btn.dim{opacity:.3;cursor:default}
+.choice-label{min-width:24px;height:24px;border-radius:7px;background:#ede9ff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#5b3ff8;flex-shrink:0}
+.choice-btn.correct .choice-label{background:#dcfce7;color:#166534}
+.choice-btn.wrong .choice-label{background:#fee2e2;color:#991b1b}
+.not-learned-btn{background:#fafafa;border:2px dashed #d1d5db;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#6b7280;cursor:pointer;width:100%;text-align:left;margin-bottom:4px;font-family:inherit;transition:all .18s;display:flex;align-items:center;gap:10px}
+.not-learned-btn:hover{border-color:#9ca3af;background:#f3f4f6}
+.not-learned-btn .choice-label{background:#f3f4f6;color:#6b7280}
+.hint-box{background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#78350f;font-weight:600;line-height:1.7}
+.hint-label{font-size:10px;font-weight:900;color:#d97706;letter-spacing:.06em;margin-bottom:4px}
+.mistake-tag{display:inline-block;background:#fff7f7;border:1.5px solid #fca5a5;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:900;color:#991b1b;margin-bottom:8px}
+.result-wrong-box{background:#fff7f7;border:1.5px solid #fca5a5;border-radius:14px;padding:14px;margin-bottom:14px}
+.result-wrong-type{font-size:10px;font-weight:900;color:#ef4444;letter-spacing:.06em;margin-bottom:4px}
+.result-wrong-name{font-size:15px;font-weight:900;color:#991b1b;margin-bottom:8px}
+.result-wrong-fb{font-size:13px;color:#7f1d1d;font-weight:600;line-height:1.65}
+.result-ok-box{background:#f0fdf4;border:2px solid #86efac;border-radius:14px;padding:16px;margin-bottom:12px;text-align:center}
+.result-ok-icon{font-size:36px;margin-bottom:4px;animation:bounce .5s cubic-bezier(.34,1.56,.64,1) both}
+.result-ok-fb{font-size:13px;color:#166534;font-weight:600;line-height:1.65;margin-top:8px;text-align:left}
+.why-wrong-btn{background:#ede9ff;color:#5b3ff8;border:none;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s;text-align:left}
+.why-wrong-btn:hover{background:#ddd6fe}
+.why-wrong-panel{background:#f8f7ff;border:1.5px solid #ddd6fe;border-radius:14px;padding:12px;margin-bottom:10px}
+.why-wrong-item{border-bottom:1px solid #ede9ff;padding:10px 0;font-size:12px;color:#4c1d95;line-height:1.7}
+.why-wrong-item:last-child{border-bottom:none;padding-bottom:0}
+.why-wrong-choice{font-size:13px;font-weight:800;color:#1e1e3a;margin-bottom:4px}
+.rank-one-badge{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;color:#92400e;cursor:pointer;transition:all .18s}
+.rank-one-badge.on{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-color:#5b3ff8;color:#fff}
+.btn-retry{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:14px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s}
+.btn-retry:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(239,68,68,.3)}
 .an-next{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-top:6px;transition:all .18s}
 .an-next:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(91,63,248,.3)}
 .an-complete{text-align:center;padding:20px 16px}
@@ -489,9 +918,185 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 /* ⑧ ボーナスボタン */
 .btn-bonus{background:linear-gradient(135deg,#f0fdf4,#dcfce7);color:#166534;border:2px solid #86efac;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s}
 .btn-bonus:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(34,197,94,.25)}
+
+/* ── 復帰モード ── */
+.comeback-banner{background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:16px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.comeback-timer-num{font-size:28px;font-weight:900;color:#92400e;line-height:1;min-width:54px;text-align:center}
+.comeback-bar-wrap{flex:1;height:6px;background:rgba(245,158,11,.2);border-radius:4px;overflow:hidden}
+.comeback-bar-fill{height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);border-radius:4px;transition:width 1s linear}
+.comeback-end-btn{background:rgba(239,68,68,.1);border:1.5px solid #ef4444;color:#ef4444;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap}
+
+/* ── 累積ステータス ── */
+.stat-params{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.stat-param-card{background:#f8f7ff;border:1.5px solid #e8e3ff;border-radius:12px;padding:8px 10px}
+.stat-param-name{font-size:10px;font-weight:800;color:#9990cc;margin-bottom:2px;display:flex;align-items:center;gap:4px}
+.stat-param-val{font-size:18px;font-weight:900;color:#5b3ff8;line-height:1.1}
+.stat-param-bar{height:4px;background:#e8e3ff;border-radius:2px;overflow:hidden;margin-top:5px}
+.stat-param-fill{height:100%;background:linear-gradient(90deg,#5b3ff8,#9b59f8);border-radius:2px;transition:width .5s}
+
+/* ── 今日伸びた能力 ── */
+.today-gains{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.gain-pill{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:800;color:#166534}
+
+/* ── 自信度セレクター ── */
+.confidence-wrap{margin:10px 0 2px;border-top:1px solid #f0edff;padding-top:10px}
+.confidence-label-txt{font-size:10px;font-weight:800;color:#9990cc;letter-spacing:.04em;margin-bottom:6px}
+.confidence-row{display:flex;gap:5px}
+.confidence-btn{flex:1;background:#f8f7ff;border:2px solid #e8e3ff;border-radius:10px;padding:7px 3px;font-size:11px;font-weight:800;color:#9990cc;cursor:pointer;font-family:inherit;transition:all .18s;text-align:center;line-height:1.4}
+.confidence-btn:hover{border-color:#5b3ff8;color:#5b3ff8;background:#ede9ff}
+.confidence-btn.c1.selected{background:#fff7f7;border-color:#ef4444;color:#991b1b}
+.confidence-btn.c2.selected{background:#fffbeb;border-color:#f59e0b;color:#92400e}
+.confidence-btn.c3.selected{background:#f0fdf4;border-color:#22c55e;color:#166534}
+
+/* ─── ヘッダー再設計 ─── */
+.hdr-card{padding:12px 14px}
+.hdr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap}
+.hdr-meta{display:flex;align-items:center;gap:6px}
+.hdr-grade{font-size:11px;color:#9990cc;font-weight:700}
+.hdr-fire{display:inline-flex;align-items:center;gap:2px;letter-spacing:-2px;font-size:12px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #fde68a;border-radius:99px;padding:2px 8px}
+.hdr-fire-n{margin-left:4px;letter-spacing:0;font-size:10px;font-weight:900;color:#92400e}
+.hdr-mode-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hdr-refill{font-size:10px;color:#9990cc;display:flex;align-items:center;gap:3px;font-weight:700}
+.hdr-subject-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.hdr-subject{font-size:22px;font-weight:900;color:#1e1e3a;letter-spacing:.02em;line-height:1.2}
+.hdr-pills{display:flex;gap:5px;flex-wrap:wrap}
+.hdr-stats{display:flex;gap:5px}
+.pill-ok{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.pill-ng{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+.pill-norma{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+
+/* ─── 難易度ピル（ヘッダー） ─── */
+.diff-pill{display:inline-flex;align-items:center;gap:3px;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;cursor:pointer;transition:all .18s;font-family:inherit;border-width:1.5px;border-style:solid}
+.diff-pill.diff-easy{background:linear-gradient(135deg,#dcfce7,#bbf7d0);border-color:#22c55e;color:#166534}
+.diff-pill.diff-standard{background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;color:#92400e}
+.diff-pill.diff-hard{background:linear-gradient(135deg,#dc2626,#ef4444);border-color:#dc2626;color:#fff}
+
+/* ─── 難易度セレクター（設定タブ） ─── */
+.diff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.diff-btn{background:#fff;border:2px solid #e8e3ff;border-radius:14px;padding:12px 6px;cursor:pointer;font-family:inherit;color:#9990cc;transition:all .18s;text-align:center}
+.diff-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.05)}
+.diff-btn.on{box-shadow:0 4px 14px rgba(91,63,248,.12);transform:translateY(-1px)}
+
+/* ─── 結果フェーズの強化 ─── */
+.result-big-ok{background:linear-gradient(135deg,#dcfce7,#bbf7d0);border:2px solid #22c55e;border-radius:18px;padding:20px 16px;margin-bottom:12px;text-align:center;box-shadow:0 4px 18px rgba(34,197,94,.15)}
+.result-big-ng{background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:18px;padding:18px 16px;margin-bottom:12px;box-shadow:0 4px 18px rgba(245,158,11,.12)}
+.result-big-icon{font-size:44px;margin-bottom:4px;animation:bounce .55s cubic-bezier(.34,1.56,.64,1) both}
+.result-big-title{font-size:22px;font-weight:900;line-height:1.1}
+.result-big-sub{font-size:12px;font-weight:700;opacity:.85;margin-top:4px}
+.encourage-box{background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#166534;font-weight:700;line-height:1.6}
+
+/* ─── ノルマ3段階ドット ─── */
+.norma-dots{display:flex;align-items:center;gap:6px;justify-content:center;margin:8px 0}
+.norma-dot{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;border:2px solid;transition:all .25s}
+.norma-dot.done{background:#22c55e;border-color:#16a34a;color:#fff;box-shadow:0 2px 8px rgba(34,197,94,.3)}
+.norma-dot.now{background:#fef3c7;border-color:#f59e0b;color:#92400e;animation:norma-pulse 1.2s ease-in-out infinite}
+.norma-dot.todo{background:#fff;border-color:#fde68a;color:#fde68a}
+.norma-line{flex:1;height:3px;background:#fde68a;border-radius:2px;max-width:32px;transition:background .3s}
+.norma-line.done{background:#22c55e}
+
+/* ─── 学習タブ：難易度ベース調整 ─── */
+.diff-easy-soft .choice-btn{font-size:15px;padding:14px 16px;min-height:52px}
+.diff-easy-soft .q-text{font-size:17px;line-height:1.85;padding:16px}
+
+/* ─── 成長スコア演出 ────────────────────────────────── */
+/* 成長ホップ: 1項目 0.4秒で順に跳ねる */
+@keyframes growth-hop{0%{transform:translateY(0) scale(1);box-shadow:0 0 0 rgba(34,197,94,0)}30%{transform:translateY(-10px) scale(1.06);box-shadow:0 8px 22px rgba(34,197,94,.35)}60%{transform:translateY(-2px) scale(1.02)}100%{transform:translateY(0) scale(1);box-shadow:0 0 0 rgba(34,197,94,0)}}
+.hop-anim{animation:growth-hop .4s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes value-tick{0%{transform:scale(1);color:#5b3ff8}40%{transform:scale(1.25);color:#22c55e}100%{transform:scale(1)}}
+.tick-anim{animation:value-tick .55s ease-out both;display:inline-block}
+
+/* スコアカード: 1行表示にも対応 */
+.stat-params-1col{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.stat-line{display:flex;align-items:center;gap:10px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:12px;padding:8px 12px}
+.stat-line .stat-line-icon{font-size:18px;flex-shrink:0;width:26px;text-align:center}
+.stat-line .stat-line-name{font-size:12px;font-weight:800;color:var(--text-soft);min-width:62px;flex-shrink:0}
+.stat-line .stat-line-bar{flex:1;height:6px;background:var(--input-border);border-radius:3px;overflow:hidden}
+.stat-line .stat-line-bar > div{height:100%;background:linear-gradient(90deg,#5b3ff8,#9b59f8);border-radius:3px;transition:width .5s}
+.stat-line .stat-line-val{font-size:15px;font-weight:900;color:var(--primary);min-width:36px;text-align:right}
+.stat-line .rank-no{font-size:10px;font-weight:900;color:#fff;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:99px;padding:1px 7px;flex-shrink:0;letter-spacing:.04em}
+.stat-line .rank-no.r1{background:linear-gradient(135deg,#fbbf24,#f59e0b)}
+.stat-line .rank-no.r2{background:linear-gradient(135deg,#cbd5e1,#94a3b8)}
+.stat-line .rank-no.r3{background:linear-gradient(135deg,#fdba74,#c2410c)}
+[data-theme="dark"] .stat-line{background:#1f1f35;border-color:#3a3a55}
+[data-theme="dark"] .stat-line .stat-line-name{color:#aba6cf}
+[data-theme="dark"] .stat-line .stat-line-val{color:#c4b5fd}
+
+/* ランクイン演出: TOP5入りトースト */
+@keyframes rankin-pop{0%{transform:translate(-50%,-30px) scale(.6);opacity:0}50%{transform:translate(-50%,4px) scale(1.1);opacity:1}100%{transform:translate(-50%,0) scale(1);opacity:1}}
+@keyframes celebration-pop{0%{transform:translateY(-12px) scale(.92);opacity:0}60%{transform:translateY(3px) scale(1.03);opacity:1}100%{transform:translateY(0) scale(1);opacity:1}}
+.rankin-toast{position:fixed;top:24px;left:50%;z-index:998;background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:18px;padding:12px 22px;font-weight:900;color:#92400e;box-shadow:0 8px 28px rgba(245,158,11,.45);animation:rankin-pop .55s cubic-bezier(.34,1.56,.64,1) both;font-size:13px;text-align:center;max-width:calc(100vw - 32px);box-sizing:border-box}
+.rankin-toast .rankin-big{font-size:20px;font-weight:900;display:block;margin-bottom:2px}
+.rankin-toast .rankin-spark{display:inline-block;animation:spark-spin 1.2s linear infinite}
+@keyframes spark-spin{to{transform:rotate(360deg)}}
+
+/* ─── タイトル・ヒーロー（説得力強化）────────────── */
+.hero-title{position:relative;text-align:center;padding:8px 0 4px}
+.hero-logo{display:inline-flex;align-items:center;justify-content:center;width:80px;height:80px;border-radius:24px;background:linear-gradient(135deg,#5b3ff8,#9b59f8);box-shadow:0 12px 32px rgba(91,63,248,.35),inset 0 1px 0 rgba(255,255,255,.4);margin-bottom:10px;position:relative;overflow:hidden}
+.hero-logo::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 30% 25%, rgba(255,255,255,.5) 0%, transparent 50%);pointer-events:none}
+.hero-logo span{font-size:42px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.18))}
+.hero-h1{font-size:30px;font-weight:900;background:linear-gradient(135deg,#5b3ff8,#9b59f8 60%,#ec4899);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;line-height:1.15;letter-spacing:.01em;margin-bottom:4px}
+.hero-sub{font-size:12px;font-weight:800;color:#9990cc;line-height:1.6;margin-bottom:4px}
+.hero-tag{display:inline-block;background:rgba(91,63,248,.08);border:1px solid rgba(91,63,248,.18);border-radius:99px;padding:4px 12px;font-size:11px;font-weight:800;color:#5b3ff8;margin-top:6px}
+
+/* ─── APIキー＆ユーザー行 ────────────────────────── */
+.kv-row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.kv-row > input{margin-bottom:0 !important;flex:1;min-width:0}
+.kv-icon-btn{flex-shrink:0;width:38px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:18px;font-weight:900;transition:all .15s}
+.kv-icon-btn.del{background:#fee2e2;color:#991b1b}
+.kv-icon-btn.del:hover{background:#fecaca;transform:scale(1.06)}
+.kv-icon-btn.add{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff;width:auto;padding:0 14px}
+.kv-icon-btn.add:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(91,63,248,.3)}
+.kv-icon-btn.add:disabled{opacity:.4;cursor:not-allowed}
+.kv-add-row{margin:4px 0 10px}
+
+/* ─── ユーザースイッチャー ──────────────────────── */
+.user-switch-wrap{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.user-chip{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;border:1.5px solid var(--input-border);background:var(--input-bg);cursor:pointer;font-family:inherit;font-weight:800;font-size:12px;color:var(--text-soft);transition:all .15s}
+.user-chip:hover{transform:translateY(-1px)}
+.user-chip.on{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-color:#5b3ff8;color:#fff;box-shadow:0 4px 14px rgba(91,63,248,.3)}
+.user-chip .uc-icon{font-size:16px}
+.user-chip-add{display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:99px;border:1.5px dashed var(--input-border);background:transparent;cursor:pointer;font-family:inherit;font-weight:800;font-size:12px;color:var(--primary)}
+.user-chip-add:hover:not(:disabled){background:var(--primary-soft)}
+.user-chip-add:disabled{opacity:.4;cursor:not-allowed}
+.user-edit-modal{position:fixed;inset:0;background:rgba(30,30,58,.55);z-index:1500;display:flex;align-items:center;justify-content:center;padding:16px}
+.user-edit-card{background:var(--card-bg);border-radius:18px;padding:20px;max-width:360px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.icon-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:8px 0}
+.icon-pick-btn{aspect-ratio:1;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:10px;font-size:20px;cursor:pointer;transition:all .15s}
+.icon-pick-btn:hover{transform:scale(1.08)}
+.icon-pick-btn.on{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-color:#5b3ff8;color:#fff}
+
+/* ─── 学習画面のクイックトグル（タイムアタック / ライフライン）────── */
+.quick-mode-row{display:flex;gap:8px;margin-bottom:10px}
+.quick-mode-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 8px;border-radius:12px;border:1.5px solid var(--input-border);background:var(--input-bg);cursor:pointer;font-family:inherit;font-weight:800;font-size:12px;color:var(--text-soft);transition:all .15s;position:relative}
+.quick-mode-btn:hover{transform:translateY(-1px)}
+.quick-mode-btn.on{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-color:#5b3ff8;color:#fff;box-shadow:0 4px 14px rgba(91,63,248,.3)}
+.quick-mode-btn .qm-icon{font-size:16px}
+.quick-mode-btn .qm-dot{position:absolute;top:6px;right:8px;width:8px;height:8px;border-radius:50%;background:#cbd5e1}
+.quick-mode-btn.on .qm-dot{background:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.4)}
+
+/* ─── 久々成長 / 苦手克服 / AI総評トースト ─────── */
+.celebration-card{display:flex;align-items:flex-start;gap:12px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:18px;padding:14px 16px;margin-bottom:10px;box-shadow:0 6px 22px rgba(245,158,11,.2);animation:celebration-pop .55s cubic-bezier(.34,1.56,.64,1) both;box-sizing:border-box;width:100%}
+.celebration-card.welcome-back{background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-color:#3b82f6;box-shadow:0 6px 22px rgba(59,130,246,.2)}
+.celebration-card.overcome{background:linear-gradient(135deg,#dcfce7,#bbf7d0);border-color:#22c55e;box-shadow:0 6px 22px rgba(34,197,94,.2)}
+.celebration-card.ai-review{background:linear-gradient(135deg,#f3e8ff,#e9d5ff);border-color:#a855f7;box-shadow:0 6px 22px rgba(168,85,247,.2)}
+.celebration-card.growth-type{background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-color:#0ea5e9;box-shadow:0 6px 22px rgba(14,165,233,.2)}
+.celebration-icon{font-size:26px;line-height:1;flex-shrink:0;animation:wiggle 1.4s ease-in-out infinite;align-self:flex-start;padding-top:2px}
+.celebration-text{flex:1;min-width:0;overflow:hidden}
+@keyframes wiggle{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+.celebration-title{font-size:11px;font-weight:900;color:#7c2d12;margin-bottom:4px;line-height:1.4;word-break:keep-all;overflow-wrap:break-word}
+.celebration-card.welcome-back .celebration-title{color:#1e3a8a}
+.celebration-card.overcome .celebration-title{color:#14532d}
+.celebration-card.ai-review .celebration-title{color:#581c87}
+.celebration-card.growth-type .celebration-title{color:#0c4a6e}
+.celebration-body{font-size:13px;color:#78350f;line-height:1.6;font-weight:700;word-break:break-all;overflow-wrap:break-word}
+.celebration-card.welcome-back .celebration-body{color:#1e40af}
+.celebration-card.overcome .celebration-body{color:#166534}
+.celebration-card.ai-review .celebration-body{color:#6b21a8}
+.celebration-card.growth-type .celebration-body{color:#0369a1}
 `;
 
 // ─── initLogs ────────────────────────────────────────────────────
+const _zeroStats=()=>STAT_ORDER.reduce((a,k)=>({...a,[k]:0}),{});
 const initLogs=()=>({
   subjectStats:{},dailyLog:{},totalQ:0,totalCorrect:0,
   bestStreak:0,loginStreak:0,bestLoginStreak:0,lastLogin:"",
@@ -500,132 +1105,310 @@ const initLogs=()=>({
   topicMastery:{},
   debugHistory:[],
   bestDayScore:0,
+  cumulativeStats:_zeroStats(),
+  dailyStatGains:{},
+  dailyUnitGains:{},          // 日付→今日伸びた単元力合計
+  subjectUnitStats:{},        // {科目: {単元名: ポイント}}（科目毎に最大20件、表示は上位5件）
+  subjectDifficulty:{},       // {科目: "easy"|"standard"|"hard"} 自動難易度
+  trialMode:false,
+  statRankSnapshot:{},        // {key:順位}  累計ステータスの前回順位（ランクイン演出用）
 });
 
-// ─── AnalysisPanel ───────────────────────────────────────────────
-// quiz / analysisStep / stepAns が変わらない限り再レンダーしない
-const AnalysisPanel=React.memo(({quiz,analysisStep,stepAns,stepResults,currentStep,stageClr,stageIcon,onAnswer,onNext,onReport,currentReviewItemId,setLogs,saveLogs,isReview,isNorma,todaySess})=>{
-  if(!quiz||!analysisStep)return null;
+// ─── QuizPanel ───────────────────────────────────────────────────
+const CHOICE_LABELS=["A","B","C","D"];
+const QuizPanel=React.memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,showHint,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel})=>{
+  if(!quiz||!quizPhase)return null;
+  const isCorrect=selectedChoice!==null&&selectedChoice===quiz.correct;
+  // ─ スクロール制御 ─
+  const quizCardRef=useRef(null);
+  // フェーズが変わるたびに quiz-card の最上部へスクロール
+  useEffect(()=>{
+    if(!quizPhase)return;
+    const t=setTimeout(()=>{quizCardRef.current&&quizCardRef.current.scrollIntoView({behavior:"smooth",block:"start"});},80);
+    return()=>clearTimeout(t);
+  },[quizPhase]);
+  // ⑯ 自信度セレクター
+  const ConfidenceSelector=()=>(
+    <div className="confidence-wrap">
+      <div className="confidence-label-txt">この問題、どれくらいわかった？</div>
+      <div className="confidence-row">
+        <button className={`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick={()=>onConfidenceRate(1)}>🎲<br/>勘</button>
+        <button className={`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick={()=>onConfidenceRate(2)}>🤔<br/>半分わかった</button>
+        <button className={`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick={()=>onConfidenceRate(3)}>✅<br/>説明できる</button>
+      </div>
+    </div>
+  );
   const ModeBanner=()=>{
-    if(isReview&&isNorma) return(
+    if(isReview&&isNorma)return(
       <React.Fragment>
         <div style={{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:16}}>🎯</span>
-          <div>
-            <div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div>
-            <div style={{fontSize:11,color:"#4c1d95"}}>3問全問正解でノルマ達成！</div>
-          </div>
+          <div><div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div><div style={{fontSize:11,color:"#4c1d95"}}>3問正解でノルマ達成！</div></div>
         </div>
         <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:16}}>📝</span>
-          <div>
-            <div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div>
-            <div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div>
-          </div>
+          <div><div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div><div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div></div>
         </div>
       </React.Fragment>
     );
-    if(isReview) return(
+    if(isReview)return(
       <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>📝</span>
-        <div>
-          <div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div>
-          <div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div>
-        </div>
+        <div><div style={{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div><div style={{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div></div>
       </div>
     );
-    if(isNorma) return(
+    if(isNorma)return(
       <div style={{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>🎯</span>
-        <div>
-          <div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div>
-          <div style={{fontSize:11,color:"#4c1d95"}}>3問全問正解でノルマ達成！</div>
-        </div>
+        <div><div style={{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 {todaySess+1} / 3</div><div style={{fontSize:11,color:"#4c1d95"}}>3問正解でノルマ達成！</div></div>
       </div>
     );
     return null;
   };
-  if(analysisStep!=="done"&&currentStep){
+
+  // ─ 問題フェーズ ─
+  if(quizPhase==="question"){
     return(
-      <div className="an-card">
+      <div ref={quizCardRef} className={`quiz-card${easyMode?" diff-easy-soft":""}`}>
+        {isTrial&&(
+          <div style={{background:"linear-gradient(135deg,#fff7ed,#fed7aa)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:800,color:"#92400e"}}>
+            <span style={{fontSize:16}}>🎁</span>
+            <span>お試しモード — APIキーなしで体験中</span>
+          </div>
+        )}
         <ModeBanner/>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:900,color:"#5b3ff8",letterSpacing:".04em"}}>🔍 ズレ発見チャレンジ</div>
-          <span style={{fontSize:12,fontWeight:800,color:"#9990cc"}}>{analysisStep} / 3</span>
-        </div>
-        <div style={{fontSize:11,color:"#9990cc",fontWeight:700,marginBottom:10,textAlign:"center",letterSpacing:".02em"}}>正解を知らなくても「どこが違う？」は考えられる！</div>
-        <div className="an-qbox">
-          <div className="an-qbox-label">📌 問題</div>
-          <div className="an-qbox-text">{quiz.question}</div>
-        </div>
-        <div className="an-wrong">
-          <div className="an-wrong-label">👀 この答えのズレはどこ？</div>
-          <div className="an-wrong-text">「{quiz.student_answer}」</div>
-        </div>
-        <div className={`an-stage ${stageClr[analysisStep-1]}`}>
-          {stageIcon[analysisStep-1]} {currentStep.name}
-        </div>
-        <div className="an-q">{currentStep.question}</div>
-        {currentStep.choices.map((c,i)=>{
-          let cls="an-choice";
-          if(stepAns!==null){if(i===currentStep.answer)cls+=" correct";else if(i===stepAns)cls+=" wrong";else cls+=" dim";}
-          return(
-            <button key={i} className={cls} onClick={()=>onAnswer(i)} disabled={stepAns!==null}>
-              <span className="an-num">{i+1}</span>{c}
-            </button>
-          );
-        })}
-        {stepAns!==null&&(
-          <React.Fragment>
-            <div className="an-fb">
-              <strong style={{color:stepAns===currentStep.answer?"#059669":"#dc2626"}}>{stepAns===currentStep.answer?"✓ ズレを見抜いた！":"✗ 別の角度から見よう"}</strong><br/>
-              {currentStep.feedback}
+        {/* ⑦ タイムアタックバー（advancedMode.timeAttack ON時のみ） */}
+        {timeAttackEnabled&&timeLimit!==null&&timeLimit!==undefined&&!showHint&&(
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:800,color:timeLimit<=10?"#dc2626":"#5b3ff8",marginBottom:4}}>
+              <span>⏱ タイムアタック</span>
+              <span>{timeLimit}秒</span>
             </div>
-            <button className="an-next" onClick={onNext}>
-              {analysisStep<3?`次のステップへ（${analysisStep+1}/3）→`:"結果を見る ✨"}
+            <div className="comeback-bar-wrap" style={{height:6}}>
+              <div className="comeback-bar-fill" style={{width:`${(timeLimit/(timeLimitMax||30))*100}%`}}/>
+            </div>
+          </div>
+        )}
+        {showHint&&quiz.hint?(
+          <React.Fragment>
+            <div className="hint-box">
+              <div className="hint-label">💡 前提ヒント（まだ習ってなくてOK）</div>
+              {quiz.hint}
+              <button className="btn btn-ghost" style={{marginTop:10}} onClick={onNext}>
+                わかった → 次の問題へ
+              </button>
+            </div>
+            <div className="q-text" style={{opacity:.45}}>{quiz.question}</div>
+          </React.Fragment>
+        ):(
+          <React.Fragment>
+            <div className="q-text">{quiz.question}</div>
+            {quiz.choices.map((c,i)=>{
+              const isHidden=hiddenChoice===i;
+              return(
+                <button key={i} className={`choice-btn${isHidden?" dim":""}`} onClick={()=>!isHidden&&onChoice(i)} disabled={isHidden} style={isHidden?{textDecoration:"line-through",opacity:.35,cursor:"not-allowed"}:undefined}>
+                  <span className="choice-label">{CHOICE_LABELS[i]}</span>
+                  {isHidden?"（消去済み）":c}
+                </button>
+              );
+            })}
+            {/* ⑧ 消去法ライフライン（advancedMode.lifeline ON時のみ） */}
+            {lifelineEnabled&&!lifelineUsed&&(
+              <button className="btn btn-ghost" style={{marginBottom:8,background:"linear-gradient(135deg,#fef3c7,#fde68a)",color:"#92400e",border:"1.5px solid #f59e0b"}} onClick={onLifeline}>
+                💡 ライフライン：間違いを1つ消す
+              </button>
+            )}
+            {/* 学習サポート: 詰まったときの前提ヒント（「まだ習ってない」より低ハードルな入り口） */}
+            {quiz.hint&&(
+              <button className="btn btn-ghost" style={{marginBottom:8,background:"#f0f9ff",color:"#1e40af",border:"1.5px solid #93c5fd"}} onClick={onShowHint}>
+                💭 前提ヒントを見る（覚えていなくてOK）
+              </button>
+            )}
+            <button className="not-learned-btn" onClick={onNotLearnedYet}>
+              <span className="choice-label" style={{background:"#f3f4f6",color:"#6b7280"}}>E</span>
+              まだ習ってない
             </button>
           </React.Fragment>
         )}
       </div>
     );
   }
-  if(analysisStep==="done"){
-    const sc=stepResults.filter(Boolean).length;
-    return(
-      <div className="an-card">
-        <ModeBanner/>
-        <div className="an-complete">
-          <span className="an-complete-icon">{sc===3?"🚀":sc===2?"🌟":sc===1?"🌱":"😅"}</span>
-          <div style={{fontSize:21,fontWeight:900,color:"#1e1e3a",marginBottom:4}}>
-            {sc===3?"ズレを全部見抜いた！":sc===2?"ズレに気づけてきてる！":sc===1?"いい見方ができてる！":"比べると見えてくるものがある。"}
-          </div>
-          <div style={{fontSize:13,color:"#7c6fb0",marginBottom:8}}>
-            {sc===3?"原因・差分・次の一手、全部見えてた 🎉":sc===2?"2つのズレを特定できた。あと1ステップ 🎯":sc===1?"ズレの出発点に気づけてる 🌱":"ズレのパターンを見ていこう 🔍"}
-          </div>
-          <div style={{fontSize:11,color:"#bbb",marginBottom:12}}>{sc} / 3 ステップ正解</div>
-          <div className="an-score-row">
-            {stepResults.map((r,i)=><div key={i} className={`an-score-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>)}
-          </div>
-          <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:12,textAlign:"left"}}>
-            <div style={{fontSize:11,fontWeight:900,color:"#16a34a",marginBottom:4}}>✅ 正解</div>
-            <div style={{fontSize:16,fontWeight:800,color:"#166534"}}>{quiz.correct_answer}</div>
-            <div style={{fontSize:12,color:"#166534",marginTop:6,lineHeight:1.65}}>{quiz.correct_feedback}</div>
-          </div>
-          {quiz.mistake_type&&quiz.mistake_type!=="不明"&&(
-            <div style={{background:"#f0edff",border:"1.5px solid #ddd6fe",borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"left"}}>
-              <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",marginBottom:4,letterSpacing:".04em"}}>💡 ズレの原因</div>
-              <div style={{fontSize:13,fontWeight:700,color:"#4c1d95"}}>{quiz.mistake_type}</div>
-            </div>
-          )}
 
+  // ─ 結果フェーズ：不正解 ─
+  // 並び方針: ①ミスタイプ大見出し → ②選んだ選択肢の分析 → ③問題と答え合わせ → ④自信度 → ⑤行動ボタン
+  if(quizPhase==="result"&&!isCorrect){
+    // 選んだ選択肢のwrong_analysisエントリを取得
+    const chosenAnalysis=(quiz.wrong_analysis||[]).find(wa=>wa.index===selectedChoice);
+    return(
+      <div ref={quizCardRef} className={`quiz-card${easyMode?" diff-easy-soft":""}`}>
+        <ModeBanner/>
+        {/* ① 学びのチャンス！を最初に大きく見せる */}
+        <div className="result-big-ng">
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+            <div className="result-big-icon" style={{fontSize:36,marginBottom:0}}>💡</div>
+            <div>
+              <div style={{fontSize:10,fontWeight:900,color:"#92400e",letterSpacing:".06em"}}>このミスの型</div>
+              <div style={{fontSize:18,fontWeight:900,color:"#78350f",lineHeight:1.2}}>{quiz.mistake_type}</div>
+            </div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.6)",borderRadius:10,padding:"10px 12px",fontSize:13,color:"#7f1d1d",fontWeight:700,lineHeight:1.65}}>
+            👉 {quiz.short_feedback}
+          </div>
         </div>
-        <button className="btn-green" style={{marginBottom:8}} onClick={onNext}>次の問題へ →</button>
+        {/* ② 選んだ選択肢の分析を即時表示（「なぜ違うか」をその場で） */}
+        {chosenAnalysis&&selectedChoice!==null&&(
+          <div style={{background:"#fff7f7",border:"1.5px solid #fca5a5",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:900,color:"#991b1b",letterSpacing:".06em",marginBottom:6}}>あなたが選んだ「{CHOICE_LABELS[selectedChoice]}: {quiz.choices[selectedChoice]}」について</div>
+            <div style={{fontSize:13,color:"#d97706",fontWeight:700,marginBottom:4,lineHeight:1.6}}>🤔 {chosenAnalysis.why_chosen}</div>
+            <div style={{fontSize:13,color:"#991b1b",fontWeight:700,lineHeight:1.6}}>✗ {chosenAnalysis.why_wrong}</div>
+          </div>
+        )}
+        {/* ③ 励まし（easyMode のみ） */}
+        {easyMode&&(
+          <div className="encourage-box">
+            🌱 まちがいは「いまの自分の弱点」が見えた瞬間。これがいちばん成長する！
+          </div>
+        )}
+        {/* ④ 問題＋答え合わせ */}
+        <div className="q-text">{quiz.question}</div>
+        {quiz.choices.map((c,i)=>{
+          let cls="choice-btn";
+          if(i===quiz.correct)cls+=" correct";
+          else if(i===selectedChoice)cls+=" wrong";
+          else cls+=" dim";
+          return(
+            <div key={i} className={cls} style={{cursor:"default"}}>
+              <span className="choice-label">{CHOICE_LABELS[i]}</span>{c}
+            </div>
+          );
+        })}
+        {/* ④.5 正解の説明 */}
+        <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"10px 12px",marginTop:6,marginBottom:10,fontSize:13,color:"#166534",fontWeight:700,lineHeight:1.65}}>
+          ✅ {quiz.correct_feedback}
+        </div>
+        {/* ⑤ なぜ他は違うか（常時表示・モード切替なし） */}
+        <button className="why-wrong-btn" onClick={onToggleWhyWrong}>
+          {showWhyWrong?"▲ 他の選択肢の理由を閉じる":"👁️ なぜ他は違うか分析する"}
+        </button>
+        {showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
+          <div className="why-wrong-panel">
+            <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>消去法の精度を上げる</div>
+            {quiz.wrong_analysis.map((wa,i)=>{
+              const idx=typeof wa.index==="number"?wa.index:null;
+              const choiceText=idx!==null?quiz.choices[idx]:"";
+              return(
+                <div key={i} className="why-wrong-item">
+                  <div className="why-wrong-choice">{idx!==null?CHOICE_LABELS[idx]:""} {choiceText}</div>
+                  <div style={{color:"#d97706",marginBottom:2}}>🤔 {wa.why_chosen}</div>
+                  <div style={{color:"#991b1b"}}>✗ {wa.why_wrong}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* ⑥ 自信度 */}
+        <ConfidenceSelector/>
+        {/* ⑦ 行動: もう一回解く → ヒント（インライン展開）→ 次へ */}
+        <button className="btn-retry" onClick={onRetry}>🔄 もう一回解く</button>
+        {!easyMode&&quiz.hint&&(
+          <React.Fragment>
+            <button className="btn btn-ghost" onClick={onToggleHintPanel} style={{marginBottom:8}}>
+              {hintPanelOpen?"▲ ヒントを閉じる":"💡 ヒントを見る（前提知識）"}
+            </button>
+            {hintPanelOpen&&(
+              <div className="hint-box" style={{marginBottom:8}}>
+                <div className="hint-label">💡 前提ヒント</div>
+                <div>{quiz.hint}</div>
+                <div style={{marginTop:6,fontSize:11,color:"#a16207",lineHeight:1.5}}>
+                  → 次の同じ型の問題で使えます。<b>もう一回解く</b>で身につけよう。
+                </div>
+              </div>
+            )}
+          </React.Fragment>
+        )}
+        <button className="an-next" onClick={onNext}>次の問題へ →</button>
+        <button className="report-btn" onClick={onReport}>⚠️ この問題の内容がおかしい</button>
+      </div>
+    );
+  }
+
+  // ─ 結果フェーズ：正解 ─
+  if(quizPhase==="result"&&isCorrect){
+    return(
+      <div ref={quizCardRef} className={`quiz-card${easyMode?" diff-easy-soft":""}`}>
+        <ModeBanner/>
+        {/* 大きな正解表示 */}
+        <div className="result-big-ok">
+          <div className="result-big-icon">✅</div>
+          <div className="result-big-title" style={{color:"#166534"}}>正解！</div>
+          {easyMode&&<div className="result-big-sub" style={{color:"#166534"}}>その調子！🌟</div>}
+        </div>
+        {/* 正解の説明 */}
+        <div style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:12,padding:"12px 14px",marginBottom:10,fontSize:13,color:"#166534",fontWeight:700,lineHeight:1.65}}>
+          {quiz.correct_feedback}
+        </div>
+        {/* なぜ他は違うか（常時表示・モード切替なし） */}
+        <button className="why-wrong-btn" onClick={onToggleWhyWrong}>
+          {showWhyWrong?"▲ 他の選択肢の理由を閉じる":"👁️ なぜ他は違うか分析する"}
+        </button>
+        {showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
+          <div className="why-wrong-panel">
+            <div style={{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>消去法の精度を上げる</div>
+            {quiz.wrong_analysis.map((wa,i)=>{
+              const idx=typeof wa.index==="number"?wa.index:null;
+              const choiceText=idx!==null?quiz.choices[idx]:"";
+              return(
+                <div key={i} className="why-wrong-item">
+                  <div className="why-wrong-choice">{idx!==null?CHOICE_LABELS[idx]:""} {choiceText}</div>
+                  <div style={{color:"#d97706",marginBottom:2}}>🤔 {wa.why_chosen}</div>
+                  <div style={{color:"#991b1b"}}>✗ {wa.why_wrong}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <ConfidenceSelector/>
+        <button className="btn-green" onClick={onNext}>次の問題へ →</button>
         <button className="report-btn" onClick={onReport}>⚠️ この問題の内容がおかしい</button>
       </div>
     );
   }
   return null;
 });
+
+// ─── UserEditModal ───────────────────────────────────────────────
+const UserEditModal=({users,mode,initialUser,iconChoices,onSubmit,onDelete,onCancel})=>{
+  const [name,setName]=useState(initialUser?.name||(mode==="add"?`ユーザー${users.length+1}`:""));
+  const [icon,setIcon]=useState(initialUser?.icon||iconChoices[users.length%iconChoices.length]);
+  return(
+    <div className="user-edit-modal" onClick={onCancel}>
+      <div className="user-edit-card" onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:900,color:"var(--text-main)",marginBottom:10}}>
+          {mode==="add"?"👤 ユーザーを追加":"✏️ ユーザーを編集"}
+        </div>
+        <label style={{fontSize:11,fontWeight:800,color:"var(--text-soft)",display:"block",marginBottom:4}}>名前</label>
+        <input type="text" value={name} onChange={e=>setName(e.target.value)} maxLength={12} placeholder="名前"/>
+        <label style={{fontSize:11,fontWeight:800,color:"var(--text-soft)",display:"block",marginTop:6,marginBottom:4}}>アイコン</label>
+        <div className="icon-picker">
+          {iconChoices.map(ic=>(
+            <button key={ic} className={`icon-pick-btn${ic===icon?" on":""}`} onClick={()=>setIcon(ic)}>{ic}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <button className="btn btn-ghost" style={{flex:1}} onClick={onCancel}>キャンセル</button>
+          <button className="btn btn-primary" style={{flex:1}} onClick={()=>onSubmit({mode,id:initialUser?.id,name:name.trim()||"ユーザー",icon})}>
+            {mode==="add"?"追加する":"保存する"}
+          </button>
+        </div>
+        {mode==="edit"&&users.length>1&&(
+          <button className="danger-btn secondary" style={{marginTop:10}} onClick={()=>onDelete(initialUser.id)}>
+            🗑 このユーザーを削除
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // ─── BadgeGrid ───────────────────────────────────────────────────
 // logs.earnedBadges が変わらない限り再レンダーしない
@@ -646,13 +1429,39 @@ const BadgeGrid=React.memo(({earnedBadges,totalBadges})=>(
 
 // ─── MAIN ────────────────────────────────────────────────────────
 function App(){
-  const STORE="manabi_logs_v4";const PROF="manabi_profile_v2";const SESS="manabi_session_v2";
+  // ユーザーごとに別キーで保存。"u1" のみ後方互換のためサフィックスなし。
+  const STORE=()=>userKey("manabi_logs_v4");
+  const PROF =()=>userKey("manabi_profile_v2");
+  const SESS =()=>userKey("manabi_session_v2");
+
+  const [users,setUsers]=useState(()=>getUsers());
+  const [currentUid,setCurrentUid]=useState(()=>getCurrentUserId());
+  const usersR=useRef(users);
+  useEffect(()=>{usersR.current=users;},[users]);
+  const [showUserEdit,setShowUserEdit]=useState(false); // null|{mode:"add"|"edit",user?}
+  const ICON_CHOICES=["😀","😎","🐱","🐶","🦊","🐰","🦁","🐼","🐯","🐧","🦄","🐢","🦖","🐝","🐙","🐳","🌟","🚀","🎨","🍓","🍎","🍊","⚽","🎮"];
 
   const [screen,setScreen]=useState("start");
   const [tab,setTab]=useState("learn");
-  const [apiKeys,setApiKeys]=useState(["","","",""]);
+  const [apiKeys,setApiKeys]=useState([""]); // 初期1つ。+1で追加、最大4
   const [birthday,setBirthday]=useState("");
   const [grade,setGrade]=useState("");
+  // 上位者用モード: タイムアタック / 消去法ライフライン
+  const [advancedMode,setAdvancedMode]=useState(()=>{
+    try{ const v=_safeLS.get("manabi_advanced_v1"); return v?JSON.parse(v):{timeAttack:false,lifeline:false}; }catch(e){ return{timeAttack:false,lifeline:false}; }
+  });
+  useEffect(()=>{ _safeLS.set("manabi_advanced_v1",JSON.stringify(advancedMode)); },[advancedMode]);
+  // ヒント表示モード（不正解後の挙動）
+  const [hintPanelOpen,setHintPanelOpen]=useState(false);
+  // ランクイン演出
+  const [rankInToast,setRankInToast]=useState(null);   // {label, rank}
+  const [hopKey,setHopKey]=useState(0);                // 成長スコアの hop アニメ再生キー
+  // 各種お祝いカード
+  const [overcomeMsg,setOvercomeMsg]=useState("");     // 苦手克服
+  const [welcomeBackMsg,setWelcomeBackMsg]=useState("");// 復帰歓迎
+  const [longTimeMsg,setLongTimeMsg]=useState("");     // 久々成長
+  const [growthTypeMsg,setGrowthTypeMsg]=useState(""); // 今日の成長タイプ
+  const [aiReviewMsg,setAiReviewMsg]=useState("");     // 今日はここが良かった AI 総評
   const [subject,setSubject]=useState("");
   const [gs,setGs]=useState({streak:0,best:0,wrong:0,qNum:1});
   const [quiz,setQuiz]=useState(null);
@@ -693,14 +1502,50 @@ function App(){
   const normaQueueR=useRef([]);
   const prevRatesRef=useRef({});
   const welcomeShownRef=useRef(false);
-  const prevSessionsRef=useRef(0);
-  const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(localStorage.getItem("manabi_autorefill")??'true');}catch(e){return true;}});
+  // 初期値は -1。loadLogs 後の初回 useEffect ではバナーを出さず、その回で current を確定する。
+  const prevSessionsRef=useRef(-1);
+  const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(_safeLS.get("manabi_autorefill")??'true');}catch(e){return true;}});
+  // ── テーマ（light / dark）──
+  const [theme,setTheme]=useState(()=>{try{return _safeLS.get("manabi_theme")||"light";}catch(e){return"light";}});
+  useEffect(()=>{
+    try{
+      document.documentElement.setAttribute("data-theme",theme);
+      _safeLS.set("manabi_theme",theme);
+    }catch(e){}
+  },[theme]);
   const [importMsg,setImportMsg]=useState("");
   // エラー後リトライのクールダウン（秒）。0 = ボタン有効
   const [retryCooldown,setRetryCooldown]=useState(0);
   const retryCooldownRef=useRef(0);
   const retryTimerRef=useRef(null);
-  const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(localStorage.getItem("manabi_reject_count")||"0",10);}catch(e){return 0;}});
+  const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(_safeLS.get("manabi_reject_count")||"0",10);}catch(e){return 0;}});
+  // ── 復帰モード ──
+  const [comebackMode,setComebackMode]=useState(false);
+  const [comebackTimer,setComebackTimer]=useState(0);
+  // ── 自信度 ──
+  const [confidenceRating,setConfidenceRating]=useState(null);
+  const confidenceRatingR=useRef(null);
+  useEffect(()=>{confidenceRatingR.current=confidenceRating;},[confidenceRating]);
+  // ── ⑦ タイムアタック ──
+  const TIME_LIMIT_MAX=30;
+  const [timeLimit,setTimeLimit]=useState(null);
+  // ── ⑧ 消去法ライフライン ──
+  const [lifelineUsed,setLifelineUsed]=useState(false);
+  const [hiddenChoice,setHiddenChoice]=useState(null);
+  // ── 単元パネル科目フィルター ──
+  const [topicFilterSubj,setTopicFilterSubj]=useState("");
+  // ── お試しモード ──
+  const [trialMode,setTrialMode]=useState(false);
+  const trialModeR=useRef(false);
+  useEffect(()=>{trialModeR.current=trialMode;},[trialMode]);
+  const [trialIndex,setTrialIndex]=useState(0);
+  const trialIndexR=useRef(0);
+  useEffect(()=>{trialIndexR.current=trialIndex;},[trialIndex]);
+  // ── 直前の回答情報（confidence 遅延保存用）──
+  // handleChoice 時点では confidenceRating は null なので、次へ押した瞬間に保存する
+  const prevAnswerR=useRef(null); // {correct, subject, wrongItem} | null
+  // ── リトライ追跡 ──
+  const wasRetryR=useRef(false);
   const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
   const waitingForStockR=useRef(null);
   useEffect(()=>{waitingForStockR.current=waitingForStock;},[waitingForStock]);
@@ -716,7 +1561,7 @@ function App(){
   const subjects = calcSubjects(grade);
   const subjectsR = useRef(subjects);
   useEffect(()=>{ subjectsR.current = calcSubjects(grade); setDamStats(getDamStats(calcSubjects(grade))); },[grade]);
-  useEffect(()=>{autoRefillR.current=autoRefill;try{localStorage.setItem("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
+  useEffect(()=>{autoRefillR.current=autoRefill;try{_safeLS.set("manabi_autorefill",JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
 
   // ストック待機中: 補充されたら自動で問題を表示（全科目チェック、あればズレて出題）
   useEffect(()=>{
@@ -734,7 +1579,8 @@ function App(){
       if(nextLk.current||fetchLk.current)return;
       const subs=subjectsR.current;
       // 緊急生成した3問は指定科目専用なので、他科目へはズレない
-      const q=popFromDam(snapshotSubj,1);
+      const pollDiff=getAutoDifficulty(snapshotSubj,logsR.current);
+      const q=popFromDam(snapshotSubj,pollDiff,1);
       if(q.length){
         pollingCancelRef.current++; // 自分を含む旧tickを全て無効化してからsetState
         setWaitingForStock(null);
@@ -746,8 +1592,21 @@ function App(){
     return()=>{clearInterval(timer);};
   },[waitingForStock]);
 
-  // ── 誤答分析ステート（フラット） ──
-  const [analysisStep,setAnalysisStep]=useState(null); // null | 1 | 2 | 3 | "done"
+  // ── クイズステート（フラット） ──
+  const [quizPhase,setQuizPhase]=useState(null); // null | "question" | "result"
+  const [selectedChoice,setSelectedChoice]=useState(null); // null | 0-3
+  const [showHint,setShowHint]=useState(false);
+  const [showWhyWrong,setShowWhyWrong]=useState(false);
+  const [answerCorrect,setAnswerCorrect]=useState(null);
+  // v14: 上級者モード（タイムアタック/ライフライン）。設定タブのトグルで個別ON/OFF。
+  const rankOneMode=!!(advancedMode.timeAttack||advancedMode.lifeline);
+  // 難易度は手動選択ではなく自動。easyMode/hardMode は科目ごとの自動難易度に紐付けて表示用にのみ使う。
+  const currentDifficulty=subject?getAutoDifficulty(subject,logs):"standard";
+  const hardMode=currentDifficulty==="hard";
+  const easyMode=currentDifficulty==="easy";
+  const difficultyR=useRef("standard"); // legacy ref; 直接の難易度設定は廃止
+  // legacy refs for refillLk/fetchLk compatibility
+  const [analysisStep,setAnalysisStep]=useState(null);
   const [stepAns,setStepAns]=useState(null);
   const [stepResults,setStepResults]=useState([null,null,null]);
   const stepResultsR=useRef([null,null,null]);
@@ -763,7 +1622,7 @@ function App(){
   useEffect(()=>{gradeR.current=grade;},[grade]);
   useEffect(()=>{bdR.current=birthday;},[birthday]);
   useEffect(()=>{normaQueueR.current=normaQueue;},[normaQueue]);
-  useEffect(()=>{try{localStorage.setItem(SESS,JSON.stringify({...gs,savedDate:today()}));}catch(e){}},[gs]);
+  useEffect(()=>{try{_safeLS.set(SESS(),JSON.stringify({...gs,savedDate:today()}));}catch(e){}},[gs]);
   // ノルマ達成バナー
   useEffect(()=>{
     const cur=logs.dailyLog?.[today()]?.sessions||0;
@@ -787,7 +1646,7 @@ function App(){
     }
   },[screen]);
 
-  // ⑨ 苦手科目改善検知
+  // ⑨ 苦手科目改善検知 + 苦手克服お祝いカード
   useEffect(()=>{
     const rates=calcSubjRates(logs.recentHistory);
     const prev=prevRatesRef.current;
@@ -798,27 +1657,94 @@ function App(){
         if(pr<0.5&&cr>=0.5){
           setSubjectImprovedMsg(`📈 ${displaySubject(s,gradeR.current)}の正解率が${Math.round(pr*100)}%→${Math.round(cr*100)}%にアップ！`);
           setTimeout(()=>setSubjectImprovedMsg(""),4500);
+          setOvercomeMsg(`${displaySubject(s,gradeR.current)}の正解率が${Math.round(pr*100)}%→${Math.round(cr*100)}%に成長。苦手だった単元を乗り越えた瞬間！`);
+          // 永続表示にならないよう、当日中に閉じる
+          setTimeout(()=>setOvercomeMsg(""),5*60*1000);
         }
       }
     }
     prevRatesRef.current=rates;
   },[logs]);
 
-  // quiz がセットされたら分析を自動スタート
+  // 「今日の成長タイプ」と「AI総評」を成長スコアタブ表示時に動的算出
+  useEffect(()=>{
+    if(tab!=="log")return;
+    const td=today();
+    const tg=logs.dailyStatGains?.[td]||{};
+    const gained=STAT_ORDER.filter(k=>(tg[k]||0)>0)
+      .map(k=>({k,v:tg[k]||0,label:STAT_LABELS[k].name,icon:STAT_LABELS[k].icon}))
+      .sort((a,b)=>b.v-a.v);
+    if(gained.length){
+      const top=gained[0];
+      // 成長タイプ: TOP1 のステータスから判定
+      const typeMap={
+        retryPower:"💪 立ち直り型 — 不正解の次の問題で正解を取り戻す力が伸びている",
+        consistency:"📅 継続型 — 毎日続ける力が今日の主役",
+        startingPower:"🚀 着火型 — ノルマを達成しきる勢いが光った",
+        focus:"🧠 集中型 — 落ち着いて正解を積み上げた1日",
+        attention:"👀 観察型 — ミスから注意力を磨いた1日",
+        verificationPower:"🔍 確認型 — 『説明できる』正解を積めた1日",
+        retryAgain:"🔁 粘り型 — もう一回解いて正解を掴んだ瞬間が多かった",
+        stability:"⚖️ 安定型 — 連続正解で安定感がアップ",
+        readingAccuracy:"👁 読解型 — 条件・助詞の読み取りが光った",
+        logicalReasoning:"🧩 論理型 — 因果関係の整理が伸びた",
+      };
+      setGrowthTypeMsg(typeMap[top.k]||`${top.icon} ${top.label}が今日の主役`);
+    }else{
+      setGrowthTypeMsg("");
+    }
+    // AI総評: 今日の正解率・連続・科目偏りから良かった点を1つピックアップ
+    const todayQ=logs.dailyLog?.[td]?.q||0;
+    const todayC=logs.dailyLog?.[td]?.c||0;
+    if(todayQ>=3){
+      const rate=todayC/todayQ;
+      const reviews=[];
+      if(rate>=0.8)reviews.push(`正解率${Math.round(rate*100)}%は素晴らしい安定感。`);
+      if(logs.bestStreak>=5)reviews.push(`連続正解の最高${logs.bestStreak}問はあなたの強み。`);
+      if((logs.dailyLog?.[td]?.subjects||[]).length>=3)reviews.push(`${(logs.dailyLog[td].subjects||[]).length}科目を回せたバランス感覚。`);
+      if(reviews.length===0)reviews.push(`${todayQ}問挑戦し続けたこと自体が一番の成果。`);
+      setAiReviewMsg(reviews.join(" "));
+    }else{
+      setAiReviewMsg("");
+    }
+  },[tab,logs]);
+
+  // quiz がセットされたら問題フェーズを自動スタート
   useEffect(()=>{
     if(!quiz)return;
-    if(hasValidAnalysis(quiz)){
-      setAnalysisStep(1);
-      setStepAns(null);
-      setStepResults([null,null,null]);
+    if(hasValidQuiz(quiz)){
+      setQuizPhase("question");
+      setSelectedChoice(null);setShowHint(false);setShowWhyWrong(false);setAnswerCorrect(null);
+      setAnalysisStep(1); // legacy compat
     }
   },[quiz]);
 
+  // 初回ロード: IndexedDB → localStorage への ITP救済を非同期で実行（完了後 loadLogs を再実行）
+  const idbRestoredRef=useRef(false);
+  useEffect(()=>{
+    if(idbRestoredRef.current)return;
+    idbRestoredRef.current=true;
+    (async()=>{
+      try{ const n=await restoreFromIdbIfNeeded(); if(n>0){ loadLogs(); reloadProfile(); } }catch(e){}
+    })();
+  },[]);
+  const reloadProfile=()=>{
+    try{
+      const p=_safeLS.get(PROF());
+      if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");setGrade(calcGrade(d.birthday||""));
+        if(d.apiKeys&&Array.isArray(d.apiKeys)){
+          // 非空キーだけ復元（最大4）。0件なら[""]、1件以上ならそのまま。
+          const nonEmpty=d.apiKeys.slice(0,4).filter(k=>k&&k.trim());
+          setApiKeys(nonEmpty.length?nonEmpty:[""]);
+        }else if(d.apiKey)setApiKeys([d.apiKey]);
+        else setApiKeys([""]);
+      }else{ setApiKeys([""]); setBirthday(""); setGrade(""); }
+    }catch(e){}
+  };
   useEffect(()=>{
     try{
-      const p=localStorage.getItem(PROF);
-      if(p){const d=JSON.parse(p);setBirthday(d.birthday||"");setGrade(calcGrade(d.birthday||""));if(d.apiKeys&&Array.isArray(d.apiKeys))setApiKeys(d.apiKeys);else if(d.apiKey)setApiKeys([d.apiKey,"","",""]);}
-      const s=localStorage.getItem(SESS);
+      reloadProfile();
+      const s=_safeLS.get(SESS());
       if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:p2.best||0,wrong:0,qNum:1}));}
     }catch(e){}
     loadLogs();setDamStats(getDamStats(subjectsR.current));
@@ -871,31 +1797,58 @@ function App(){
 
   // ─── localStorage 肥大化防止 ──────────────────────────────────────
   // 保存前に呼ぶ。in-memory の state は触らず、書き込み用オブジェクトだけ刈る。
+  // Safari の 5MB 制限を意識して各種上限を絞っている。
   const pruneLogs=nl=>{
     const out={...nl};
-    // topicMastery: LLM生成キーが無限増殖するため300件上限
-    // attempts が少ない（＝ほぼ触っていない）エントリから削除
+    // topicMastery: 150件上限（旧300から削減）
     const tm={...(out.topicMastery||{})};
     const tmKeys=Object.keys(tm);
-    if(tmKeys.length>300){
+    if(tmKeys.length>150){
       tmKeys.sort((a,b)=>(tm[a].attempts||0)-(tm[b].attempts||0));
-      tmKeys.slice(0,tmKeys.length-300).forEach(k=>delete tm[k]);
+      tmKeys.slice(0,tmKeys.length-150).forEach(k=>delete tm[k]);
       out.topicMastery=tm;
     }
-    // dailyLog: 1日1エントリで永続増殖するため365日上限
-    // キーが "YYYY-MM-DD" 形式なので辞書順ソート＝日付順
+    // dailyLog: 180日上限（旧365から削減）
     const dl={...(out.dailyLog||{})};
     const dlKeys=Object.keys(dl).sort();
-    if(dlKeys.length>365){
-      dlKeys.slice(0,dlKeys.length-365).forEach(k=>delete dl[k]);
+    if(dlKeys.length>180){
+      dlKeys.slice(0,dlKeys.length-180).forEach(k=>delete dl[k]);
       out.dailyLog=dl;
+    }
+    // subjectUnitStats: 各科目最大20単元（ポイント低い順に削除）
+    const sus={...(out.subjectUnitStats||{})};
+    for(const subj of Object.keys(sus)){
+      const m=sus[subj]||{};
+      const keys=Object.keys(m);
+      if(keys.length>20){
+        keys.sort((a,b)=>(m[a]||0)-(m[b]||0));
+        const trimmed={};
+        keys.slice(keys.length-20).forEach(k=>{trimmed[k]=m[k];});
+        sus[subj]=trimmed;
+      }
+    }
+    out.subjectUnitStats=sus;
+    // recentHistory: 直近100問だけ保持（旧200から削減）
+    if(Array.isArray(out.recentHistory)&&out.recentHistory.length>100){
+      out.recentHistory=out.recentHistory.slice(-100);
+    }
+    // debugHistory: 直近50件まで（旧100から削減）
+    if(Array.isArray(out.debugHistory)&&out.debugHistory.length>50){
+      out.debugHistory=out.debugHistory.slice(0,50);
+    }
+    // dailyStatGains / dailyUnitGains: 直近30日まで
+    for(const k of ["dailyStatGains","dailyUnitGains"]){
+      const m={...(out[k]||{})};
+      const ks=Object.keys(m).sort();
+      if(ks.length>30)ks.slice(0,ks.length-30).forEach(kk=>delete m[kk]);
+      out[k]=m;
     }
     return out;
   };
 
   const loadLogs=()=>{
     try{
-      const r=localStorage.getItem(STORE);
+      const r=_safeLS.get(STORE());
       if(r){
         const p=JSON.parse(r);
         if(!p.debugStats)p.debugStats={completed:0,perfect:0};
@@ -903,17 +1856,51 @@ function App(){
         if(!p.debugHistory)p.debugHistory=[];
         if(!p.bestLoginStreak)p.bestLoginStreak=0;
         if(!p.bestDayScore)p.bestDayScore=0;
+        if(!p.cumulativeStats)p.cumulativeStats={};
+        // 旧 signControl キーは attention にマージ
+        if(p.cumulativeStats.signControl){
+          p.cumulativeStats.attention=(p.cumulativeStats.attention||0)+p.cumulativeStats.signControl;
+          delete p.cumulativeStats.signControl;
+        }
+        // 新規ステータスキーを既存データにマージ
+        p.cumulativeStats={..._zeroStats(),...p.cumulativeStats};
+        if(!p.dailyStatGains)p.dailyStatGains={};
+        if(!p.dailyUnitGains)p.dailyUnitGains={};
+        if(!p.subjectUnitStats)p.subjectUnitStats={};
+        if(!p.subjectDifficulty)p.subjectDifficulty={};
+        // 旧 dailyStatGains 内の signControl も attention にマージ
+        for(const dk of Object.keys(p.dailyStatGains)){
+          const dg=p.dailyStatGains[dk];
+          if(dg&&dg.signControl){
+            dg.attention=(dg.attention||0)+dg.signControl;
+            delete dg.signControl;
+          }
+        }
         const td=today();
         const yk2=jstYesterday();
         const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
         if(!isGap&&p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
-        if(isGap){setShowRestartMsg(true);setTimeout(()=>setShowRestartMsg(false),5000);}
+        if(isGap){
+          setShowRestartMsg(true);setTimeout(()=>setShowRestartMsg(false),5000);
+          // 久々成長カード（成長タブ表示用）— 何日空いたか算出
+          try{
+            const last=new Date(p.lastLogin+"T00:00:00");
+            const now=new Date(td+"T00:00:00");
+            const days=Math.max(1,Math.round((now-last)/(24*3600*1000)));
+            if(days>=3){
+              setLongTimeMsg(`${days}日ぶりの学習！ブランクは決して無駄にはなっていない。今日の1問が、続ける力を取り戻す合図。`);
+              setWelcomeBackMsg(`久しぶり！${days}日ぶりに戻ってきてくれて嬉しい。少しずつ取り戻そう。`);
+            }else if(days===2){
+              setWelcomeBackMsg(`昨日はお休みだったね。今日また会えてうれしい！`);
+            }
+          }catch(e){}
+        }
         setLogs(normalizeSubjectsInLogs(p));
       }
     }catch(e){}
   };
-  const saveLogs=nl=>{try{localStorage.setItem(STORE,JSON.stringify(pruneLogs(nl)));}catch(e){}};
+  const saveLogs=nl=>{try{_safeLS.set(STORE(),JSON.stringify(pruneLogs(nl)));}catch(e){}};
 
   const checkBadges=(next)=>{
     const subs=subjectsR.current;
@@ -921,7 +1908,7 @@ function App(){
     if(earned.length){next.earnedBadges=[...next.earnedBadges,...earned.map(b=>b.id)];setNewBadges(earned);setTimeout(()=>setNewBadges([]),3500);}
   };
 
-  const updateLogs=useCallback((correct,subj,wrongItem,newBest,sessionComplete)=>{
+  const updateLogs=useCallback((correct,subj,wrongItem,newBest,sessionComplete,wasRetry=false)=>{
     setLogs(prev=>{
       const next=JSON.parse(JSON.stringify(prev));const td=today();
       if(!next.subjectStats[subj])next.subjectStats[subj]={q:0,c:0};
@@ -933,12 +1920,14 @@ function App(){
       next.totalQ++;if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
       if(!next.recentHistory)next.recentHistory=[];
-      next.recentHistory.push({correct,subject:subj,date:td});
+      next.recentHistory.push({correct,subject:subj,date:td,mistake_type:(!correct&&quiz?.mistake_type)||undefined,confidence:confidenceRatingR.current??undefined});
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
+      // ── 継続力: 新しい日かチェック（loginStreak更新前に確認）──
+      const isNewDay=(next.lastLogin!==td);
       if(next.lastLogin!==td){const ys=jstYesterday();next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
-      // 当日スコアを計算してbestDayScoreを更新
-      const {score:dayScore}=calcTodayScore(next.recentHistory);
+      // 当日スコアの自己最高記録（伸びた能力合計）
+      const {score:dayScore}=calcTodayScore(next);
       if(!next.bestDayScore)next.bestDayScore=0;
       if(dayScore>next.bestDayScore)next.bestDayScore=dayScore;
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
@@ -947,7 +1936,79 @@ function App(){
         const tm=next.topicMastery[topic];tm.attempts++;if(correct)tm.correct++;
         if(!tm.mastered&&tm.attempts>=5&&tm.correct/tm.attempts>=.8)tm.mastered=true;
       }
-      checkBadges(next);saveLogs(next);return next;
+      // ── 累積ステータス & 今日伸びた能力 ─────────────────────────────
+      next.cumulativeStats={..._zeroStats(),...(next.cumulativeStats||{})};
+      if(!next.dailyStatGains)next.dailyStatGains={};
+      if(!next.dailyStatGains[td])next.dailyStatGains[td]=_zeroStats();
+      else next.dailyStatGains[td]={..._zeroStats(),...next.dailyStatGains[td]};
+      // 直前が不正解だったかチェック（復帰力用）
+      const prevRec=prev.recentHistory&&prev.recentHistory.length?prev.recentHistory[prev.recentHistory.length-1]:null;
+      const prevWrong=!!(prevRec&&!prevRec.correct);
+      // 連続正解数（安定力用）
+      const newStreak=correct?(((prevRec&&prevRec.correct)?(prev._streak||1):0)+1):0;
+      next._streak=newStreak;
+      const stGains=calcStatGainsForAnswer(correct,quiz?.mistake_type,{wasRetry,confidence:confidenceRatingR.current,prevWrong,streak:newStreak});
+      for(const k of Object.keys(stGains)){
+        next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stGains[k];
+        next.dailyStatGains[td][k]=(next.dailyStatGains[td][k]||0)+stGains[k];
+      }
+      // 継続力: 新しい日ログイン時に+5
+      if(isNewDay){
+        next.cumulativeStats.consistency=(next.cumulativeStats.consistency||0)+5;
+        next.dailyStatGains[td].consistency=(next.dailyStatGains[td].consistency||0)+5;
+      }
+      // 開始力: ノルマセッション達成時 (sessionComplete=true & まだ3未満→3達成)
+      if(sessionComplete){
+        next.cumulativeStats.startingPower=(next.cumulativeStats.startingPower||0)+2;
+        next.dailyStatGains[td].startingPower=(next.dailyStatGains[td].startingPower||0)+2;
+      }
+      // ── 単元力（科目別 topic_tag 単位の成長）──────────────────────
+      const unitName=quiz?.topic_tag||quiz?.question?.slice(0,12)||"";
+      if(unitName&&subj){
+        if(!next.subjectUnitStats)next.subjectUnitStats={};
+        if(!next.subjectUnitStats[subj])next.subjectUnitStats[subj]={};
+        const ug=unitGainForAnswer(correct);
+        next.subjectUnitStats[subj][unitName]=(next.subjectUnitStats[subj][unitName]||0)+ug;
+        // 20件を超えたらポイントが最も低いものから削除
+        const m=next.subjectUnitStats[subj];const ks=Object.keys(m);
+        if(ks.length>20){
+          ks.sort((a,b)=>m[a]-m[b]);
+          ks.slice(0,ks.length-20).forEach(k=>delete m[k]);
+        }
+        if(!next.dailyUnitGains)next.dailyUnitGains={};
+        next.dailyUnitGains[td]=(next.dailyUnitGains[td]||0)+ug;
+      }
+      // dailyStatGains / dailyUnitGains は30日上限
+      for(const dkey of ["dailyStatGains","dailyUnitGains"]){
+        const m=next[dkey]||{};const ks=Object.keys(m).sort();
+        if(ks.length>30)ks.slice(0,ks.length-30).forEach(k=>delete m[k]);
+        next[dkey]=m;
+      }
+      // 自動難易度を更新（次回出題時に反映）
+      if(!next.subjectDifficulty)next.subjectDifficulty={};
+      next.subjectDifficulty[subj]=getAutoDifficulty(subj,next);
+      // v14: ランクイン検出（前回スナップショットと比較し、TOP5入りした基本ステータスを通知）
+      try{
+        const prevSnap=prev.statRankSnapshot||{};
+        const cur=next.cumulativeStats||{};
+        const sorted=STAT_ORDER.map(k=>({k,v:cur[k]||0})).sort((a,b)=>b.v-a.v);
+        const newRank={};sorted.forEach((x,i)=>{ newRank[x.k]=i+1; });
+        for(const item of sorted.slice(0,5)){
+          const prevR=prevSnap[item.k]||999;
+          if(prevR>5 && newRank[item.k]<=5 && item.v>0){
+            // ランクイン！
+            setRankInToast({label:STAT_LABELS[item.k].name,rank:newRank[item.k]});
+            setTimeout(()=>setRankInToast(null),3200);
+            break;
+          }
+        }
+        next.statRankSnapshot=newRank;
+      }catch(e){}
+      checkBadges(next);saveLogs(next);
+      // 成長ホップ再生（0.4s/item で順次跳ねる）
+      setHopKey(k=>k+1);
+      setTimeout(()=>setHopKey(0),2600); // 5項目 × 0.4s + 余裕 0.6s
+      return next;
     });
   },[quiz]);
 
@@ -965,8 +2026,8 @@ function App(){
         next.reviewQueue=(next.reviewQueue||[]).filter(q=>q.id!==reviewId);
       }
       if(topic&&next.topicMastery[topic]){
-      next.topicMastery[topic].debugDone++;
-    }
+        next.topicMastery[topic].debugDone++;
+      }
       if(!next.debugHistory)next.debugHistory=[];
       next.debugHistory.unshift({date:today(),subj,topic:topic||"—",results});
       if(next.debugHistory.length>100)next.debugHistory=next.debugHistory.slice(0,100);
@@ -1048,13 +2109,50 @@ function App(){
 
   const resetState=()=>{
     setQuiz(null);
+    setQuizPhase(null);setSelectedChoice(null);setShowHint(false);setShowWhyWrong(false);setAnswerCorrect(null);
     setAnalysisStep(null);setStepAns(null);
     stepResultsR.current=[null,null,null];
     setStepResults([null,null,null]);
-    // currentReviewItemId はここでリセットしない
-    // （startWithNorma でセット後に resetFetch→resetState が呼ばれて上書きされるため）
-    // リセットは handleNext の冒頭で行う
+    setConfidenceRating(null);
+    wasRetryR.current=false;
+    setTimeLimit(null);setLifelineUsed(false);setHiddenChoice(null);
+    setHintPanelOpen(false);
   };
+
+  // ⑦ タイムアタック: advancedMode.timeAttack ON で問題表示中のみ作動（easyModeでは無効化）
+  // handleChoice は後で定義されるため ref 経由で参照する
+  const handleChoiceR=useRef(null);
+  useEffect(()=>{
+    if(!advancedMode.timeAttack||easyMode||quizPhase!=="question"||showHint||!quiz){
+      // 途中で OFF にしたときバーが残らないよう明示的にクリア
+      setTimeLimit(null);
+      return;
+    }
+    setTimeLimit(TIME_LIMIT_MAX);
+    const t=setInterval(()=>{
+      setTimeLimit(prev=>{
+        if(prev===null)return null;
+        if(prev<=1){clearInterval(t);if(handleChoiceR.current)handleChoiceR.current(-1);return 0;}
+        return prev-1;
+      });
+    },1000);
+    return()=>clearInterval(t);
+  },[quizPhase,quiz,advancedMode.timeAttack,easyMode,showHint]);
+
+  // ⑧ ライフライン: 間違い1つをランダムに消す
+  const handleLifeline=useCallback(()=>{
+    if(!quiz||lifelineUsed)return;
+    const wrongs=[0,1,2,3].filter(i=>i!==quiz.correct);
+    const toHide=wrongs[Math.floor(Math.random()*wrongs.length)];
+    setHiddenChoice(toHide);setLifelineUsed(true);
+  },[quiz,lifelineUsed]);
+  // ライフラインを途中で OFF にしたとき、消去済み選択肢を復活させる
+  useEffect(()=>{
+    if(!advancedMode.lifeline){
+      setHiddenChoice(null);
+      setLifelineUsed(false);
+    }
+  },[advancedMode.lifeline]);
 
   // バックグラウンド補充
   useEffect(()=>{
@@ -1067,9 +2165,8 @@ function App(){
       const keys=keysR.current.filter(k=>k.trim());if(!keys.length)return false;
       const g=gradeR.current||calcGrade(bdR.current);
       const curSubjects=calcSubjects(g);
-      // 全科目をストック数昇順で並べ、不足科目を全部補充対象にする
-      // 全科目が満タンの場合は autoRefillON のときだけ先頭1科目（最古ストック）を差し替え対象にする
-      const sorted=lowestBuckets(curSubjects.length,curSubjects);
+      // (科目, 難易度) ペア単位で不足バケットを補充対象にする
+      const sorted=lowestBuckets(curSubjects.length*DIFFS.length,curSubjects);
       const lacking=sorted.filter(t=>t.cnt<DAM_MAX);
       const filtered=lacking.length>0?lacking:(autoRefillR.current?sorted.slice(0,1):[]);
       if(!filtered.length)return true;
@@ -1081,18 +2178,21 @@ function App(){
           if(cancelled)break;
           const target=filtered[i];
           const key=keys[i%keys.length];
-          const damTopics=[...new Set((getDam()[target.subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
+          const damSubj=getDam()[target.subj]||{};
+          const allDamQs=[...(damSubj.easy||[]),...(damSubj.standard||[]),...(damSubj.hard||[])];
+          const damTopics=[...new Set(allDamQs.map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
           // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
           const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
-          const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を${DAM_BATCH}問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${g}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+          const _curMonth=new Date().getMonth()+1;
+          const body={systemInstruction:{parts:[{text:buildSystemPrompt(target.diff,{grade:g,month:_curMonth})}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の4択問題を${DAM_BATCH}問。thought_process・choices・correct・wrong_analysis・hint・self_check を必ず含めること。\n学年:${g}\n現在月:${_curMonth}月（${g}の${_curMonth}月までに学校で学ぶ範囲のみ使用）\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
           try{
-            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-            if(!res.ok){genResults.push({subj:target.subj,valid:[]});continue;}
-            const data=await res.json();if(data.error){genResults.push({subj:target.subj,valid:[]});continue;}
-            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text){genResults.push({subj:target.subj,valid:[]});continue;}
+            const apiRes=await callGeminiAPI(key,body);
+            if(!apiRes.ok){genResults.push({subj:target.subj,diff:target.diff,valid:[]});continue;}
+            const data=apiRes.data;
+            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text){genResults.push({subj:target.subj,diff:target.diff,valid:[]});continue;}
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){genResults.push({subj:target.subj,valid:[]});continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
-            const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+            const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
               // subjectの前後空白を正規化（全角スペース含む）
               const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
               // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
@@ -1101,13 +2201,13 @@ function App(){
               if(target.subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
               return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
-            genResults.push({subj:target.subj,valid});
-          }catch(e){genResults.push({subj:target.subj,valid:[]});}
+            genResults.push({subj:target.subj,diff:target.diff,valid});
+          }catch(e){genResults.push({subj:target.subj,diff:target.diff,valid:[]});}
         }
         if(cancelled)return false;
         // ─ バリデーション ────────────────────────────────────────
         let totalRejected=0;let anyPassed=false;
-        genResults.forEach(({subj,valid})=>{
+        genResults.forEach(({subj,diff,valid})=>{
           if(!valid.length||cancelled)return;
           // ローカルバリデーション
           const localPassed=valid.filter(q=>localValidate(q));
@@ -1115,25 +2215,69 @@ function App(){
           totalRejected+=localRejected;
           if(!localPassed.length)return;
           if(cancelled)return;
-          const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
+          const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_difficulty:diff}));
           if(toStore.length&&!cancelled){
             const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
-            if(isReviewSubj)addToDamFront(subj,toStore);
-            else addToDam(subj,toStore);
+            if(isReviewSubj)addToDamFront(subj,diff,toStore);
+            else addToDam(subj,diff,toStore);
             anyPassed=true;
           }
         });
         // ─────────────────────────────────────────────────────
-        if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
+        if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{_safeLS.set("manabi_reject_count",String(n));}catch(e){}return n;});}
         if(!cancelled)setDamStats(getDamStats(subjectsR.current));
         return anyPassed;
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
       return false;
     };
-    const loop=async()=>{let delay=15000;while(!cancelled){await new Promise(r=>setTimeout(r,delay));if(cancelled)break;const ok=await doRefill();if(cancelled)break;const hasReview=(logsR.current.reviewQueue||[]).length>0;const isWaiting=!!waitingForStockR.current;delay=isWaiting?15000:hasReview?45000:ok?120000:90000;}};
+    // 補充ループ: 学習活動・残量・復習待ちで適応的に間隔を変える
+    //   待機中:       15秒（即座に補充）
+    //   ストック<20%: 20秒（緊急水準）
+    //   ストック<50%: 45秒（活動量に応じて積む）
+    //   復習キューあり: 60秒
+    //   通常:          120秒
+    const loop=async()=>{
+      let delay=8000; // 初回は8秒後にウォームアップ補充
+      while(!cancelled){
+        await new Promise(r=>setTimeout(r,delay));
+        if(cancelled)break;
+        const ok=await doRefill();
+        if(cancelled)break;
+        const hasReview=(logsR.current.reviewQueue||[]).length>0;
+        const isWaiting=!!waitingForStockR.current;
+        const curSubs=subjectsR.current;
+        const total=getDamTotal(curSubs);
+        const cap=DAM_MAX*curSubs.length;
+        const fillRate=cap>0?total/cap:1;
+        if(isWaiting)         delay=15000;
+        else if(fillRate<0.2) delay=20000;
+        else if(fillRate<0.5) delay=45000;
+        else if(hasReview)    delay=60000;
+        else if(ok)           delay=120000;
+        else                  delay=90000;
+      }
+    };
     loop();
     return()=>{cancelled=true;if(retryTimerRef.current)clearInterval(retryTimerRef.current);};
   },[screen]);
+
+  // ─── ⑤ 復帰モード タイマー ──────────────────────────────────────────
+  useEffect(()=>{
+    if(!comebackMode)return;
+    const id=setInterval(()=>{
+      setComebackTimer(t=>{
+        if(t<=1){
+          clearInterval(id);
+          setComebackMode(false);
+          setWelcomeMsg("⏱ 3分お疲れ様！また戻れたね 🌱");
+          setTimeout(()=>setWelcomeMsg(""),4000);
+          return 0;
+        }
+        return t-1;
+      });
+    },1000);
+    return()=>clearInterval(id);
+  },[comebackMode]);
 
   // ─── 緊急生成: ストックが空のとき即座に3問生成してDAMに積む ──────────
   const generateEmergency=useCallback(async(subj,g)=>{
@@ -1149,15 +2293,20 @@ function App(){
     try{
       const currentGrade=g||gradeR.current;
       const promptSubj=(subj==="算数"&&(currentGrade.startsWith("中")||currentGrade.startsWith("高")))?"数学":subj;
-      const damTopics=[...new Set((getDam()[subj]||[]).map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-      const body={systemInstruction:{parts:[{text:SYSTEM_PROMPT}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の誤答付き問題を3問。student_answer・correct_answer・analysis_step1〜3を必ず含めること。\n学年:${currentGrade}\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
-      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-      if(!res.ok)return null;
-      const data=await res.json();if(data.error)return null;
+      // 自動難易度: 該当科目の現在難易度でプロンプト生成
+      const emergencyDiff=getAutoDifficulty(subj,logsR.current);
+      const damSubj=getDam()[subj]||{};
+      const allDamQs=[...(damSubj.easy||[]),...(damSubj.standard||[]),...(damSubj.hard||[])];
+      const damTopics=[...new Set(allDamQs.map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
+      const _curMonth=new Date().getMonth()+1;
+      const body={systemInstruction:{parts:[{text:buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth})}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の4択問題を3問。thought_process・choices・correct・wrong_analysis・hint・self_check を必ず含めること。\n学年:${currentGrade}\n現在月:${_curMonth}月（${currentGrade}の${_curMonth}月までに学校で学ぶ範囲のみ使用）\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと。他の科目名・略称・英語表記は禁止。\n図・グラフ・表・イラスト・地図・実験器具の図への言及は禁止。テキストのみで解ける問題にすること。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",temperature:.4,topP:.9,topK:20}};
+      const apiRes=await callGeminiAPI(key,body);
+      if(!apiRes.ok)return null;
+      const data=apiRes.data;
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return null;
       let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return null;}
       if(!Array.isArray(parsed))parsed=[parsed];
-      const valid=parsed.filter(q=>q.question&&q.student_answer&&q.correct_answer&&hasValidAnalysis(q)).map(q=>{
+      const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
         const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
         if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
         if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
@@ -1166,13 +2315,14 @@ function App(){
       const localPassed=valid.filter(q=>localValidate(q));
       // doRefill と同様に棄却数を記録する
       const localRejected=valid.length-localPassed.length;
-      if(localRejected>0){setRejectCount(p=>{const n=p+localRejected;try{localStorage.setItem("manabi_reject_count",String(n));}catch(e){}return n;});}
+      if(localRejected>0){setRejectCount(p=>{const n=p+localRejected;try{_safeLS.set("manabi_reject_count",String(n));}catch(e){}return n;});}
       if(!localPassed.length)return null;
       const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
       // doRefill と同様に復習対象科目は先頭挿入して優先出題
       const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
-      if(isReviewSubj)addToDamFront(subj,toStore);else addToDam(subj,toStore);
-      const pop=popFromDam(subj,1);
+      const curDiff=getAutoDifficulty(subj,logsR.current);
+      if(isReviewSubj)addToDamFront(subj,curDiff,toStore);else addToDam(subj,curDiff,toStore);
+      const pop=popFromDam(subj,curDiff,1);
       return pop.length?pop[0]:null;
     }catch(e){return null;}
     finally{emergencyGenLk.current=false;setIsEmergencyGen(false);}
@@ -1188,7 +2338,8 @@ function App(){
       if(!stale()){resetState();setAppError("");}
       // ストック優先。指定科目を優先、0なら他科目へズレる、全科目0なら緊急生成→失敗時のみ待機。
       const subs=subjectsR.current;
-      const st=popFromDam(subj,1);
+      const curDiff=getAutoDifficulty(subj,logsR.current);
+      const st=popFromDam(subj,curDiff,1);
       if(st.length){
         if(!stale()){setQuiz(st[0]);setDamStats(getDamStats(subs));}
         return;
@@ -1225,50 +2376,134 @@ function App(){
     const g=sg||grade;requestAnimationFrame(()=>fetchQ(g,subj));
   },[grade,fetchQ]);
 
-  // 分析ステップ回答（useCallback: quiz/analysisStep/stepAns が変わるたび更新）
-  const handleStepAnswer=useCallback(idx=>{
-    if(stepAns!==null||!analysisStep||analysisStep==="done")return;
-    const step=quiz[`analysis_step${analysisStep}`];
-    const correct=idx===step.answer;
-    setStepAns(idx);
-    setStepResults(p=>{const n=[...p];n[analysisStep-1]=correct;stepResultsR.current=n;return n;});
-    // ① 正解バースト
+  // 選択肢を選んだとき
+  const handleChoice=useCallback(idx=>{
+    if(selectedChoice!==null||quizPhase!=="question")return;
+    if(idx===4){
+      // まだ習ってない → ヒントを表示して同じ問題に戻る
+      setShowHint(true);
+      return;
+    }
+    // タイムアウト(idx===-1)は不正解扱い
+    const timedOut=idx===-1;
+    const correct=!timedOut&&idx===quiz.correct;
+    setSelectedChoice(timedOut?null:idx);setAnswerCorrect(correct);
+    setQuizPhase("result");
+    setTimeLimit(null); // ⑦ タイマー停止
     if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
-  },[stepAns,analysisStep,quiz]);
-
-  // 次のステップへ / 完了（useCallback: gs/analysisStep/quiz/subject が変わるたび更新）
-  const handleStepNext=useCallback(()=>{
-    if(!analysisStep||analysisStep==="done")return;
-    if(analysisStep<3){
-      setAnalysisStep(p=>p+1);
-      setStepAns(null);
-    }else{
-      const finalResults=[...stepResultsR.current];
-      const score=finalResults.filter(Boolean).length;
-      const correct=score>=3;
-      // ⑥ 連続正解が途切れたとき
-      if(!correct&&gs.streak>=3){
-        setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
-        setTimeout(()=>setStreakBrokenMsg(""),3500);
-      }
-      const wrongItem=!correct?{
+    // ⑥ 連続正解が途切れたとき
+    if(!correct&&gs.streak>=3){
+      setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
+      setTimeout(()=>setStreakBrokenMsg(""),3500);
+    }
+    const wrongItem=!correct?{
       id:crypto.randomUUID(),
       topic:quiz.topic_tag||quiz.question.slice(0,20),
       subject,
       mistakeType:quiz.mistake_type||"不明"
-     }:null;
-      const nextStr=correct?gs.streak+1:0;
-      const newBest=Math.max(gs.best,nextStr);
-      // ノルマは3/3全問正解の時のみカウント
-      updateLogs(correct,subject,wrongItem,newBest,score===3);
-      updateAnalysisStats(finalResults,subject);
-      setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
-      setAnalysisStep("done");
+    }:null;
+    const nextStr=correct?gs.streak+1:0;
+    const newBest=Math.max(gs.best,nextStr);
+    const currentWasRetry=wasRetryR.current;
+    wasRetryR.current=false;
+    // 直前の回答情報を記録（handleNext で confidence との照合に使う）
+    prevAnswerR.current={correct,subject,quiz:{...quiz}};
+    // お試しモードは記録に残さない（ゲストプレイ扱い）
+    if(!trialModeR.current){
+      updateLogs(correct,subject,wrongItem,newBest,correct,currentWasRetry);
+      updateAnalysisStats([correct],subject);
     }
-  },[analysisStep,gs,quiz,subject,updateLogs,updateAnalysisStats]);
+    setGs(p=>({...p,streak:nextStr,best:newBest,wrong:correct?p.wrong:p.wrong+1,qNum:p.qNum+1}));
+  },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats]);
+  useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
+
+  // まだ習ってないボタン
+  const handleNotLearnedYet=useCallback(()=>{
+    setShowHint(true);
+  },[]);
+
+  // 自信度評価: クリック後に評価された自信度を recentHistory に遡及保存し、
+  // 「説明できる(3)で正解」した場合は確認力ステータスにボーナス付与する
+  const handleConfidenceRate=useCallback(rating=>{
+    setConfidenceRating(rating);
+    if(trialModeR.current)return;
+    setLogs(prev=>{
+      if(!prev.recentHistory||!prev.recentHistory.length)return prev;
+      const next=JSON.parse(JSON.stringify(prev));
+      const last=next.recentHistory[next.recentHistory.length-1];
+      const td=today();
+      if(!last||last.date!==td)return prev;
+      const prevConf=last.confidence;
+      last.confidence=rating;
+      // 「説明できる(3)」で正解 → 確認力 +2（重複ボーナス防止のため初回のみ）
+      if(last.correct&&rating===3&&prevConf!==3){
+        next.cumulativeStats={..._zeroStats(),...(next.cumulativeStats||{})};
+        if(!next.dailyStatGains)next.dailyStatGains={};
+        if(!next.dailyStatGains[td])next.dailyStatGains[td]=_zeroStats();
+        next.cumulativeStats.verificationPower=(next.cumulativeStats.verificationPower||0)+2;
+        next.dailyStatGains[td].verificationPower=(next.dailyStatGains[td].verificationPower||0)+2;
+      }
+      saveLogs(next);
+      return next;
+    });
+  },[]);
+
+  // リトライ（もう一回解く）
+  const handleRetry=useCallback(()=>{
+    setSelectedChoice(null);setAnswerCorrect(null);setShowHint(false);setShowWhyWrong(false);
+    setQuizPhase("question");
+    wasRetryR.current=true; // ⑱ リトライ追跡
+    setConfidenceRating(null);
+    setHintPanelOpen(false); // 不正解→ヒント展開状態はリトライでクリア
+  },[]);
+
+  // 他の選択肢の理由トグル
+  const handleToggleWhyWrong=useCallback(()=>{
+    setShowWhyWrong(v=>!v);
+  },[]);
+
+  // お試しモード開始（APIキー不要）
+  const startTrialMode=useCallback(()=>{
+    setTrialMode(true);trialModeR.current=true;
+    setTrialIndex(0);trialIndexR.current=0;
+    setIsReview(false);isReviewR.current=false;
+    setCurrentReviewItemId(null);currentReviewItemIdR.current=null;
+    setSubject(SAMPLE_QUESTIONS[0].subject);
+    resetState();
+    setQuiz(shuffleAllSteps({...SAMPLE_QUESTIONS[0]}));
+  },[]);
 
   const handleNext=async()=>{
     if(nextLk.current)return;nextLk.current=true;
+    // お試しモード: SAMPLE_QUESTIONSを順に出題、終了時にスタート画面に戻す
+    if(trialModeR.current){
+      const nextIdx=trialIndexR.current+1;
+      resetState();
+      if(nextIdx<SAMPLE_QUESTIONS.length){
+        setTrialIndex(nextIdx);trialIndexR.current=nextIdx;
+        setSubject(SAMPLE_QUESTIONS[nextIdx].subject);
+        setQuiz(shuffleAllSteps({...SAMPLE_QUESTIONS[nextIdx]}));
+        nextLk.current=false;
+        return;
+      }
+      // お試し終了 → スタート画面へ誘導
+      setTrialMode(false);trialModeR.current=false;
+      setTrialIndex(0);trialIndexR.current=0;
+      setScreen("start");
+      setWelcomeMsg("お試し終了！APIキーを入れてもっと学習しよう 🚀");
+      setTimeout(()=>setWelcomeMsg(""),5000);
+      nextLk.current=false;
+      return;
+    }
+    // ④ 「説明できる（confidence===3）」と答えたのに不正解だった場合 → DAMの先頭に再挿入
+    // handleNext が呼ばれた時点で confidenceRatingR は最新値（リトライ後も含む）を保持している
+    const prevAns=prevAnswerR.current;
+    if(prevAns&&!prevAns.correct&&confidenceRatingR.current===3&&prevAns.quiz){
+      // 難易度は再挿入時点の自動難易度に紐付け
+      const reDiff=getAutoDifficulty(prevAns.subject,logsR.current);
+      addToDamFront(prevAns.subject,reDiff,[prevAns.quiz]);
+    }
+    prevAnswerR.current=null;
     // ⑦ handleNext開始時点の学年をスナップショット固定（途中の学年変更を無視）
     const currentGrade=gradeR.current;
     // 待機モード突入フラグ: finally でロック解放タイミングを切り替えるため
@@ -1303,7 +2538,8 @@ function App(){
         // 指定科目のストックを確認、0なら緊急生成（他科目へはズレない）
         {
           const subs=subjectsR.current;
-          const fromDam=popFromDam(ns,1);setDamStats(getDamStats(subs));
+          const diff=getAutoDifficulty(ns,logsR.current);
+          const fromDam=popFromDam(ns,diff,1);setDamStats(getDamStats(subs));
           if(fromDam.length){setQuiz(fromDam[0]);return;}
           // ストックなし → 緊急生成（3問）
           {
@@ -1318,7 +2554,8 @@ function App(){
       setNormaReason("");
       if(cur.reviewQueue?.length){
         const item=cur.reviewQueue[0];
-        const fromDamReview=popFromDam(item.subject,1);
+        const reviewDiff=getAutoDifficulty(item.subject,logsR.current);
+        const fromDamReview=popFromDam(item.subject,reviewDiff,1);
         if(fromDamReview.length){
           // 解消済みは分析完了後にIDで削除するため、ここでは削除しない
           setCurrentReviewItemId(item.id);  // normalize済みで必ずidあり
@@ -1337,7 +2574,8 @@ function App(){
         return;
       }
       const cand=subjR.current;
-      const fromDam=popFromDam(cand,1);
+      const candDiff=getAutoDifficulty(cand,logsR.current);
+      const fromDam=popFromDam(cand,candDiff,1);
       if(fromDam.length){
         setIsReview(false);setDamStats(getDamStats(subjectsR.current));
         setQuiz(fromDam[0]);return;
@@ -1359,28 +2597,67 @@ function App(){
 
   const saveSettings=()=>{
     if(!birthday){setStartError("生年月日を入力してください");return;}
-    try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
+    try{_safeLS.set(PROF(),JSON.stringify({birthday,apiKeys}));}catch(e){}
     const g=calcGrade(birthday);
     setGrade(g);setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),2000);
   };
 
+  // ── ユーザー操作 ────────────────────────────────
+  const commitUser=(payload)=>{
+    // payload: {mode:"add"|"edit", id?, name, icon}
+    setUsers(prev=>{
+      let next;
+      if(payload.mode==="add"){
+        if(prev.length>=4) return prev;
+        const nid="u"+(Date.now().toString(36));
+        next=[...prev,{id:nid,name:payload.name||"ユーザー",icon:payload.icon||"😀"}];
+      }else{
+        next=prev.map(u=>u.id===payload.id?{...u,name:payload.name||u.name,icon:payload.icon||u.icon}:u);
+      }
+      saveUsers(next);
+      return next;
+    });
+    setShowUserEdit(false);
+  };
+  const removeUser=(id)=>{
+    if(users.length<=1){alert("最後の1人は削除できません。");return;}
+    if(!confirm("このユーザーの学習データもすべて削除されます。よろしいですか？"))return;
+    // ユーザーキーを掃除
+    try{
+      const suff=id==="u1"?"":`__${id}`;
+      ["manabi_logs_v4","manabi_profile_v2","manabi_session_v2","manabi_dam_v4"].forEach(b=>_safeLS.remove(b+suff));
+    }catch(e){}
+    const remain=users.filter(u=>u.id!==id);
+    saveUsers(remain);setUsers(remain);
+    if(currentUid===id){
+      switchUser(remain[0].id);setCurrentUid(remain[0].id);
+      setTimeout(()=>{reloadProfile();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});},0);
+    }
+    setShowUserEdit(false);
+  };
+
   const clearLogs=()=>{
     if(!confirm("学習記録・バッジをすべて削除しますか？\nストック問題は残ります。この操作は取り消せません。"))return;
-    try{localStorage.removeItem(STORE);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");}catch(e){}
+    try{_safeLS.remove(STORE());_safeLS.remove(SESS());_safeLS.remove("manabi_reject_count");}catch(e){}
     setLogs(initLogs());setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);
     alert("学習記録を削除しました。");
   };
 
   const clearStock=()=>{
     if(!confirm("ストック問題をすべて削除しますか？\nこの操作は取り消せません。"))return;
-    try{localStorage.removeItem(DAM_KEY);}catch(e){}
+    try{_safeLS.remove(DAM_KEY());}catch(e){}
     setDamStats(getDamStats(subjectsR.current));
     alert("ストック問題を削除しました。");
   };
 
   const clearAllData=()=>{
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
-    try{localStorage.removeItem(STORE);localStorage.removeItem(DAM_KEY);localStorage.removeItem(SESS);localStorage.removeItem("manabi_reject_count");localStorage.removeItem("manabi_autorefill");}catch(e){}
+    try{
+      _safeLS.remove(STORE());_safeLS.remove(DAM_KEY());_safeLS.remove(SESS());
+      _safeLS.remove("manabi_reject_count");_safeLS.remove("manabi_autorefill");
+      // legacyキー掃除
+      _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
+    }catch(e){}
     setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);setAutoRefill(true);
     alert("データを削除しました。");
   };
@@ -1422,15 +2699,29 @@ function App(){
         if(d.dam&&typeof d.dam==="object"){
           const current=getDam();
           const importSubjects=d.birthday?calcSubjects(calcGrade(d.birthday)):subjectsR.current;
-          // 「数学」キーも「算数」にマージできるよう両方チェック
+          // v4 構造: {科目:{easy:[],standard:[],hard:[]}} / 旧 v3 構造: {科目:[...]} の両対応
           const allKeys=new Set([...importSubjects,"数学"]);
           for(const subj of allKeys){
             const targetSubj=(subj==="数学"&&!importSubjects.includes("数学"))?"算数":subj;
-            if(Array.isArray(d.dam[subj])&&d.dam[subj].length){
-              const merged=current[targetSubj]||[];
-              const existingKeys=new Set(merged.map(dupKey));
-              const incoming=d.dam[subj].filter(q=>!existingKeys.has(dupKey(q)));
-              current[targetSubj]=[...merged,...incoming].slice(-DAM_MAX);
+            const src=d.dam[subj];
+            if(!src)continue;
+            if(!current[targetSubj])current[targetSubj]={easy:[],standard:[],hard:[]};
+            // 旧形式（配列）→ standard へマージ
+            if(Array.isArray(src)){
+              const existing=current[targetSubj].standard||[];
+              const ex=new Set(existing.map(dupKey));
+              const incoming=src.filter(q=>!ex.has(dupKey(q)));
+              current[targetSubj].standard=[...existing,...incoming].slice(-DAM_MAX);
+              continue;
+            }
+            // v4 形式（難易度別）
+            for(const diff of DIFFS){
+              const arr=src[diff];
+              if(!Array.isArray(arr)||!arr.length)continue;
+              const existing=current[targetSubj][diff]||[];
+              const ex=new Set(existing.map(dupKey));
+              const incoming=arr.filter(q=>!ex.has(dupKey(q)));
+              current[targetSubj][diff]=[...existing,...incoming].slice(-DAM_MAX);
             }
           }
           saveDam(current);setDamStats(getDamStats(subjectsR.current));
@@ -1438,7 +2729,7 @@ function App(){
         if(d.birthday){
           setBirthday(d.birthday);
           const g=calcGrade(d.birthday);setGrade(g);
-          try{localStorage.setItem(PROF,JSON.stringify({birthday:d.birthday,apiKeys}));}catch(ex){}
+          try{_safeLS.set(PROF(),JSON.stringify({birthday:d.birthday,apiKeys}));}catch(ex){}
         }
         setImportMsg(`✓ インポート完了！ ${d.grade||"不明"} ／ ${d.exportedAt||"日時不明"}`);
         setTimeout(()=>setImportMsg(""),5000);
@@ -1464,17 +2755,12 @@ function App(){
   const rateBg=recent100?(recent100.rate>=80?"#f0fdf4":recent100.rate>=60?"#fffbeb":"#fff7f7"):"#f8f7ff";
   const rateBorder=recent100?(recent100.rate>=80?"#86efac":recent100.rate>=60?"#fde68a":"#fca5a5"):"#e8e3ff";
   const damTotal=getDamTotal(subjects);
-  const stageClr=["s1","s2","s3"];
-  const stageIcon=["🔍","⚖️","🚀"];
-  const currentStep=(analysisStep&&analysisStep!=="done"&&quiz)?quiz[`analysis_step${analysisStep}`]:null;
 
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
   const dailyGoalMet=todaySessions>=3;
   const reviewCount=logs.reviewQueue?.length||0;
-  // 当日スコア計算
-  const {score:todayScore,combo:todayCombo}=calcTodayScore(logs.recentHistory);
-  const nextScore=calcNextScore(todayScore,todayCombo);
-  const bestDayScore=Math.min(100,logs.bestDayScore||0);
+  // 当日スコア = 今日伸びた能力の合計値（毎日リセット）
+  const {score:todayScore}=calcTodayScore(logs);
 
   const cal28=Array.from({length:28},(_,i)=>{
     const base=new Date(today());base.setDate(base.getDate()-(27-i));
@@ -1486,8 +2772,29 @@ function App(){
 
   const masteryList=Object.entries(logs.topicMastery||{})
     .map(([topic,v])=>({topic,...v}))
-    .sort((a,b)=>b.attempts-a.attempts)
-    .slice(0,12);
+    .filter(t=>!topicFilterSubj||t.subj===topicFilterSubj)
+    .sort((a,b)=>{
+      // 状態順: mastered → learning → fresh、その中で attempts 多い順
+      const stateOf=t=>{const r=t.attempts>0?t.correct/t.attempts:0;return t.mastered?2:r>=0.5?1:0;};
+      const sa=stateOf(a),sb=stateOf(b);
+      if(sa!==sb)return sb-sa;
+      return b.attempts-a.attempts;
+    })
+    .slice(0,24);
+
+  // 🎯 今週の重点単元: attempts≥3 かつ未習熟の中で「試行数が多いのに正解率が低い」ものを最優先
+  const weakestTopic=(()=>{
+    const candidates=Object.entries(logs.topicMastery||{})
+      .filter(([,v])=>!v.mastered&&v.attempts>=3);
+    if(!candidates.length)return null;
+    // スコア = 試行数 × (1 - 正解率) → 試行が多くて正解率が低いほど高スコア
+    candidates.sort((a,b)=>{
+      const scoreA=a[1].attempts*(1-a[1].correct/a[1].attempts);
+      const scoreB=b[1].attempts*(1-b[1].correct/b[1].attempts);
+      return scoreB-scoreA;
+    });
+    return candidates[0];
+  })();
 
   // ─── RENDER ──────────────────────────────────────────────────
   return(
@@ -1536,21 +2843,92 @@ function App(){
         {/* ① 正解バースト */}
         {showCorrectBurst&&<React.Fragment><div className="correct-burst"/><div className="correct-burst-2"/></React.Fragment>}
 
+        {/* ランクイン演出（TOP5入り） */}
+        {rankInToast&&(
+          <div className="rankin-toast">
+            <span className="rankin-big"><span className="rankin-spark">✨</span> {rankInToast.label} TOP5入り！</span>
+            <span style={{fontSize:11,fontWeight:700,opacity:.8}}>第{rankInToast.rank}位にランクイン</span>
+          </div>
+        )}
+
+        {/* ユーザー編集モーダル */}
+        {showUserEdit&&(
+          <UserEditModal
+            users={users}
+            mode={showUserEdit.mode}
+            initialUser={showUserEdit.user}
+            iconChoices={ICON_CHOICES}
+            onSubmit={commitUser}
+            onDelete={removeUser}
+            onCancel={()=>setShowUserEdit(false)}
+          />
+        )}
+
         {/* ── START ── */}
         {screen==="start"&&(
-          <div style={{maxWidth:440,margin:"40px auto"}}>
-            <div className="card" style={{textAlign:"center",padding:"32px 24px"}}>
-              <div style={{fontSize:48,marginBottom:10}}>📚</div>
-              <h1 style={{fontSize:26,fontWeight:900,color:"#5b3ff8",marginBottom:4}}>まちがいラボ</h1>
-              <p style={{color:"#9990cc",fontSize:13,marginBottom:16}}>正解より「どこがズレたか」を見つけよう 🔍→✨</p>
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginBottom:16,fontSize:12,fontWeight:700,color:"#5b3ff8",textDecoration:"none"}}>🔑 Googleから無料APIキーを取得する</a>
+          <div style={{maxWidth:460,margin:"30px auto"}}>
+            <div className="card" style={{padding:"28px 22px"}}>
+              {/* ─ ヒーロー / 説得力タイトル ─ */}
+              <div className="hero-title">
+                <div className="hero-logo"><span>📚</span></div>
+                <h1 className="hero-h1">まちがいラボ</h1>
+                <div className="hero-sub">ミスを「直す」ための、最小ステップ学習。</div>
+                <div className="hero-tag">🎯 4択 × AIが見抜くあなたの思考のズレ</div>
+              </div>
+
+              {/* ① お試し（APIキー不要） */}
+              <button className="btn-bonus" style={{marginTop:20,marginBottom:12,fontSize:15,padding:"14px"}} onClick={()=>{
+                setScreen("app");setTab("learn");
+                if(!grade)setGrade("一般");
+                startTrialMode();
+              }}>
+                🎁 まず1問だけお試し（APIキー不要）
+              </button>
+              <div style={{fontSize:11,color:"#9990cc",margin:"8px 0 12px",fontWeight:700,textAlign:"center"}}>— または、本格的に始める —</div>
+
               {startError&&<div className="err">😅 {startError}</div>}
-              <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,fontWeight:700}}>Gemini APIキー（最大4つ）</label>
+
+              {/* ─ ① APIキー ─ */}
+              <label style={{fontSize:13,color:"var(--text-soft)",display:"block",textAlign:"left",marginBottom:6,fontWeight:800}}>🔑 Gemini APIキー</label>
               {apiKeys.map((k,i)=>(
-                <input key={i} type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (任意・入れると問題が自動補充される)":" (任意)"}`}/>
+                <div key={i} className="kv-row">
+                  <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}（任意）`}/>
+                  {apiKeys.length>1&&(
+                    <button className="kv-icon-btn del" title="この行を削除" onClick={()=>{const nk=apiKeys.filter((_,j)=>j!==i);setApiKeys(nk.length?nk:[""]);}}>✕</button>
+                  )}
+                </div>
               ))}
-              <label style={{fontSize:13,color:"#9990cc",display:"block",textAlign:"left",marginBottom:6,marginTop:4,fontWeight:700}}>生年月日</label>
-              <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31"/>
+              <div className="kv-add-row">
+                <button className="kv-icon-btn add" disabled={apiKeys.length>=4}
+                  onClick={()=>setApiKeys([...apiKeys,""])}>＋ 1つ追加</button>
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{marginLeft:10,fontSize:11,fontWeight:700,color:"#5b3ff8",textDecoration:"none"}}>無料で取得 →</a>
+              </div>
+
+              {/* ─ ② ユーザー名（最大4人）─ */}
+              <label style={{fontSize:13,color:"var(--text-soft)",display:"block",textAlign:"left",marginBottom:6,marginTop:8,fontWeight:800}}>👥 ユーザー名（最大4人）</label>
+              <div style={{padding:"10px 12px",background:"var(--input-bg)",border:"1px solid var(--input-border)",borderRadius:14,marginBottom:10}}>
+                <div className="user-switch-wrap">
+                  {users.map(u=>(
+                    <button key={u.id} className={`user-chip${u.id===currentUid?" on":""}`}
+                      onClick={()=>{
+                        if(u.id===currentUid){ setShowUserEdit({mode:"edit",user:u}); return; }
+                        pollingCancelRef.current++;
+                        setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
+                        switchUser(u.id);setCurrentUid(u.id);
+                        setTimeout(()=>{reloadProfile();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});welcomeShownRef.current=false;},0);
+                      }}>
+                      <span className="uc-icon">{u.icon||"😀"}</span>{u.name}
+                    </button>
+                  ))}
+                  <button className="user-chip-add" disabled={users.length>=4}
+                    onClick={()=>setShowUserEdit({mode:"add"})}>＋ 追加</button>
+                </div>
+                <div style={{fontSize:10,color:"var(--text-muted)",marginTop:4,lineHeight:1.5}}>各ユーザーで学習データ・ストック・スコアが独立して保存されます。</div>
+              </div>
+
+              {/* ─ ③ 生年月日 ─ */}
+              <label style={{fontSize:13,color:"var(--text-soft)",display:"block",textAlign:"left",marginBottom:6,marginTop:8,fontWeight:800}}>🎂 生年月日</label>
+              <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max={today()}/>
               {/* ★ SPEC: APIキーは任意。未入力でもアプリに進める。
                   ストック補充・復習リアルタイム生成はAPIキーがある場合のみ動作するが、
                   ストックに問題があれば解答できる。この仕様を削除・変更しないこと。 */}
@@ -1558,7 +2936,7 @@ function App(){
                 if(!birthday){setStartError("生年月日を入力してください");return;}
                 setStartError("");
                 // APIキー未入力でも先に進める（キーなし時はストックから出題、補充・生成はスキップ）
-                try{localStorage.setItem(PROF,JSON.stringify({birthday,apiKeys}));}catch(e){}
+                try{_safeLS.set(PROF(),JSON.stringify({birthday,apiKeys}));}catch(e){}
                 const g=calcGrade(birthday);setGrade(g);setScreen("app");setTab("learn");setDamStats(getDamStats(calcSubjects(g)));
                 startWithNorma(logsR.current,g);
               }} style={{marginTop:10}}>学習をはじめる →</button>
@@ -1566,10 +2944,9 @@ function App(){
               <div style={{marginTop:20,padding:"14px 16px",background:"#f8f7ff",borderRadius:14,textAlign:"left"}}>
                 <div style={{fontSize:11,fontWeight:900,color:"#9990cc",letterSpacing:".06em",marginBottom:10}}>📋 はじめる前に</div>
                 {[
-                  ["🔑","APIキーなしでもストック問題で遊べます。　　　　　　　キーを入れると問題が自動補充されより快適になります。"],
-                  ["📦","問題はバックグラウンドで自動生成・ストックされます。　アプリを開いたまま放置するほど快適になります。"],
-                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、　　安定して動作します（Googleアカウントの数だけ取得可）"],
-                  ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。　「問題を報告」ボタンで復習リストから除外できます。"],
+                  ["📦","GeminiAPIを入力すると、バックグラウンドで問題を自動生成・ストックされます。"],
+                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、安定して動作します（Googleアカウントの数だけ取得可）"],
+                  ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。「問題を報告」ボタンで復習リストから除外できます。"],
                 ].map(([icon,text])=>(
                   <div key={icon} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
                     <span style={{flexShrink:0}}>{icon}</span>
@@ -1583,50 +2960,100 @@ function App(){
 
         {/* ── APP ── */}
         {screen==="app"&&(
-          <div style={{maxWidth:500,margin:"0 auto"}}>
+          <div style={{maxWidth:500,margin:"0 auto",width:"100%"}}>
 
             {/* ヘッダー */}
-            <div className="card" style={{padding:"12px 14px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div>
-                  <div style={{fontSize:11,color:"#9990cc",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>{grade}<span style={{letterSpacing:"-2px"}}>{"🔥".repeat(getFireLevel(logs.loginStreak))}</span></div>
-                  <div style={{fontSize:19,fontWeight:900,display:"flex",alignItems:"center",flexWrap:"wrap",gap:6}}>
-                    {displaySubject(subject, grade)}
-                    {!!currentReviewItemId&&<span className="pill pill-review">復習</span>}
-                    {analysisStep&&analysisStep!=="done"&&<span className="pill pill-analysis">🔍 分析 {analysisStep}/3</span>}
-                    {!dailyGoalMet&&normaReason&&<span style={{fontSize:11,background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 9px",fontWeight:800,border:"1px solid #fde68a"}}>{normaReason}</span>}
-                  </div>
+            <div className="card hdr-card">
+              {/* 上段: 学年・連続日数 / モードバッジ */}
+              <div className="hdr-top">
+                <div className="hdr-meta">
+                  <span className="hdr-grade">{grade}</span>
+                  {logs.loginStreak>0&&<span className="hdr-fire">{"🔥".repeat(getFireLevel(logs.loginStreak))}<span className="hdr-fire-n">{logs.loginStreak}日</span></span>}
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  {isRefilling&&<div style={{fontSize:10,color:"#9990cc",display:"flex",alignItems:"center"}}><span className="refill-dot"></span>補充中</div>}
+                <div className="hdr-mode-row">
+                  {isRefilling&&<span className="hdr-refill"><span className="refill-dot"/>補充</span>}
+                  {/* 自動難易度: 現在の科目の難易度を表示（読み取り専用） */}
+                  {subject&&(
+                    <span className={`diff-pill diff-${getAutoDifficulty(subject,logs)}`} title="難易度は自動調整中">
+                      {getAutoDifficulty(subject,logs)==="easy"?"🌱 やさしい":getAutoDifficulty(subject,logs)==="hard"?"🔥 むずい":"📝 ふつう"}
+                    </span>
+                  )}
                 </div>
               </div>
-              <div style={{display:"flex",gap:5}}>
+              {/* 中段: 大きく科目を表示 */}
+              <div className="hdr-subject-row">
+                <div className="hdr-subject">{displaySubject(subject, grade)||"科目選択中..."}</div>
+                <div className="hdr-pills">
+                  {!!currentReviewItemId&&<span className="pill pill-review">📝 復習</span>}
+                  {quizPhase==="result"&&answerCorrect===true&&<span className="pill pill-ok">✅ 正解</span>}
+                  {quizPhase==="result"&&answerCorrect===false&&<span className="pill pill-ng">💡 学びどき</span>}
+                  {!dailyGoalMet&&normaReason&&<span className="pill pill-norma">{normaReason}</span>}
+                </div>
+              </div>
+              {/* 下段: 4スタッツ */}
+              <div className="hdr-stats">
                 <div className="stat"><div className="stat-n" style={{color:"#f59e0b"}}>🔥{gs.streak}</div><div className="stat-l">連続</div></div>
                 <div className="stat"><div className="stat-n" style={{color:"#5b3ff8"}}>{gs.best}</div><div className="stat-l">最高</div></div>
-                <div className="stat"><div className="stat-n" style={{color:"#7c6fb0"}}>{gs.wrong}</div><div className="stat-l">{gs.wrong>0?"問から学んだ":"ミスなし！"}</div></div>
-                <div className="stat" style={{background:todayScore>=80?"#f0fdf4":todayScore>=50?"#fffbeb":"#f8f7ff",border:todayScore>=100?"2px solid #22c55e":"none"}}>
-                  <div className="stat-n" style={{color:todayScore>=80?"#16a34a":todayScore>=50?"#d97706":"#5b3ff8",fontSize:13}}>
-                    {todayScore>=100?"💯":`${Math.floor(todayScore)}→${Math.floor(nextScore)}`}
+                <div className="stat"><div className="stat-n" style={{color:"#7c6fb0"}}>{gs.wrong}</div><div className="stat-l">{gs.wrong>0?"学んだ":"無傷"}</div></div>
+                <div className="stat" style={{background:todayScore>=200?"#f0fdf4":todayScore>=100?"#fffbeb":"var(--input-bg)",border:todayScore>=200?"2px solid #22c55e":todayScore>=100?"2px solid #f59e0b":"none"}}>
+                  <div className={`stat-n tick-anim`} key={`gs-${todayScore}`} style={{color:todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
+                    {todayScore}
                   </div>
-                  <div className="stat-l">分析点数</div>
+                  <div className="stat-l">成長スコア</div>
                 </div>
               </div>
             </div>
 
-            <div className="tabs">
-              <button className={`tab${tab==="learn"?" active":""}`} onClick={()=>setTab("learn")}>📚 学習</button>
-              <button className={`tab${tab==="log"?" active":""}`} onClick={()=>setTab("log")}>
-                📊 記録
-                {reviewCount>0&&<span className="tab-badge">{reviewCount}</span>}
-              </button>
-              <button className={`tab${tab==="badge"?" active":""}`} onClick={()=>setTab("badge")}>🏆 実績</button>
-              <button className={`tab${tab==="settings"?" active":""}`} onClick={()=>setTab("settings")}>⚙️ 設定</button>
-            </div>
+            {!trialMode&&(
+              <div className="tabs">
+                <button className={`tab${tab==="learn"?" active":""}`} onClick={()=>setTab("learn")}>📚 学習</button>
+                <button className={`tab${tab==="record"?" active":""}`} onClick={()=>setTab("record")}>
+                  📒 記録
+                  {reviewCount>0&&<span className="tab-badge">{reviewCount}</span>}
+                </button>
+                <button className={`tab${tab==="log"?" active":""}`} onClick={()=>setTab("log")}>📈 成長</button>
+                <button className={`tab${tab==="settings"?" active":""}`} onClick={()=>setTab("settings")}>⚙️ 設定</button>
+              </div>
+            )}
 
             {/* ── LEARN ── */}
             {tab==="learn"&&(
               <React.Fragment>
+                {/* クイックモードトグル（タイムアタック / 消去法ライフライン）— ボタンクリックで即時切り替え */}
+                {!trialMode&&(
+                  <div className="quick-mode-row">
+                    <button
+                      className={`quick-mode-btn${advancedMode.timeAttack?" on":""}`}
+                      onClick={()=>setAdvancedMode({...advancedMode,timeAttack:!advancedMode.timeAttack})}
+                      title="問題に30秒の制限時間を設定。時間切れは不正解扱い。">
+                      <span className="qm-icon">⏱</span>
+                      <span>タイムアタック</span>
+                      <span className="qm-dot"/>
+                    </button>
+                    <button
+                      className={`quick-mode-btn${advancedMode.lifeline?" on":""}`}
+                      onClick={()=>setAdvancedMode({...advancedMode,lifeline:!advancedMode.lifeline})}
+                      title="1問1回、誤答を1つ消せるボタンが表示されます。">
+                      <span className="qm-icon">💡</span>
+                      <span>消去法ライフライン</span>
+                      <span className="qm-dot"/>
+                    </button>
+                  </div>
+                )}
+                {/* ⑤ 復帰モード タイマー */}
+                {comebackMode&&(
+                  <div className="comeback-banner">
+                    <div style={{fontSize:20}}>⏱</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:11,fontWeight:800,color:"#92400e",marginBottom:4}}>3分チャレンジ中！</div>
+                      <div className="comeback-bar-wrap">
+                        <div className="comeback-bar-fill" style={{width:`${(comebackTimer/180)*100}%`}}/>
+                      </div>
+                    </div>
+                    <div className="comeback-timer-num">{Math.floor(comebackTimer/60)}:{String(comebackTimer%60).padStart(2,"0")}</div>
+                    <button className="comeback-end-btn" onClick={()=>{setComebackMode(false);setComebackTimer(0);}}>終了</button>
+                  </div>
+                )}
                 {/* ④ 昨日比較 */}
                 {compareMsg&&<div style={{textAlign:"center",fontSize:12,fontWeight:800,color:"#5b3ff8",background:"#f0edff",borderRadius:10,padding:"6px 12px",marginBottom:8}}>{compareMsg}</div>}
                 {(waitingForStock||isEmergencyGen)&&!quiz&&(
@@ -1665,38 +3092,53 @@ function App(){
                 )}
 
                 {/* データ不正フォールバック */}
-                {quiz&&!analysisStep&&!hasValidAnalysis(quiz)&&(
+                {quiz&&!quizPhase&&!hasValidQuiz(quiz)&&(
                   <div className="card" style={{textAlign:"center",padding:"24px"}}>
                     <div style={{fontSize:13,color:"#9990cc",marginBottom:12}}>問題データが読み込めませんでした</div>
                     <button className="btn btn-ghost" onClick={handleNext} >次の問題へ →</button>
                   </div>
                 )}
 
-                {/* 初期ロード中（analysisStep セット待ち） */}
-                {quiz&&!analysisStep&&hasValidAnalysis(quiz)&&(
+                {/* 初期ロード中（quizPhase セット待ち） */}
+                {quiz&&!quizPhase&&hasValidQuiz(quiz)&&(
                   <div className="card" style={{textAlign:"center",padding:"24px"}}>
                     <div className="spin" style={{marginBottom:8}}></div>
                   </div>
                 )}
 
-                {/* ─── 分析ステージ 1〜3 ＆ 完了 → AnalysisPanel ─── */}
-                {quiz&&analysisStep&&(
-                  <AnalysisPanel
+                {/* ─── クイズパネル ─── */}
+                {quiz&&quizPhase&&(
+                  <QuizPanel
                     quiz={quiz}
-                    analysisStep={analysisStep}
-                    stepAns={stepAns}
-                    stepResults={stepResults}
-                    currentStep={currentStep}
-                    stageClr={stageClr}
-                    stageIcon={stageIcon}
-                    onAnswer={handleStepAnswer}
-                    onNext={analysisStep==="done"?handleNext:handleStepNext}
+                    quizPhase={quizPhase}
+                    selectedChoice={selectedChoice}
+                    rankOneMode={rankOneMode}
+                    easyMode={easyMode}
+                    showHint={showHint}
+                    showWhyWrong={showWhyWrong}
+                    onChoice={handleChoice}
+                    onNotLearnedYet={handleNotLearnedYet}
+                    onRetry={handleRetry}
+                    onNext={handleNext}
+                    onToggleWhyWrong={handleToggleWhyWrong}
+                    onShowHint={()=>setShowHint(true)}
                     isReview={!!currentReviewItemId}
-                    isNorma={!currentReviewItemId&&!dailyGoalMet}
+                    isNorma={!currentReviewItemId&&!dailyGoalMet&&!trialMode}
                     todaySess={todaySessions}
-                    onReport={async ()=>{
+                    confidenceRating={confidenceRating}
+                    onConfidenceRate={handleConfidenceRate}
+                    timeLimit={timeLimit}
+                    timeLimitMax={TIME_LIMIT_MAX}
+                    hiddenChoice={hiddenChoice}
+                    lifelineUsed={lifelineUsed}
+                    onLifeline={handleLifeline}
+                    isTrial={trialMode}
+                    timeAttackEnabled={advancedMode.timeAttack}
+                    lifelineEnabled={advancedMode.lifeline}
+                    hintPanelOpen={hintPanelOpen}
+                    onToggleHintPanel={()=>setHintPanelOpen(v=>!v)}
+                    onReport={async()=>{
                       const rid=currentReviewItemId;
-                      // normalize済みで id は常に存在する。idなしの場合は安全側に倒して削除しない。
                       setLogs(p=>{const n=JSON.parse(JSON.stringify(p));
                         if(rid){n.reviewQueue=(n.reviewQueue||[]).filter(q=>q.id!==rid);}
                         saveLogs(n);logsR.current=n;return n;});
@@ -1707,15 +3149,41 @@ function App(){
                   />
                 )}
 
-                {/* ノルマ中インジケーター */}
-                {(!analysisStep||analysisStep==="done")&&!dailyGoalMet&&(
-                  <div style={{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}} className={todaySessions===2?"norma-last":""}>
-                    {todaySessions===2?"🎯 あと1問でノルマ達成！":"🎯 ノルマ "+todaySessions+"/3　— AIが科目を選んでいます"}
+                {/* ノルマ中インジケーター: 3段階ドット可視化（お試しモード時は非表示） */}
+                {!trialMode&&(!quizPhase||quizPhase==="result")&&!dailyGoalMet&&(
+                  <div style={{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,fontSize:12,color:"#92400e",fontWeight:800}} className={todaySessions===2?"norma-last":""}>
+                    <div style={{textAlign:"center",marginBottom:6}}>
+                      🎯 {todaySessions===2?"あと1問でノルマ達成！":todaySessions===1?"半分まで来た！":"まずは3問でノルマ達成！"}
+                    </div>
+                    <div className="norma-dots">
+                      {[0,1,2].map(i=>{
+                        const state=i<todaySessions?"done":i===todaySessions?"now":"todo";
+                        return(
+                          <React.Fragment key={i}>
+                            <div className={`norma-dot ${state}`}>{state==="done"?"✓":i+1}</div>
+                            {i<2&&<div className={`norma-line${i<todaySessions?" done":""}`}/>}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
-                {/* 科目選択 - ノルマ達成後のみ表示 */}
-                {(!analysisStep||analysisStep==="done")&&dailyGoalMet&&(
+                {/* お試しモード進行表示 */}
+                {trialMode&&(!quizPhase||quizPhase==="result")&&(
+                  <React.Fragment>
+                    <div style={{marginTop:4,padding:"10px 14px",background:"linear-gradient(135deg,#fff7ed,#fed7aa)",border:"1.5px solid #f59e0b",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}}>
+                      🎁 お試し {trialIndex+1}/{SAMPLE_QUESTIONS.length}問目
+                    </div>
+                    <button className="btn btn-ghost" style={{marginTop:8}} onClick={()=>{
+                      setTrialMode(false);trialModeR.current=false;setTrialIndex(0);trialIndexR.current=0;
+                      resetState();setScreen("start");
+                    }}>← スタート画面に戻る</button>
+                  </React.Fragment>
+                )}
+
+                {/* 科目選択 - ノルマ達成後のみ表示（お試し時は非表示） */}
+                {!trialMode&&(!quizPhase||quizPhase==="result")&&dailyGoalMet&&(
                   showSubjSel?(
                     <div className="card" style={{padding:14,background:"#f8f7ff"}}>
                       <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
@@ -1740,13 +3208,19 @@ function App(){
                           resetFetch(ws);
                         }} >苦手科目</button>
                       </div>
+                      {!comebackMode&&(
+                        <button className="btn btn-ghost" style={{marginTop:6,background:"linear-gradient(135deg,#fef3c7,#fde68a)",color:"#92400e",border:"1.5px solid #f59e0b"}}
+                          onClick={()=>{setComebackMode(true);setComebackTimer(180);}}>
+                          ⏱ 3分だけやる！
+                        </button>
+                      )}
                     </React.Fragment>
                   )
                 )}
               </React.Fragment>
             )}
 
-            {/* ── LOG ── */}
+            {/* ── LOG (成長タブ) ── */}
             {tab==="log"&&(
               <React.Fragment>
                 <div className="login-streak">
@@ -1754,6 +3228,174 @@ function App(){
                   <div style={{fontSize:13,opacity:.85,marginTop:4}}>この調子で続けよう 🔥</div>
                 </div>
 
+                {/* 今日のお祝いカード（苦手克服・復帰歓迎・久々成長・成長タイプ・AI総評） */}
+                {overcomeMsg&&(
+                  <div className="celebration-card overcome">
+                    <span className="celebration-icon">🌟</span>
+                    <div className="celebration-text">
+                      <div className="celebration-title">苦手克服！</div>
+                      <div className="celebration-body">{overcomeMsg}</div>
+                    </div>
+                  </div>
+                )}
+                {welcomeBackMsg&&(
+                  <div className="celebration-card welcome-back">
+                    <span className="celebration-icon">🤗</span>
+                    <div className="celebration-text">
+                      <div className="celebration-title">おかえり！</div>
+                      <div className="celebration-body">{welcomeBackMsg}</div>
+                    </div>
+                  </div>
+                )}
+                {longTimeMsg&&(
+                  <div className="celebration-card">
+                    <span className="celebration-icon">⏳</span>
+                    <div className="celebration-text">
+                      <div className="celebration-title">久々の成長！</div>
+                      <div className="celebration-body">{longTimeMsg}</div>
+                    </div>
+                  </div>
+                )}
+                {growthTypeMsg&&(
+                  <div className="celebration-card growth-type">
+                    <span className="celebration-icon">🧬</span>
+                    <div className="celebration-text">
+                      <div className="celebration-title">今日の成長タイプ</div>
+                      <div className="celebration-body">{growthTypeMsg}</div>
+                    </div>
+                  </div>
+                )}
+                {aiReviewMsg&&(
+                  <div className="celebration-card ai-review">
+                    <span className="celebration-icon">🤖</span>
+                    <div className="celebration-text">
+                      <div className="celebration-title">今日はここが良かった（AI総評）</div>
+                      <div className="celebration-body">{aiReviewMsg}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 成長スコア（旧「今日伸びた能力」）：基本＋単元力の合計 */}
+                {(()=>{
+                  const tg=logs.dailyStatGains?.[today()]||{};
+                  const gained=STAT_ORDER.filter(k=>(tg[k]||0)>0);
+                  const unitGain=logs.dailyUnitGains?.[today()]||0;
+                  if(!gained.length&&!unitGain)return null;
+                  const sumStat=gained.reduce((a,k)=>a+(tg[k]||0),0);
+                  const total=sumStat+unitGain;
+                  return(
+                    <div className="card" style={{background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",border:"1.5px solid #86efac",padding:"14px 16px"}}>
+                      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:8}}>
+                        <div style={{fontSize:13,fontWeight:900,color:"#166534"}}>✨ 成長スコア（今日）</div>
+                        <div className="tick-anim" key={`gs-card-${total}`} style={{fontSize:24,fontWeight:900,color:"#16a34a"}}>+{total}</div>
+                      </div>
+                      <div className="today-gains">
+                        {gained.map((k,idx)=>(
+                          <span key={k} className={`gain-pill${hopKey>0?" hop-anim":""}`} style={{animationDelay:`${idx*0.4}s`}}>
+                            {STAT_LABELS[k].icon} {STAT_LABELS[k].name} <span style={{opacity:.7}}>+{tg[k]}</span>
+                          </span>
+                        ))}
+                        {unitGain>0&&(
+                          <span className={`gain-pill${hopKey>0?" hop-anim":""}`} style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",borderColor:"#fde68a",color:"#92400e",animationDelay:`${gained.length*0.4}s`}}>
+                            🎯 単元力 <span style={{opacity:.7}}>+{unitGain}</span>
+                          </span>
+                        )}
+                      </div>
+                      <div style={{fontSize:10,color:"#16653499",marginTop:8,lineHeight:1.5}}>20問連続正解で200点、全問不正解でも80点伸びるよう設計（上限なし）</div>
+                    </div>
+                  );
+                })()}
+
+                {/* 累積ステータス: 1基本カテゴリ + 5科目カテゴリ = 計6カテゴリ。各カテゴリ1項目1行・上位5 */}
+                {(()=>{
+                  const cs=logs.cumulativeStats||{};
+                  const totalBase=STAT_ORDER.reduce((a,k)=>a+(cs[k]||0),0);
+                  const sus=logs.subjectUnitStats||{};
+                  const totalUnits=Object.values(sus).reduce((a,m)=>a+Object.values(m||{}).reduce((b,v)=>b+v,0),0);
+                  const total=totalBase+totalUnits;
+                  if(!total)return(
+                    <div className="card" style={{textAlign:"center",padding:"22px 12px",color:"#9990cc"}}>
+                      <div style={{fontSize:32,marginBottom:6}}>⚔️</div>
+                      <div style={{fontSize:13,fontWeight:800}}>累積ステータスはまだ0です</div>
+                      <div style={{fontSize:11,marginTop:6}}>問題を解いて基本ステータスと単元力を育てよう</div>
+                    </div>
+                  );
+                  const rank=total>=2000?"⭐ レジェンド":total>=1000?"💎 マスター":total>=500?"🏆 上級":total>=200?"📈 中級":total>=50?"🌱 駆け出し":"🆕 ルーキー";
+                  const baseTop=STAT_ORDER.map(k=>({k,v:cs[k]||0,label:STAT_LABELS[k].name,icon:STAT_LABELS[k].icon})).sort((a,b)=>b.v-a.v).slice(0,5);
+                  const baseMax=Math.max(1,...baseTop.map(x=>x.v));
+                  return(
+                    <React.Fragment>
+                      {/* カテゴリ1: 基本ステータス（1行表示 × 5） */}
+                      <div className="card">
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div className="section-title" style={{margin:0}}>⚔️ 基本ステータス（上位5）</div>
+                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                            <span style={{fontSize:10,fontWeight:900,color:"#92400e",background:"#fef3c7",padding:"2px 8px",borderRadius:99,border:"1px solid #fde68a"}}>{rank}</span>
+                            <div style={{fontSize:11,fontWeight:900,color:"#5b3ff8"}}>TOTAL {total}</div>
+                          </div>
+                        </div>
+                        <div className="stat-params-1col">
+                          {baseTop.map(({k,v,label,icon},idx)=>(
+                            <div key={k} className={`stat-line${hopKey>0?" hop-anim":""}`} style={{animationDelay:`${idx*0.4}s`}}>
+                              <span className={`rank-no r${idx+1}`}>{idx+1}</span>
+                              <span className="stat-line-icon">{icon}</span>
+                              <span className="stat-line-name">{label}</span>
+                              <div className="stat-line-bar"><div style={{width:`${Math.min(100,(v/baseMax)*100)}%`}}/></div>
+                              <span className="stat-line-val">{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* カテゴリ2〜6: 科目別 単元力 上位5（1行表示 × 5） */}
+                      {subjects.map(s=>{
+                        const m=sus[s]||{};
+                        const entries=Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,5);
+                        if(!entries.length)return null;
+                        const max=Math.max(1,...entries.map(e=>e[1]));
+                        return(
+                          <div key={s} className="card">
+                            <div className="section-title" style={{marginBottom:8}}>🎯 {displaySubject(s,grade)}の単元力（上位5）</div>
+                            <div className="stat-params-1col">
+                              {entries.map(([name,v],idx)=>(
+                                <div key={name} className={`stat-line${hopKey>0?" hop-anim":""}`} style={{animationDelay:`${idx*0.4}s`}}>
+                                  <span className={`rank-no r${idx+1}`}>{idx+1}</span>
+                                  <span className="stat-line-icon">📘</span>
+                                  <span className="stat-line-name" style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:120}} title={name}>{name}力</span>
+                                  <div className="stat-line-bar"><div style={{width:`${Math.min(100,(v/max)*100)}%`}}/></div>
+                                  <span className="stat-line-val">{v}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div style={{fontSize:10,color:"#bbb",marginTop:-4,marginBottom:8,textAlign:"center"}}>正解で 単元力+6 / 不正解でも +2 ずつ成長します</div>
+                    </React.Fragment>
+                  );
+                })()}
+
+                {/* 実績バッジ（最下部・折りたたみ式） */}
+                <details className="card">
+                  <summary style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",listStyle:"none",userSelect:"none"}}>
+                    <div className="section-title" style={{margin:0}}>🏆 実績バッジ {(logs.earnedBadges?.length||0)} / {BADGES.length}</div>
+                    <span style={{fontSize:10,color:"#9990cc"}}>▼</span>
+                  </summary>
+                  <div style={{marginTop:10}} className="badge-grid">
+                    {BADGES.map(b=>{const e=logs.earnedBadges?.includes(b.id);return(
+                      <div key={b.id} className={`badge ${e?"earned":"locked"}`}>
+                        <div className="badge-icon">{b.icon}</div>
+                        <div className="badge-name">{b.label}</div>
+                        <div className="badge-desc">{b.desc}</div>
+                      </div>
+                    );})}
+                  </div>
+                </details>
+              </React.Fragment>
+            )}
+
+            {/* ── RECORD (記録タブ) ── */}
+            {tab==="record"&&(
+              <React.Fragment>
                 {/* 正解率カード */}
                 <div style={{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -1787,31 +3429,6 @@ function App(){
                   ))}
                 </div>
 
-                {/* 分析実績（ライトカード） */}
-                <div className="card" style={{background:"#f0edff",border:"1.5px solid #ddd6fe"}}>
-                  <div style={{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10}}>🔍 分析実績</div>
-                  <div className="an-stat-row">
-                    <div className="an-stat"><div className="an-stat-n" style={{fontSize:14}}>{(()=>{const h=(logs.debugHistory||[]).slice(0,100);if(!h.length)return"—";const perfect=h.filter(x=>Array.isArray(x.results)&&x.results.every(Boolean)).length;return Math.round(perfect/h.length*100)+"%";})()}</div><div className="an-stat-l">直近完璧分析率</div></div>
-                  </div>
-                  {logs.debugHistory?.length>0&&(
-                    <React.Fragment>
-                      <div style={{fontSize:11,fontWeight:800,color:"#7c6fb0",marginBottom:6,marginTop:4}}>直近の分析履歴</div>
-                      {logs.debugHistory.slice(0,5).map((h,i)=>(
-                        <div key={i} className="anhist-row">
-                          <span style={{fontSize:11,color:"#7c6fb0",minWidth:36}}>{h.date.slice(5)}</span>
-                          <span className="anhist-subj">{displaySubject(h.subj,grade)}</span>
-                          <span style={{flex:1,fontSize:11,color:"#5b3ff8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.topic}</span>
-                          <div className="anhist-score">
-                            {(h.results||[]).map((r,j)=>(
-                              <div key={j} className={`anhist-dot ${r?"ok":"ng"}`}>{r?"✓":"✗"}</div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </React.Fragment>
-                  )}
-                </div>
-
                 {/* 28日カレンダー */}
                 <div className="card">
                   <div className="section-title">28日間の学習カレンダー</div>
@@ -1842,27 +3459,89 @@ function App(){
                   </div>
                 </div>
 
-                {/* 単元習熟マップ */}
-                {masteryList.length>0&&(
-                  <div className="card">
-                    <div className="section-title">🗺️ 単元習熟マップ</div>
-                    <div className="mastery-grid">
-                      {masteryList.map(({topic,subj,attempts,correct,mastered})=>{
-                        const rate=attempts>0?Math.round(correct/attempts*100):0;
-                        const state=mastered?"mastered":rate>=50?"learning":"fresh";
-                        const labels={fresh:"学習中",learning:"定着中",mastered:"習熟済み"};
-                        return(
-                          <div key={topic} className={`mastery-card ${state}`}>
-                            <div className="mastery-tag">{labels[state]} ｜ {displaySubject(subj,grade)}</div>
-                            <div className="mastery-topic">{topic}</div>
-                            <div className="mastery-meta">{attempts}問 正解率{rate}%</div>
-                          </div>
-                        );
-                      })}
+                {/* 🎯 今週の重点単元カード */}
+                {weakestTopic&&(
+                  <div className="card" style={{background:"#fff7f7",border:"1.5px solid #fca5a5",padding:"14px 16px"}}>
+                    <div style={{fontWeight:900,color:"#991b1b",marginBottom:6,fontSize:12,letterSpacing:.5}}>
+                      🎯 今週の重点単元
                     </div>
-                    <div style={{fontSize:11,color:"#bbb",marginTop:8,textAlign:"center"}}>5問以上解いて正解率80%超えで「習熟済み」</div>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:17,fontWeight:900,color:"#7f1d1d",lineHeight:1.3,marginBottom:6}}>
+                          {weakestTopic[0]}
+                        </div>
+                        <div style={{fontSize:12,color:"#991b1b",display:"flex",gap:12,flexWrap:"wrap"}}>
+                          <span>正解率 <b>{Math.round(weakestTopic[1].correct/weakestTopic[1].attempts*100)}%</b></span>
+                          <span>{weakestTopic[1].attempts}問挑戦中</span>
+                          {weakestTopic[1].subj&&<span>{displaySubject(weakestTopic[1].subj,grade)}</span>}
+                        </div>
+                      </div>
+                      <div style={{flexShrink:0,width:48,height:48,borderRadius:"50%",background:"#fee2e2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+                        💪
+                      </div>
+                    </div>
+                    <div style={{marginTop:10}}>
+                      <div className="bar-wrap" style={{height:8}}>
+                        <div className="bar" style={{width:`${Math.round(weakestTopic[1].correct/weakestTopic[1].attempts*100)}%`,background:"#ef4444"}}></div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:"#b91c1c",marginTop:6,lineHeight:1.5}}>
+                      この単元を集中的に練習すると、正解率アップが見込めます！
+                    </div>
                   </div>
                 )}
+
+                {/* 単元習熟マップ（科目タブ切り替え） */}
+                {Object.keys(logs.topicMastery||{}).length>0&&(
+                  <div className="card">
+                    <div className="section-title">🗺️ 単元習熟マップ</div>
+                    <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+                      <button onClick={()=>setTopicFilterSubj("")} style={{flex:"1 0 auto",padding:"6px 8px",fontSize:11,fontWeight:800,border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",background:topicFilterSubj===""?"linear-gradient(135deg,#5b3ff8,#9b59f8)":"#f0edff",color:topicFilterSubj===""?"#fff":"#5b3ff8"}}>すべて</button>
+                      {subjects.map(s=>(
+                        <button key={s} onClick={()=>setTopicFilterSubj(s)} style={{flex:"1 0 auto",padding:"6px 8px",fontSize:11,fontWeight:800,border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",background:topicFilterSubj===s?"linear-gradient(135deg,#5b3ff8,#9b59f8)":"#f0edff",color:topicFilterSubj===s?"#fff":"#5b3ff8"}}>{displaySubject(s,grade)}</button>
+                      ))}
+                    </div>
+                    {masteryList.length>0?(
+                      <div className="mastery-grid">
+                        {masteryList.map(({topic,subj,attempts,correct,mastered})=>{
+                          const rate=attempts>0?Math.round(correct/attempts*100):0;
+                          const state=mastered?"mastered":rate>=50?"learning":"fresh";
+                          const labels={fresh:"🌱 始めたばかり",learning:"📈 成長中",mastered:"✅ 習熟"};
+                          return(
+                            <div key={topic} className={`mastery-card ${state}`}>
+                              <div className="mastery-tag">{labels[state]} ｜ {displaySubject(subj,grade)}</div>
+                              <div className="mastery-topic">{topic}</div>
+                              <div className="mastery-meta">{attempts}問 正解率{rate}%</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ):(
+                      <div style={{fontSize:12,color:"#9990cc",textAlign:"center",padding:"12px 0"}}>この科目はまだ単元がありません</div>
+                    )}
+                    <div style={{fontSize:11,color:"#bbb",marginTop:8,textAlign:"center"}}>5問以上解いて正解率80%超えで「習熟」</div>
+                  </div>
+                )}
+
+                {/* ミスの型 TOP5 */}
+                {(()=>{
+                  const mistakeList=calcMistakeTypes(logs.recentHistory);
+                  if(!mistakeList.length)return null;
+                  const maxCnt=mistakeList[0][1];
+                  return(
+                    <div className="card">
+                      <div className="section-title">🔬 あなたのミスの型 TOP5</div>
+                      {mistakeList.map(([type,cnt])=>(
+                        <div key={type} className="dam-row">
+                          <span className="dam-label" style={{minWidth:120,fontSize:11,flex:"0 0 auto"}}>{type}</span>
+                          <div className="dam-bw"><div className="dam-bf" style={{width:`${Math.round(cnt/maxCnt*100)}%`,background:"#ef4444"}}/></div>
+                          <span style={{fontSize:11,fontWeight:900,color:"#ef4444",minWidth:36,textAlign:"right"}}>{cnt}回</span>
+                        </div>
+                      ))}
+                      <div style={{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>直近200問の不正解から集計</div>
+                    </div>
+                  );
+                })()}
 
                 {reviewCount>0&&(
                   <div className="card" style={{background:"#fffbeb",border:"1.5px solid #fde68a"}}>
@@ -1871,32 +3550,43 @@ function App(){
                   </div>
                 )}
 
-                {/* ストック */}
-                <div className="card" style={{background:"#f8f7ff"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                {/* ストック（折りたたみ式） - 各科目×3難易度で表示 */}
+                <details className="card" style={{background:"#f8f7ff"}}>
+                  <summary style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",listStyle:"none",userSelect:"none"}}>
                     <div className="section-title" style={{margin:0}}>📦 問題ストック</div>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       {(isRefilling||isEmergencyGen)&&<span className="refill-dot"></span>}
-                      <span style={{fontSize:12,fontWeight:900,color:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}>{damTotal}/{DAM_MAX*subjects.length}問</span>
+                      <span style={{fontSize:12,fontWeight:900,color:damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.6)?"#22c55e":damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.3)?"#f59e0b":"#ef4444"}}>{damTotal}/{DAM_MAX*subjects.length*DIFFS.length}問</span>
+                      <span style={{fontSize:10,color:"#9990cc"}}>▼</span>
                     </div>
+                  </summary>
+                  <div style={{marginTop:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*subjects.length*DIFFS.length)*100)}%`,background:damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.6)?"#22c55e":damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.3)?"#f59e0b":"#ef4444"}}></div></div></div>
+                  {subjects.map(s=>{
+                    const cnt=damStats[s]||0;
+                    const max=DAM_MAX*DIFFS.length;
+                    const pct=Math.min(100,cnt/max*100);
+                    const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";
+                    return(
+                      <div key={s} className="dam-row">
+                        <span className="dam-label">{displaySubject(s,grade)}</span>
+                        <div className="dam-bw" style={{display:"flex",gap:1}}>
+                          {DIFFS.map(d=>{
+                            const dcnt=getDamBucketCount(s,d);
+                            const dpct=Math.min(100,dcnt/DAM_MAX*100);
+                            const dcol=d==="easy"?"#22c55e":d==="hard"?"#ef4444":"#f59e0b";
+                            return <div key={d} style={{flex:1,height:"100%",background:"#e8e3ff",borderRadius:2,overflow:"hidden"}}><div style={{width:`${dpct}%`,height:"100%",background:dcol}}/></div>;
+                          })}
+                        </div>
+                        <span style={{fontSize:11,fontWeight:900,minWidth:50,textAlign:"right",color:c}}>{cnt}/{max}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:6,fontSize:9,color:"#9990cc",fontWeight:700}}>
+                    <span>🟢 やさしい</span><span>🟡 ふつう</span><span>🔴 むずい</span>
                   </div>
-                  <div style={{marginBottom:8}}><div className="bar-wrap" style={{height:7}}><div className="bar" style={{width:`${Math.min(100,damTotal/(DAM_MAX*subjects.length)*100)}%`,background:damTotal>180?"#22c55e":damTotal>90?"#f59e0b":"#ef4444"}}></div></div></div>
-                  {subjects.map(s=>{const cnt=damStats[s]||0;const pct=Math.min(100,cnt/DAM_MAX*100);const c=pct>60?"#22c55e":pct>30?"#f59e0b":"#ef4444";return(
-                    <div key={s} className="dam-row">
-                      <span className="dam-label">{displaySubject(s,grade)}</span>
-                      <div className="dam-bw"><div className="dam-bf" style={{width:`${pct}%`,background:c}}></div></div>
-                      <span style={{fontSize:11,fontWeight:900,minWidth:40,textAlign:"right",color:c}}>{cnt}/{DAM_MAX}</span>
-                    </div>
-                  );})}
                   <div style={{fontSize:10,color:"#bbb",marginTop:6,textAlign:"center"}}>{isEmergencyGen?"⚡ 緊急生成中...（3問をすぐ作っています）":isRefilling?`⚡ ${autoRefill?"問題を入れ替え中...":"ストックを補充中..."}`:waitingForStock?"⏳ 問題を待機中...（バックグラウンドで補充します）":`✓ ${autoRefill?"自動更新ON（常に最新）":"自動更新ON（ストックが満たされたら停止）"}`}</div>
-                  {rejectCount>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,textAlign:"center",fontWeight:700}}>🚫 品質フィルター棄却: {rejectCount}問（ローカル検証不合格）</div>}
-                </div>
+                </details>
               </React.Fragment>
-            )}
-
-            {/* ── BADGE ── */}
-            {tab==="badge"&&(
-              <BadgeGrid earnedBadges={logs.earnedBadges} totalBadges={BADGES.length}/>
             )}
 
             {/* ── SETTINGS ── */}
@@ -1905,27 +3595,75 @@ function App(){
                 <div className="card">
                   <div className="section-title">プロフィール設定</div>
 
+                  {/* ① APIキー */}
                   <div className="setting-row">
-                    <span className="setting-label">生年月日（学年自動計算）</span>
-                    <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max="2026-12-31" style={{marginBottom:0}}/>
-                    <div style={{fontSize:12,color:"#5b3ff8",fontWeight:700,marginTop:4}}>→ {calcGrade(birthday)}</div>
-                  </div>
-
-                  <div className="setting-row" style={{paddingTop:14}}>
-                    <span className="setting-label">Gemini APIキー（最大4つ）</span>
+                    <span className="setting-label">🔑 Gemini APIキー（最大4つまで・行追加/削除可）</span>
                     {apiKeys.map((k,i)=>(
-                      <div key={i} className="key-row">
-                        <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}${i===0?" (任意)":" (任意)"}`}/>
-                        <span className={`key-status ${k.trim()?"ok":"empty"}`}>{k.trim()?"✓":"—"}</span>
+                      <div key={i} className="kv-row">
+                        <input type="password" value={k} onChange={e=>{const nk=[...apiKeys];nk[i]=e.target.value;setApiKeys(nk);}} placeholder={`APIキー ${i+1}（任意）`}/>
+                        <span className={`key-status ${k.trim()?"ok":"empty"}`} style={{flexShrink:0,alignSelf:"center"}}>{k.trim()?"✓":"—"}</span>
+                        {apiKeys.length>1&&(
+                          <button className="kv-icon-btn del" style={{height:38}} title="この行を削除" onClick={()=>{const nk=apiKeys.filter((_,j)=>j!==i);setApiKeys(nk.length?nk:[""]);}}>✕</button>
+                        )}
                       </div>
                     ))}
-                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:"#5b3ff8",fontWeight:700,textDecoration:"none"}}>🔑 APIキーを取得する（無料）</a>
+                    <div className="kv-add-row">
+                      <button className="kv-icon-btn add" disabled={apiKeys.length>=4} onClick={()=>setApiKeys([...apiKeys,""])}>＋ 1つ追加</button>
+                      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{marginLeft:10,fontSize:11,color:"#5b3ff8",fontWeight:700,textDecoration:"none"}}>無料で取得 →</a>
+                    </div>
+                  </div>
+
+                  {/* ② ユーザー名 */}
+                  <div className="setting-row" style={{paddingTop:14}}>
+                    <span className="setting-label">👥 ユーザー名（最大4人・タップで切替・もう一度タップで編集）</span>
+                    <div className="user-switch-wrap" style={{marginTop:6}}>
+                      {users.map(u=>(
+                        <button key={u.id} className={`user-chip${u.id===currentUid?" on":""}`}
+                          onClick={()=>{
+                            if(u.id===currentUid){ setShowUserEdit({mode:"edit",user:u}); return; }
+                            switchUser(u.id);setCurrentUid(u.id);
+                            setTimeout(()=>{reloadProfile();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});},0);
+                          }}>
+                          <span className="uc-icon">{u.icon||"😀"}</span>{u.name}
+                        </button>
+                      ))}
+                      <button className="user-chip-add" disabled={users.length>=4} onClick={()=>setShowUserEdit({mode:"add"})}>＋ 追加</button>
+                    </div>
+                  </div>
+
+                  {/* ③ 生年月日 */}
+                  <div className="setting-row" style={{paddingTop:14}}>
+                    <span className="setting-label">🎂 生年月日（学年自動計算）</span>
+                    <input type="date" value={birthday} onChange={e=>setBirthday(e.target.value)} min="2000-01-01" max={today()} style={{marginBottom:0}}/>
+                    <div style={{fontSize:12,color:"#5b3ff8",fontWeight:700,marginTop:4}}>→ {calcGrade(birthday)}</div>
                   </div>
 
                   <div style={{marginTop:16}}>
                     <button className="btn btn-primary" onClick={saveSettings}>
                       {settingsSaved?"✓ 保存しました！":"設定を保存する"}
                     </button>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="section-title">🎨 表示モード</div>
+                  <div className="setting-row" style={{borderBottom:"none",paddingBottom:0}}>
+                    <span className="setting-label">ライト / ダーク</span>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
+                      {[
+                        {key:"light",icon:"☀️",label:"ライト",bg:"#fffbeb",bd:"#fde68a",col:"#92400e"},
+                        {key:"dark",icon:"🌙",label:"ダーク",bg:"#1f1f35",bd:"#3a3a55",col:"#c4b5fd"},
+                      ].map(o=>{
+                        const on=theme===o.key;
+                        return(
+                          <button key={o.key} onClick={()=>setTheme(o.key)}
+                            style={{background:on?o.bg:"transparent",border:`2px solid ${on?o.bd:"var(--input-border)"}`,borderRadius:12,padding:"10px 8px",cursor:"pointer",fontFamily:"inherit",color:on?o.col:"var(--text-soft)",fontWeight:900,textAlign:"center",transition:"all .2s"}}>
+                            <div style={{fontSize:22}}>{o.icon}</div>
+                            <div style={{fontSize:12,marginTop:2}}>{o.label}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
@@ -1954,6 +3692,30 @@ function App(){
                     </div>
                    </div>
                  </div>
+
+                <div className="card">
+                  <div className="section-title">🎚️ 難易度（自動調整）</div>
+                  <div className="setting-row" style={{borderBottom:"none",paddingBottom:0}}>
+                    <span className="setting-label">直近10問の正解率に応じて科目ごとに自動切替</span>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
+                      {subjects.map(s=>{
+                        const d=getAutoDifficulty(s,logs);
+                        const meta=d==="easy"?{icon:"🌱",label:"やさしい",bg:"#f0fdf4",bd:"#86efac",col:"#166534"}
+                                  :d==="hard"?{icon:"🔥",label:"むずかしい",bg:"#fff5f5",bd:"#fca5a5",col:"#991b1b"}
+                                  :{icon:"📝",label:"ふつう",bg:"#f0edff",bd:"#c4b5fd",col:"#5b3ff8"};
+                        return(
+                          <div key={s} style={{background:meta.bg,border:`1.5px solid ${meta.bd}`,borderRadius:12,padding:"8px 10px"}}>
+                            <div style={{fontSize:11,fontWeight:800,color:meta.col,marginBottom:2}}>{displaySubject(s,grade)}</div>
+                            <div style={{fontSize:13,fontWeight:900,color:meta.col}}>{meta.icon} {meta.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{marginTop:10,background:"#f8f7ff",border:"1px solid #e8e3ff",borderRadius:10,padding:"8px 12px",fontSize:11,color:"#7c6fb0",fontWeight:700,lineHeight:1.6}}>
+                      80%以上で上がる / 40%未満で下がる。各科目に3段階のストックを用意し、自動で切り替えます。
+                    </div>
+                  </div>
+                </div>
 
                 <div className="card">
                   <div className="section-title">エクスポート / インポート</div>
@@ -1992,10 +3754,14 @@ function App(){
 
                 <div className="card">
                   <div className="section-title">アプリについて</div>
-                  <div style={{fontSize:13,color:"#9990cc",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ</div>
-                    <div>🔍 誤答分析型 学習エンジン</div>
-                    <div>⚡ Gemini 2.5 Flash 使用</div>
+                  <div style={{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
+                    <div>📚 まちがいラボ v14 — Conviction Edition</div>
+                    <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
+                    <div>🌱 やさしい / 📝 ふつう / 🔥 むずかしい の自動難易度</div>
+                    <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
+                    <div>📱 PWA対応 · ホーム画面追加可能</div>
+                    <div>🛡 Safari ITP対策 · IndexedDBミラー</div>
+                    <div>⚡ Gemini 3 Flash → 2.5 Flash → 2.5 Flash-Lite 自動フォールバック</div>
                   </div>
                 </div>
               </React.Fragment>
