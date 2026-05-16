@@ -467,7 +467,7 @@ const callGeminiAPI=async(key,body)=>{
 // 各科目×3難易度=15バケット。1バケット最大40問。Safari の 5MB localStorage を意識して全体600問上限。
 const DAM_KEY_BASE="manabi_dam_v4";
 const DAM_MAX=40;            // 1バケット(科目×難易度)最大問題数
-const DAM_BATCH=5;
+const DAM_BATCH=10;           // 1回のAPI呼び出しで生成する問題数
 const DIFFS=["easy","standard","hard"];
 const DAM_KEY=()=>userKey(DAM_KEY_BASE);
 const getDam=()=>{try{return JSON.parse(_safeLS.get(DAM_KEY())||"{}");}catch(e){return{};}};
@@ -536,15 +536,48 @@ const shuffleChoices=q=>{
 };
 const shuffleAllSteps=q=>shuffleChoices(q);
 
-// ─── バリデーション（最小限・クラッシュ防止のみ） ─────────────────
-// 4択の構造（choices配列×4、重複なし、correct 0-3）だけ確認する。
-// 意味チェック・self_check・図表参照・科目ホワイトリスト・wrong_analysis.index
-// 整合性などは撤廃し、Geminiの出力を最大限受け入れる。
 const hasValidQuiz=q=>{
-  if(!q||!Array.isArray(q.choices)||q.choices.length!==4)return false;
-  if(q.choices.some(c=>typeof c!=="string"))return false;
+  if(!q||!q.question||!Array.isArray(q.choices)||q.choices.length!==4)return false;
+  if(typeof q.correct!=="number"||q.correct<0||q.correct>3)return false;
+  if(!q.correct_feedback||!q.mistake_type||!q.short_feedback)return false;
+  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
+  return true;
+};
+// legacy alias
+const hasValidAnalysis=hasValidQuiz;
+
+// ─── バリデーション（構造チェック＋意味チェック の2層） ───
+const VALID_SUBJECTS=new Set(["国語","算数","英語","社会","理科"]);
+// 外部ビジュアルへの参照が明確なパターン（図形・年表・発表など正当な語は除外）
+const VISUAL_REF_RE=/グラフ|地図|イラスト|[次下右左上]の図|図を見|[次下右左上]の表|表を見/;
+// 並び順依存の禁止表現（プロンプトルール「上記の全て」等）
+const META_CHOICE_RE=/上記の全て|以上の全て|全て正しい|全て誤り/;
+
+const localValidate=q=>{
+  if(!q||typeof q!=="object")return false;
+  const req=["question","correct_feedback","mistake_type","short_feedback","topic_tag","subject"];
+  if(req.some(k=>!q[k]||typeof q[k]!=="string"||!q[k].trim()))return false;
+  if(q.question.length>300)return false;
+  if(!VALID_SUBJECTS.has((q.subject||"").trim()))return false;
+  if(VISUAL_REF_RE.test(q.question))return false;
+  if(!Array.isArray(q.choices)||q.choices.length!==4)return false;
+  if(q.choices.some(c=>!c||typeof c!=="string"||!c.trim()))return false;
+  if(q.choices.some(c=>c.length>100))return false;
   if(new Set(q.choices.map(c=>c.trim())).size!==4)return false;
+  if(META_CHOICE_RE.test(q.choices.join("|")))return false;
   if(typeof q.correct!=="number"||!Number.isInteger(q.correct)||q.correct<0||q.correct>3)return false;
+  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
+  if(q.wrong_analysis.some(wa=>!wa||typeof wa.why_chosen!=="string"||typeof wa.why_wrong!=="string"))return false;
+  // wrong_analysis.index: 整数 0-3 / 正解と重複しない / 3つが互いに重複しない
+  // → 不備があると表示時に indexMap が壊れて誤答解説が選択肢にマップできなくなる
+  {
+    const idxs=q.wrong_analysis.map(wa=>wa.index);
+    if(idxs.some(i=>!Number.isInteger(i)||i<0||i>3))return false;
+    if(idxs.includes(q.correct))return false;
+    if(new Set(idxs).size!==3)return false;
+  }
+  // self_check はプロンプト側で false なら出力禁止と指示済み（生成規律ツールとして機能）。
+  // ここでの二重弾きは AI が控えめに false を返した良問を捨てる副作用が大きいため行わない。
   return true;
 };
 
@@ -2344,12 +2377,12 @@ function App(){
       // (科目, 難易度) ペア単位で不足バケットを補充対象にする
       const sorted=lowestBuckets(curSubjects.length*DIFFS.length,curSubjects);
       const lacking=sorted.filter(t=>t.cnt<DAM_MAX);
-      const filtered=lacking.length>0?lacking:(autoRefillR.current?sorted.slice(0,1):[]);
+      const filtered=lacking.length>0?lacking.slice(0,1):(autoRefillR.current?sorted.slice(0,1):[]);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
       try{
-        // ─ 生成 ──────────────────────────────────────────────────
-        const genResults=[];
+        // ─ 生成 → バリデーション → 即時追加（APIレスポンスが返るたびに即ストックへ）──
+        let totalRejected=0;let anyPassed=false;
         for(let i=0;i<filtered.length;i++){
           if(cancelled)break;
           const target=filtered[i];
@@ -2365,12 +2398,12 @@ function App(){
           const body={systemInstruction:{parts:[{text:buildSystemPrompt(target.diff,{grade:g,month:_curMonth,topMistakes:_topMistakes})}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の4択問題を${DAM_BATCH}問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",responseSchema:QUIZ_RESPONSE_SCHEMA,temperature:.4,topP:.9,topK:20}};
           try{
             const apiRes=await callGeminiAPI(key,body);
-            if(!apiRes.ok){genResults.push({subj:target.subj,diff:target.diff,valid:[]});continue;}
+            if(!apiRes.ok)continue;
             const data=apiRes.data;
-            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text){genResults.push({subj:target.subj,diff:target.diff,valid:[]});continue;}
-            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){genResults.push({subj:target.subj,valid:[]});continue;}
+            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)continue;
+            let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
-            const valid=parsed.filter(hasValidQuiz).map(q=>{
+            const valid=parsed.filter(q=>hasValidQuiz(q)).map(q=>{
               // subjectの前後空白を正規化（全角スペース含む）
               const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
               // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
@@ -2379,27 +2412,37 @@ function App(){
               if(target.subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
               return{...q,subject:normSubj};
             }).filter(q=>q.subject===target.subj);
-            genResults.push({subj:target.subj,diff:target.diff,valid});
-          }catch(e){genResults.push({subj:target.subj,diff:target.diff,valid:[]});}
+            if(!valid.length)continue;
+            // ─ バリデーション → 即時ストック追加（全バケット完了を待たない）────
+            const localPassed=valid.filter(q=>localValidate(q));
+            totalRejected+=valid.length-localPassed.length;
+            if(!localPassed.length)continue;
+            if(cancelled)break;
+            const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:target.subj,_difficulty:target.diff}));
+            if(toStore.length&&!cancelled){
+              const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===target.subj);
+              if(isReviewSubj)addToDamFront(target.subj,target.diff,toStore);
+              else addToDam(target.subj,target.diff,toStore);
+              anyPassed=true;
+              // 1バケット分追加するたびにUIを即時更新
+              if(!cancelled)setDamStats(getDamStats(subjectsR.current));
+            }
+          }catch(e){}
         }
         if(cancelled)return false;
-        // ─ ストア（バリデーション撤廃: hasValidQuiz の構造チェックのみ通過済み） ──
-        let anyPassed=false;
-        genResults.forEach(({subj,diff,valid})=>{
-          if(!valid.length||cancelled)return;
-          try{console.info(`[refill] ${subj}/${diff}: ${valid.length}問通過`);}catch(e){}
-          if(cancelled)return;
-          const toStore=valid.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_difficulty:diff}));
-          if(toStore.length&&!cancelled){
-            const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
-            if(isReviewSubj)addToDamFront(subj,diff,toStore);
-            else addToDam(subj,diff,toStore);
-            anyPassed=true;
-          }
-        });
+        // ─────────────────────────────────────────────────────
+        if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{_safeLS.set(REJ(),String(n));}catch(e){}return n;});}
         if(!cancelled)setDamStats(getDamStats(subjectsR.current));
         return anyPassed;
-      }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
+      }catch(e){
+        // APIエラー・例外発生時も必ずロック解除と表示リセットを行う
+        refillLk.current=false;
+        if(!cancelled)setIsRefilling(false);
+      }finally{
+        // finallyでも念のため保証（二重呼び出しになるが無害）
+        refillLk.current=false;
+        if(!cancelled)setIsRefilling(false);
+      }
       return false;
     };
     // 補充ループ: 学習活動・残量・復習待ちで適応的に間隔を変える
@@ -2480,14 +2523,18 @@ function App(){
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return null;
       let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return null;}
       if(!Array.isArray(parsed))parsed=[parsed];
-      const valid=parsed.filter(hasValidQuiz).map(q=>{
+      const valid=parsed.filter(q=>hasValidQuiz(q)).map(q=>{
         const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
         if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
         if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
         return{...q,subject:normSubj};
       }).filter(q=>q.subject===subj);
-      if(!valid.length)return null;
-      const toStore=valid.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
+      const localPassed=valid.filter(q=>localValidate(q));
+      // doRefill と同様に棄却数を記録する
+      const localRejected=valid.length-localPassed.length;
+      if(localRejected>0){setRejectCount(p=>{const n=p+localRejected;try{_safeLS.set(REJ(),String(n));}catch(e){}return n;});}
+      if(!localPassed.length)return null;
+      const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
       // doRefill と同様に復習対象科目は先頭挿入して優先出題
       const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
       const curDiff=getAutoDifficulty(subj,logsR.current);
@@ -3991,7 +4038,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v18 — Conviction Edition</div>
+                    <div>📚 まちがいラボ v14 — Conviction Edition</div>
                     <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
                     <div>🌱 やさしい / 📝 ふつう / 🔥 むずかしい の自動難易度</div>
                     <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
