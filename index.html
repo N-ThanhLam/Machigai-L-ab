@@ -3634,7 +3634,7 @@ function App(){
                       {/* カテゴリ1: 基本ステータス（1行表示 × 5） */}
                       <div className="card">
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                          <div className="section-title" style={{margin:0}}>⚔️ 基本ステータス（上位5）</div>
+                          <div className="section-title" style={{margin:0}}>⚔️ 基本ステータス</div>
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
                             <span style={{fontSize:10,fontWeight:900,color:"#92400e",background:"#fef3c7",padding:"2px 8px",borderRadius:99,border:"1px solid #fde68a"}}>{rank}</span>
                             <div style={{fontSize:11,fontWeight:900,color:"#5b3ff8"}}>TOTAL {total}</div>
@@ -3660,7 +3660,7 @@ function App(){
                         const max=Math.max(1,...entries.map(e=>e[1]));
                         return(
                           <div key={s} className="card">
-                            <div className="section-title" style={{marginBottom:8}}>🎯 {displaySubject(s,grade)}の単元力（上位5）</div>
+                            <div className="section-title" style={{marginBottom:8}}>🎯 {displaySubject(s,grade)}</div>
                             <div className="stat-params-1col">
                               {entries.map(([name,v],idx)=>(
                                 <div key={name} className={`stat-line${hopKey>0?" hop-anim":""}`} style={{animationDelay:`${idx*0.4}s`}}>
