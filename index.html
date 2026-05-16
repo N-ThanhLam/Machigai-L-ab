@@ -536,114 +536,15 @@ const shuffleChoices=q=>{
 };
 const shuffleAllSteps=q=>shuffleChoices(q);
 
+// ─── バリデーション（最小限・クラッシュ防止のみ） ─────────────────
+// 4択の構造（choices配列×4、重複なし、correct 0-3）だけ確認する。
+// 意味チェック・self_check・図表参照・科目ホワイトリスト・wrong_analysis.index
+// 整合性などは撤廃し、Geminiの出力を最大限受け入れる。
 const hasValidQuiz=q=>{
-  if(!q||!q.question||!Array.isArray(q.choices)||q.choices.length!==4)return false;
-  if(typeof q.correct!=="number"||q.correct<0||q.correct>3)return false;
-  if(!q.correct_feedback||!q.mistake_type||!q.short_feedback)return false;
-  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
-  return true;
-};
-// legacy alias
-const hasValidAnalysis=hasValidQuiz;
-
-// ─── バリデーション（構造チェック＋意味チェック＋「1箇所だけ違う」ヒューリスティックの3層） ───
-const VALID_SUBJECTS=new Set(["国語","算数","英語","社会","理科"]);
-// 外部ビジュアルへの参照が明確なパターン（図形・年表・発表など正当な語は除外）
-const VISUAL_REF_RE=/グラフ|地図|イラスト|[次下右左上]の図|図を見|[次下右左上]の表|表を見/;
-// 並び順依存の禁止表現（プロンプトルール「上記の全て」等）
-const META_CHOICE_RE=/上記の全て|以上の全て|全て正しい|全て誤り/;
-
-// ── 「1箇所だけ違う」ヒューリスティック ─────────────────────────────
-// 目的：「ほぼ別物の完全別解」だけを落とす。迷ったら通す（false正より false負を避ける）
-//
-// 修正方針:
-//   ・長さ比 2.0→4.0：「5cm→10cm」「走る→走ります」など正当な1箇所ズレを救う
-//   ・短い判定の上限 8→15文字：算数の答えは大抵ここに収まるのでbigramをスキップ
-//   ・bigram閾値 0.30→0.15：活用形・助詞1文字変化の誤検知を大幅削減
-//   ・長文トークン差分 3→4：助詞が複数変わる国語記述の誤検知を緩和
-//   ・levenshteinを中程度の補助判定として活用（文字数差が小さいのに距離が極端に大きい場合のみOUT）
-
-// 簡易 Levenshtein（short string 向け、O(n*m)）
-const levenshtein=(a,b)=>{
-  if(a===b)return 0;
-  const m=a.length,n=b.length;
-  if(m===0)return n;if(n===0)return m;
-  const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i===0?j:j===0?i:0));
-  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
-    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
-  return dp[m][n];
-};
-
-// 「明らかに複数箇所ズレている」かを判定。true = 怪しいので落とす
-const looksMultipleErrors=(sa,ca)=>{
-  const a=sa.trim(),b=ca.trim();
-  const la=a.length,lb=b.length;
-
-  // ① 長さ比チェック：長い方が短い方の4倍以上 → 桁崩壊・完全別解
-  //    「5cm→10cm」(比2.0)・「走る→走ります」(比1.75) などは正当な1箇所ズレなので通す
-  //    minLen=1 は除外（「0」→「10」など）
-  const minLen=Math.min(la,lb);
-  if(minLen>1&&Math.max(la,lb)/minLen>=4.0)return true;
-
-  // ② 短〜中程度（≤15文字）: 判定しない
-  //    算数の数値・単位つき答え・英単語1語・活用形変化など正当な1箇所ズレが多いため
-  //    「Paris→London」「123→456」「走る→走ります」「5cm→10cm」すべて通す
-  if(la<=15&&lb<=15)return false;
-
-  // ③ 中程度（16〜30文字）: bigram Jaccard距離 + Levenshtein の二段構え
-  //    bigram 0.15未満 かつ Levenshtein距離が長い方の文字数の70%超 → ほぼ別物
-  //    どちらか一方だけでは落とさない（活用形変化で bigram が下がりやすいため）
-  if(la<=30&&lb<=30){
-    const bigrams=s=>{const r=new Set();for(let i=0;i<s.length-1;i++)r.add(s.slice(i,i+2));return r;};
-    const ba=bigrams(a),bb=bigrams(b);
-    const inter=[...ba].filter(g=>bb.has(g)).length;
-    const union=new Set([...ba,...bb]).size;
-    const jaccard=union>0?inter/union:1;
-    const lev=levenshtein(a,b);
-    const maxLen=Math.max(la,lb);
-    if(jaccard<0.15&&lev/maxLen>0.70)return true;
-    return false;
-  }
-
-  // ④ 長い回答（>30文字）: トークン差分
-  //    読点・スペース等で分割したトークンが両側4つ以上不一致 → 複数箇所
-  const tokenize=s=>s.split(/[\s、。，．,.\-・]+/).filter(Boolean);
-  const ta=new Set(tokenize(a)),tb=new Set(tokenize(b));
-  const onlyInA=[...ta].filter(t=>!tb.has(t));
-  const onlyInB=[...tb].filter(t=>!ta.has(t));
-  if(onlyInA.length>=4&&onlyInB.length>=4)return true;
-  return false;
-};
-
-const localValidate=q=>{
-  if(!q||typeof q!=="object")return false;
-  const req=["question","correct_feedback","mistake_type","short_feedback","topic_tag","subject"];
-  if(req.some(k=>!q[k]||typeof q[k]!=="string"||!q[k].trim()))return false;
-  if(q.question.length>300)return false;
-  if(!VALID_SUBJECTS.has((q.subject||"").trim()))return false;
-  if(VISUAL_REF_RE.test(q.question))return false;
-  if(!Array.isArray(q.choices)||q.choices.length!==4)return false;
-  if(q.choices.some(c=>!c||typeof c!=="string"||!c.trim()))return false;
-  if(q.choices.some(c=>c.length>100))return false;
+  if(!q||!Array.isArray(q.choices)||q.choices.length!==4)return false;
+  if(q.choices.some(c=>typeof c!=="string"))return false;
   if(new Set(q.choices.map(c=>c.trim())).size!==4)return false;
-  if(META_CHOICE_RE.test(q.choices.join("")))return false;
   if(typeof q.correct!=="number"||!Number.isInteger(q.correct)||q.correct<0||q.correct>3)return false;
-  if(!Array.isArray(q.wrong_analysis)||q.wrong_analysis.length!==3)return false;
-  if(q.wrong_analysis.some(wa=>!wa||typeof wa.why_chosen!=="string"||typeof wa.why_wrong!=="string"))return false;
-  // wrong_analysis.index: 整数 0-3 / 正解と重複しない / 3つが互いに重複しない
-  // → 不備があると表示時に indexMap が壊れて誤答解説が選択肢にマップできなくなる
-  {
-    const idxs=q.wrong_analysis.map(wa=>wa.index);
-    if(idxs.some(i=>!Number.isInteger(i)||i<0||i>3))return false;
-    if(idxs.includes(q.correct))return false;
-    if(new Set(idxs).size!==3)return false;
-  }
-  // v14: self_check で1つでも false がある問題は弾く（AI 自身が不安と判定したもの）
-  if(q.self_check && typeof q.self_check==="object"){
-    if(q.self_check.unique_correct===false)return false;
-    if(q.self_check.no_fact_error===false)return false;
-    if(q.self_check.within_scope===false)return false;
-  }
   return true;
 };
 
@@ -2469,7 +2370,7 @@ function App(){
             const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text){genResults.push({subj:target.subj,diff:target.diff,valid:[]});continue;}
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){genResults.push({subj:target.subj,valid:[]});continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
-            const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
+            const valid=parsed.filter(hasValidQuiz).map(q=>{
               // subjectの前後空白を正規化（全角スペース含む）
               const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
               // 中学・高校では「数学」を「算数」として扱う（Geminiが「数学」と返す場合の吸収）
@@ -2482,17 +2383,13 @@ function App(){
           }catch(e){genResults.push({subj:target.subj,diff:target.diff,valid:[]});}
         }
         if(cancelled)return false;
-        // ─ バリデーション ────────────────────────────────────────
-        let totalRejected=0;let anyPassed=false;
+        // ─ ストア（バリデーション撤廃: hasValidQuiz の構造チェックのみ通過済み） ──
+        let anyPassed=false;
         genResults.forEach(({subj,diff,valid})=>{
           if(!valid.length||cancelled)return;
-          // ローカルバリデーション
-          const localPassed=valid.filter(q=>localValidate(q));
-          const localRejected=valid.length-localPassed.length;
-          totalRejected+=localRejected;
-          if(!localPassed.length)return;
+          try{console.info(`[refill] ${subj}/${diff}: ${valid.length}問通過`);}catch(e){}
           if(cancelled)return;
-          const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_difficulty:diff}));
+          const toStore=valid.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj,_difficulty:diff}));
           if(toStore.length&&!cancelled){
             const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
             if(isReviewSubj)addToDamFront(subj,diff,toStore);
@@ -2500,8 +2397,6 @@ function App(){
             anyPassed=true;
           }
         });
-        // ─────────────────────────────────────────────────────
-        if(totalRejected>0){setRejectCount(p=>{const n=p+totalRejected;try{_safeLS.set(REJ(),String(n));}catch(e){}return n;});}
         if(!cancelled)setDamStats(getDamStats(subjectsR.current));
         return anyPassed;
       }catch(e){}finally{refillLk.current=false;if(!cancelled)setIsRefilling(false);}
@@ -2585,18 +2480,14 @@ function App(){
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text;if(!text)return null;
       let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){return null;}
       if(!Array.isArray(parsed))parsed=[parsed];
-      const valid=parsed.filter(q=>q.question&&Array.isArray(q.choices)&&q.choices.length===4&&typeof q.correct==="number"&&hasValidQuiz(q)).map(q=>{
+      const valid=parsed.filter(hasValidQuiz).map(q=>{
         const normSubj=(q.subject||"").replace(/^[\s\u3000]+|[\s\u3000]+$/g,"");
         if(subj==="算数"&&normSubj==="数学")return{...q,subject:"算数"};
         if(subj==="理科"&&["科学","自然科学","自然","理科学","サイエンス"].includes(normSubj))return{...q,subject:"理科"};
         return{...q,subject:normSubj};
       }).filter(q=>q.subject===subj);
-      const localPassed=valid.filter(q=>localValidate(q));
-      // doRefill と同様に棄却数を記録する
-      const localRejected=valid.length-localPassed.length;
-      if(localRejected>0){setRejectCount(p=>{const n=p+localRejected;try{_safeLS.set(REJ(),String(n));}catch(e){}return n;});}
-      if(!localPassed.length)return null;
-      const toStore=localPassed.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
+      if(!valid.length)return null;
+      const toStore=valid.map(q=>shuffleAllSteps({...q,mistake_type:q.mistake_type||"不明",_subject:subj}));
       // doRefill と同様に復習対象科目は先頭挿入して優先出題
       const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
       const curDiff=getAutoDifficulty(subj,logsR.current);
@@ -4100,7 +3991,7 @@ function App(){
                 <div className="card">
                   <div className="section-title">アプリについて</div>
                   <div style={{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v14 — Conviction Edition</div>
+                    <div>📚 まちがいラボ v18 — Conviction Edition</div>
                     <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
                     <div>🌱 やさしい / 📝 ふつう / 🔥 むずかしい の自動難易度</div>
                     <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
