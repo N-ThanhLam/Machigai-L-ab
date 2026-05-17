@@ -727,6 +727,79 @@ const calcMistakeImprovement=(history)=>{
   return {type:w.type,deltaPct:pct,direction:"up",msg:`「${k}」が先週より${pct}%増えた。今日は意識してみよう！`};
 };
 
+// ─── 途中成功（partial success）の抽出 ──────────────────────────────
+// 不正解でも「ここまでは合ってた」を 2-3 個拾う。子供は "全部ダメ" と感じると萎える。
+// 失敗したミス型に該当しない領域は、概ね機能していたと見做す。
+//   - 読解(条件・助詞・読み落とし) / 計算(符号・桁・単位) / 知識(公式・用語) の3軸
+//   - 加えて自信度入力・復習挑戦・再挑戦の事実を拾う
+// pure function, 状態を持たない。表示直前に呼ぶだけ。
+const calcPartialSuccesses=(quiz,opts={})=>{
+  const out=[];
+  const mt=(quiz&&quiz.mistake_type)||"";
+  const isReadMiss=/条件|助詞|前置詞|読み落と/.test(mt);
+  const isCalcMiss=/符号|桁|単位/.test(mt);
+  const isKnowMiss=/公式|用語|混同|逆転/.test(mt);
+  if(!isReadMiss)out.push({icon:"📖",label:"条件は読めてた"});
+  if(!isCalcMiss)out.push({icon:"🧮",label:"計算はしっかり"});
+  if(!isKnowMiss)out.push({icon:"📚",label:"知識は引き出せた"});
+  // 「答えを選びきれた」は "まだ習ってない" を選んでない場合に常に true
+  if(opts.selectedChoice!==null&&opts.selectedChoice!==undefined)out.push({icon:"🎯",label:"最後まで考えた"});
+  if(opts.wasRetry)out.push({icon:"🔄",label:"もう一回挑んだ"});
+  if(opts.isReview)out.push({icon:"💪",label:"復習に挑戦中"});
+  if(opts.confidenceRating)out.push({icon:"🤔",label:"手応えを言語化"});
+  // 多すぎても主張過多なので 3 件まで。3 軸のうち失敗してない方を優先。
+  return out.slice(0,3);
+};
+
+// ─── 親向け一言（parent-friendly praise）──────────────────────────────
+// 親が子供に "正解した" 以外で褒めやすい一言を自動生成する。
+// 親が褒める対象を増やすことが子供のやる気に効くため、最も褒め甲斐のあるシグナルを1つ選んで返す。
+// 入力: logs（既存の累積）。出力: {title, body} | null
+const calcParentPraise=(logs)=>{
+  if(!logs)return null;
+  const td=today();
+  const hist=logs.recentHistory||[];
+  // 1. ミス改善率: 先週比で TOP ミス型が減っていれば最優先
+  const imp=calcMistakeImprovement(hist);
+  if(imp&&imp.direction==="down"){
+    return {title:"今日はここを褒めてあげて",body:`「${kidifyMistakeType(imp.type)}」が先週より${Math.abs(imp.deltaPct)}%減っています。地味だけど一番伸びてる力です。`};
+  }
+  // 2. リトライからの正解（粘った）
+  const today24=hist.filter(r=>r.date===td);
+  let retryWins=0;
+  for(let i=1;i<today24.length;i++){
+    if(today24[i].correct&&!today24[i-1].correct)retryWins++;
+  }
+  if(retryWins>=2){
+    return {title:"今日はここを褒めてあげて",body:`不正解の次に正解を取り戻した回数 ${retryWins} 回。「途中で投げずに考え直せた」が今日の主役です。`};
+  }
+  // 3. ノルマ完遂 or 開始力
+  const todayQ=logs.dailyLog?.[td]?.q||0;
+  if(todayQ>=3&&(logs.loginStreak||0)>=2){
+    return {title:"今日はここを褒めてあげて",body:`${logs.loginStreak}日連続で取り組めています。「続ける力」が静かに育っています。`};
+  }
+  if(todayQ>=5){
+    return {title:"今日はここを褒めてあげて",body:`今日 ${todayQ} 問に挑戦。「最後まで読む」「選びきる」を ${todayQ} 回くり返した、それだけで十分な成長です。`};
+  }
+  // 4. 直近の自己ベスト連続
+  if((logs.bestStreak||0)>=3){
+    return {title:"今日はここを褒めてあげて",body:`連続正解の自己ベストは ${logs.bestStreak} 問。「集中が切れずに続けられた」瞬間が確かにあります。`};
+  }
+  return null;
+};
+
+// ─── 探偵フレーバー（ミス探偵モード）─────────────────────────────────
+// 「勉強してる」感を減らし「攻略してる」感に寄せるためのタグ。
+// ミス型ごとに探偵風の呼び名を返す。CSS 上は小さなチップで添えるだけ。
+const detectiveBadgeFor=(mistakeType)=>{
+  if(!mistakeType)return {icon:"🔍",label:"ひっかけ解除"};
+  if(/条件|読み落と|助詞|前置詞/.test(mistakeType))return {icon:"📖",label:"読み落としハンター"};
+  if(/符号|桁|単位/.test(mistakeType))return {icon:"🧮",label:"うっかり計算スナイパー"};
+  if(/因果|逆転/.test(mistakeType))return {icon:"🧭",label:"原因と結果の入替探偵"};
+  if(/公式|用語|混同|過剰適用|規則/.test(mistakeType))return {icon:"🎭",label:"似てるルール見破り"};
+  return {icon:"🔍",label:"勘違いハンター"};
+};
+
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
 const calcSubjRates=h=>{if(!h||!h.length)return{};const m={};for(const r of h.slice(-100)){if(!m[r.subject])m[r.subject]={q:0,c:0};m[r.subject].q++;if(r.correct)m[r.subject].c++;}return m;};
 
@@ -1206,6 +1279,34 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .rankin-toast .rankin-big{font-size:20px;font-weight:900;display:block;margin-bottom:2px}
 .rankin-toast .rankin-spark{display:inline-block;animation:spark-spin 1.2s linear infinite}
 @keyframes spark-spin{to{transform:rotate(360deg)}}
+
+/* ─── 途中成功（ここまでは合ってた）──────────────── */
+/* 不正解 UI で「全部ダメだった」感を打ち消すための小さなチップ列。 */
+.partial-success-box{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.partial-success-label{font-size:10px;font-weight:900;color:#15803d;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.partial-success-pills{display:flex;flex-wrap:wrap;gap:6px}
+.partial-success-pill{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.7);border:1px solid #bbf7d0;border-radius:99px;padding:3px 10px;font-size:11.5px;font-weight:800;color:#166534;line-height:1.4}
+[data-theme="dark"] .partial-success-box{background:#0f2a1a;border-color:#166534}
+[data-theme="dark"] .partial-success-pill{background:rgba(0,0,0,.25);border-color:#15803d;color:#bbf7d0}
+[data-theme="dark"] .partial-success-label{color:#bbf7d0}
+
+/* ─── 探偵フレーバータグ ────────────────────────── */
+/* "勉強してる" 感を減らすため、ミスタイプ脇に小さな攻略風タグを添える。 */
+.detective-tag{display:inline-flex;align-items:center;gap:3px;background:rgba(146,64,14,.08);border:1px solid rgba(146,64,14,.18);border-radius:99px;padding:1px 8px;font-size:9.5px;font-weight:900;color:#92400e;letter-spacing:.04em;margin-left:6px;vertical-align:middle}
+[data-theme="dark"] .detective-tag{background:rgba(253,230,138,.12);border-color:rgba(253,230,138,.25);color:#fde68a}
+
+/* ─── 親向け一言 ──────────────────────────────── */
+.celebration-card.parent-praise{background:linear-gradient(135deg,#fff1f2,#ffe4e6);border-color:#fb7185;box-shadow:0 6px 22px rgba(251,113,133,.18)}
+.celebration-card.parent-praise .celebration-title{color:#9f1239}
+.celebration-card.parent-praise .celebration-body{color:#be123c}
+[data-theme="dark"] .celebration-card.parent-praise{background:linear-gradient(135deg,#3a1c22,#4a1d2a);border-color:#fb7185}
+[data-theme="dark"] .celebration-card.parent-praise .celebration-title{color:#fecdd3}
+[data-theme="dark"] .celebration-card.parent-praise .celebration-body{color:#fda4af}
+
+/* ─── 改善率トップバナー ───────────────────────── */
+.improvement-banner{background:linear-gradient(135deg,#ecfeff,#cffafe);border:1.5px solid #22d3ee;border-radius:12px;padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#155e75;line-height:1.4}
+.improvement-banner .ib-tag{background:#06b6d4;color:#fff;border-radius:6px;padding:2px 7px;font-size:9.5px;font-weight:900;letter-spacing:.04em;flex-shrink:0}
+[data-theme="dark"] .improvement-banner{background:#0c2a30;border-color:#22d3ee;color:#a5f3fc}
 
 /* ─── タイトル・ヒーロー（説得力強化）────────────── */
 .hero-title{position:relative;text-align:center;padding:8px 0 4px}
@@ -1801,19 +1902,26 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   }
 
   // ─ 結果フェーズ：不正解 ─
-  // 並び方針: ①ミスタイプ大見出し → ②選んだ選択肢の分析 → ③問題と答え合わせ → ④自信度 → ⑤行動ボタン
+  // 並び方針: ①ミスタイプ大見出し → ②「ここまでは合ってた」途中成功 → ③選んだ選択肢の分析 → ④問題と答え合わせ → ⑤行動ボタン
   if(quizPhase==="result"&&!isCorrect){
     // 選んだ選択肢のwrong_analysisエントリを取得
     const chosenAnalysis=(quiz.wrong_analysis||[]).find(wa=>wa.index===selectedChoice);
+    // 探偵タグ（"勉強してる" 感を減らす攻略風フレーバー）
+    const detective=detectiveBadgeFor(quiz.mistake_type);
+    // 「ここまでは合ってた」途中成功（不正解時のやる気維持）
+    const partials=calcPartialSuccesses(quiz,{selectedChoice,isReview,confidenceRating});
     return(
       html`<div ref=${quizCardRef} class=${`quiz-card${easyMode?" diff-easy-soft":""}`}>
         ${ModeBanner()}
-        
+
         <div class="result-big-ng">
           <div style=${{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
             <div class="result-big-icon" style=${{fontSize:36,marginBottom:0}}>💡</div>
             <div>
-              <div style=${{fontSize:10,fontWeight:900,color:"#92400e",letterSpacing:".06em"}}>このミスの型</div>
+              <div style=${{fontSize:10,fontWeight:900,color:"#92400e",letterSpacing:".06em"}}>
+                このミスの型
+                <span class="detective-tag" title="ミス探偵モード">${detective.icon} ${detective.label}</span>
+              </div>
               <div style=${{fontSize:18,fontWeight:900,color:"#78350f",lineHeight:1.2}}>${quiz.mistake_type}</div>
             </div>
           </div>
@@ -1822,6 +1930,17 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           </div>
           <${StatGainsPop} answerGains=${answerGains}/>
         </div>
+
+        ${partials.length>0&&(
+          html`<div class="partial-success-box">
+            <div class="partial-success-label">✅ ここまでは合ってた</div>
+            <div class="partial-success-pills">
+              ${partials.map((p,i)=>(
+                html`<span key=${i} class="partial-success-pill">${p.icon} ${p.label}</span>`
+              ))}
+            </div>
+          </div>`
+        )}
 
         ${chosenAnalysis&&selectedChoice!==null&&(
           html`<div class="thought-quote">
@@ -4086,6 +4205,20 @@ function App(){
             ${tab==="learn"&&(
               html`<${Fragment}>
 
+                ${/* 改善率トップバナー: 「正解率」ではなく「先週比で減ったミス型」を主役に。 */ ""}
+                ${!trialMode&&quizPhase!=="question"&&(()=>{
+                  const imp=calcMistakeImprovement(logs.recentHistory||[]);
+                  if(!imp||imp.direction!=="down")return null;
+                  const pct=Math.abs(imp.deltaPct||0);
+                  if(pct<25)return null; // 小さすぎる改善はノイズ。25%以上で表示。
+                  return(
+                    html`<div class="improvement-banner" title=${`「${imp.type}」が先週比で${pct}%減少`}>
+                      <span class="ib-tag">今日の成長</span>
+                      <span>「${kidifyMistakeType(imp.type)}」が先週より <b>${pct}%</b> 減ったよ！</span>
+                    </div>`
+                  );
+                })()}
+
                 ${!trialMode&&quizPhase!=="question"&&(()=>{
                   // ⓪ セッション開始時に「前回多かったミス型 TOP1」だけを1行表示。
                   //    問題プレイ中(question)は注意を分散しないよう非表示。結果フェーズと初期表示でだけ出す。
@@ -4448,6 +4581,20 @@ function App(){
                     </div>
                   </div>`
                 )}
+                ${/* 親向け一言: 正解以外の "褒められるポイント" を1つだけ自動生成。子供のやる気は「親が何を褒めるか」に強く影響される。 */ ""}
+                ${(()=>{
+                  const pp=calcParentPraise(logs);
+                  if(!pp)return null;
+                  return(
+                    html`<div class="celebration-card parent-praise">
+                      <span class="celebration-icon">🫶</span>
+                      <div class="celebration-text">
+                        <div class="celebration-title">${pp.title}</div>
+                        <div class="celebration-body">${pp.body}</div>
+                      </div>
+                    </div>`
+                  );
+                })()}
 
                 
                 ${(()=>{
