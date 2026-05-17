@@ -729,7 +729,8 @@ const getAutoDifficulty=(subj,logs)=>{
 
 // ─── 成長スコア（旧「本日スコア」）計算 ──────────────────────────
 // 「今日伸びた能力」(dailyStatGains[today] + 単元力 today) の合計。
-// 20問連続正解で200点 / 全問不正解でも80点 になるよう calcStatGainsForAnswer 側で調整済み。上限なし。
+// 20問連続正解で約300点 / 70%正答率20問で約200点 / 全問不正解でも80点。上限なし。
+// ストリークボーナス（floor(streak/2)）が daily に含まれるため連続正解で大きく伸びる。
 const calcTodayScore=(logs)=>{
   const td=today();
   const dg=logs?.dailyStatGains?.[td]||{};
@@ -772,9 +773,11 @@ const mistakeToStat=mt=>{
 //
 //   correct → focus+2 / mistake関連+2  ＋ 単元+6 = 10/問 → 20問正解で 200点
 //   wrong   → attention+1 / mistake関連+1 ＋ 単元+2 = 4/問  → 20問不正解で 80点
-const calcStatGainsForAnswer=(correct,mistakeType)=>{
+const calcStatGainsForAnswer=(correct,mistakeType,opts={})=>{
+  const {streak=0,isFirst=false}=opts;
   const g={};STAT_ORDER.forEach(k=>g[k]=0);
   const stat=mistakeToStat(mistakeType);
+  // 基本ゲイン
   if(correct){
     g.focus+=2;
     g[stat]+=2;
@@ -782,17 +785,30 @@ const calcStatGainsForAnswer=(correct,mistakeType)=>{
     g.attention+=1;
     g[stat]+=1;
   }
+  // 開始力ボーナス（今日初の1問だけ）
+  if(isFirst){
+    g.startingPower+=5;
+  }
+  // 連続正解ボーナス（daily に反映 → 成長スコアを伸ばす）
+  //   streak=1 → 0, streak=2 → 1, streak=10 → 5, streak=20 → 10
+  //   20問連続で累計 +100 → 200+100=300点
+  if(correct && streak>=2){
+    const bonus=Math.floor(streak/2);
+    const half=Math.floor(bonus/2);
+    g.stability+=half;
+    g.consistency+=bonus-half; // 奇数余りは consistency 側へ
+  }
   return g;
 };
 // 累積ステータス専用ボーナス（dailyStatGains には加算しない）。
-// 連続正解・リトライ・復帰など、長期エンゲージメントの差分を累積側へ反映。
+// 連続ボーナスは daily 側（calcStatGainsForAnswer）に移動済み。
+// ここはリトライ・復帰など「累積でしか効かない」差分を担う。
 const calcStatBonusesForAnswer=(correct,opts={})=>{
-  const {wasRetry=false,prevWrong=false,streak=0}=opts;
+  const {wasRetry=false,prevWrong=false}=opts;
   const g={};STAT_ORDER.forEach(k=>g[k]=0);
   if(correct){
-    if(streak>=2)g.stability+=Math.min(2,Math.floor(streak/3));
-    if(wasRetry)g.retryAgain+=2;
-    if(prevWrong)g.retryPower+=2;
+    if(wasRetry)g.retryAgain+=6;   // 同問リトライ成功（cumul のみ）
+    if(prevWrong)g.retryPower+=4;  // 直前ミス後の復帰（cumul のみ）
   }
   return g;
 };
@@ -1594,7 +1610,7 @@ const popAnchorFromEvent=(e)=>{
 
 // ─── QuizPanel ───────────────────────────────────────────────────
 const CHOICE_LABELS=["A","B","C","D"];
-const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered})=>{
+const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered,choicesDisabled})=>{
   if(!quiz||!quizPhase)return null;
   const isCorrect=selectedChoice!==null&&selectedChoice===quiz.correct;
   // ─ スクロール制御 ─
@@ -1668,7 +1684,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
             <span>お試しモード — APIキーなしで体験中</span>
           </div>`
         )}
-        <${ModeBanner}/>
+        ${ModeBanner()}
         
         ${isPriorityReview&&(
           html`<div class="priority-banner">
@@ -1711,11 +1727,15 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           html`<${Fragment}>
             <div class="q-text">${quiz.question}</div>
             ${/* ⑩ 自信度セレクタを回答前に表示（ガイナー効果）— メタ認知をオンにする */ ""}
-            <${ConfidenceSelector}/>
+            ${ConfidenceSelector()}
             ${quiz.choices.map((c,i)=>{
               const isHidden=hiddenChoice===i;
+              const isLocked=!!choicesDisabled&&!isHidden;
+              const disabled=isHidden||isLocked;
+              const lockedStyle=isLocked?{opacity:.55,cursor:"not-allowed"}:undefined;
+              const hiddenStyle=isHidden?{textDecoration:"line-through",opacity:.35,cursor:"not-allowed"}:undefined;
               return(
-                html`<button key=${i} class=${`choice-btn${isHidden?" dim":""}`} onClick=${(e)=>!isHidden&&onChoice(i,e)} disabled=${isHidden} style=${isHidden?{textDecoration:"line-through",opacity:.35,cursor:"not-allowed"}:undefined}>
+                html`<button key=${i} class=${`choice-btn${isHidden?" dim":""}`} onClick=${(e)=>!disabled&&onChoice(i,e)} disabled=${disabled} aria-disabled=${disabled} style=${hiddenStyle||lockedStyle}>
                   <span class="choice-label">${CHOICE_LABELS[i]}</span>
                   ${isHidden?"（消去済み）":c}
                 </button>`
@@ -1750,7 +1770,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
     const chosenAnalysis=(quiz.wrong_analysis||[]).find(wa=>wa.index===selectedChoice);
     return(
       html`<div ref=${quizCardRef} class=${`quiz-card${easyMode?" diff-easy-soft":""}`}>
-        <${ModeBanner}/>
+        ${ModeBanner()}
         
         <div class="result-big-ng">
           <div style=${{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
@@ -1846,7 +1866,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   if(quizPhase==="result"&&isCorrect){
     return(
       html`<div ref=${quizCardRef} class=${`quiz-card${easyMode?" diff-easy-soft":""}`}>
-        <${ModeBanner}/>
+        ${ModeBanner()}
         
         <div class="result-big-ok">
           <div class="result-big-icon">✅</div>
@@ -2596,25 +2616,27 @@ function App(){
       // 基本ゲイン: daily と cumulative の両方に加算（成長スコアの予測可能性を担保）
       // ・wasRetry+正解 → 直前に与えた wrong 分を差し引いて「ストレート正解と同等」に揃える
       // ・wasRetry+不正解 → 同じ問題の繰り返し誤答は加点なし（無限稼ぎ防止）
+      // isFirstToday: 今日の問題カウント（incremement 前の prev 値）が 0、かつリトライでない
+      const isFirstToday=!wasRetry&&((prev.dailyLog?.[td]?.q||0)===0);
       let stGains;
       if(wasRetry){
         if(correct){
-          stGains=calcStatGainsForAnswer(true,quiz?.mistake_type);
-          const wrongAdj=calcStatGainsForAnswer(false,quiz?.mistake_type);
+          stGains=calcStatGainsForAnswer(true,quiz?.mistake_type,{streak:newStreak,isFirst:false});
+          const wrongAdj=calcStatGainsForAnswer(false,quiz?.mistake_type,{streak:0,isFirst:false});
           for(const k of STAT_ORDER){ stGains[k]=(stGains[k]||0)-(wrongAdj[k]||0); }
         }else{
           stGains=_zeroStats();
         }
       }else{
-        stGains=calcStatGainsForAnswer(correct,quiz?.mistake_type);
+        stGains=calcStatGainsForAnswer(correct,quiz?.mistake_type,{streak:newStreak,isFirst:isFirstToday});
       }
       for(const k of Object.keys(stGains)){
         next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stGains[k];
         next.dailyStatGains[td][k]=(next.dailyStatGains[td][k]||0)+stGains[k];
       }
       // ボーナス: wasRetry 中はゼロ（retryAgain / retryPower を稼げない）。
-      // 累積のみに加算（dailyStatGains には載せない）。
-      const stBonus=wasRetry?_zeroStats():calcStatBonusesForAnswer(correct,{wasRetry,prevWrong,streak:newStreak});
+      // 累積のみに加算（dailyStatGains には載せない）。streak は daily 側へ移動済み。
+      const stBonus=wasRetry?_zeroStats():calcStatBonusesForAnswer(correct,{wasRetry,prevWrong});
       for(const k of Object.keys(stBonus)){
         if(stBonus[k]>0)next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stBonus[k];
       }
@@ -3241,17 +3263,31 @@ function App(){
   },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
   useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
 
-  // ⑧ 見直しカードが表示されたらスクロールしてフォーカス
+  // ⑧ 見直しカードが表示されたら（画面外のときだけ）瞬時スナップ＋プライマリにフォーカス
+  // smooth はユーザーの指 / スクロールと競合して「変なタイミングで画面が動く」原因になるため auto。
+  // タッチ端末では focus リングが視覚ノイズになるだけなのでスキップ。
   useEffect(()=>{
     if(!pendingChoice)return;
-    requestAnimationFrame(()=>{
-      if(threesecCardRef.current){
-        threesecCardRef.current.scrollIntoView({behavior:"smooth",block:"center"});
-        // フォーカス可能な最初の要素（キャンセルボタン）にフォーカスを当てる
-        const btn=threesecCardRef.current.querySelector("button");
+    const rafId=requestAnimationFrame(()=>{
+      const el=threesecCardRef.current;
+      if(!el)return;
+      const rect=el.getBoundingClientRect();
+      const vh=window.innerHeight||640;
+      // 画面に収まっていれば動かさない（top:-8 まで許容、下端は画面内）
+      const offscreen=rect.top<-8||rect.bottom>vh;
+      if(offscreen){
+        el.scrollIntoView({behavior:"auto",block:"center"});
+      }
+      // hover が無い = タッチ系端末ではフォーカスを当てない
+      let isTouch=false;
+      try{ isTouch=!!(window.matchMedia&&window.matchMedia("(hover:none)").matches); }catch(_){}
+      if(!isTouch){
+        // プライマリアクション（これで決定）にフォーカス。やめる ではない。
+        const btn=el.querySelector(".threesec-go")||el.querySelector("button");
         if(btn)btn.focus({preventScroll:true});
       }
     });
+    return()=>cancelAnimationFrame(rafId);
   },[!!pendingChoice]);
 
   // ⑧ 3秒見直し：自動確定なし。「これで決定」を押すまで待つ。
@@ -3964,11 +4000,12 @@ function App(){
                 <div class="stat"><div class="stat-n" style=${{color:"#f59e0b"}}>🔥${gs.streak}</div><div class="stat-l">連続</div></div>
                 <div class="stat"><div class="stat-n" style=${{color:"#5b3ff8"}}>${gs.best}</div><div class="stat-l">最高</div></div>
                 <div class="stat"><div class="stat-n" style=${{color:"#7c6fb0"}}>${gs.wrong}</div><div class="stat-l">${gs.wrong>0?"学んだ":"無傷"}</div></div>
-                <div class="stat" style=${{background:todayScore>=200?"#f0fdf4":todayScore>=100?"#fffbeb":"var(--input-bg)",border:todayScore>=200?"2px solid #22c55e":todayScore>=100?"2px solid #f59e0b":"none"}}>
-                  <div class=${`stat-n tick-anim`} key=${`gs-${todayScore}`} style=${{color:todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
+                <div class="stat" style=${{background:todayScore>=300?"#fef3c7":todayScore>=200?"#f0fdf4":todayScore>=100?"#fffbeb":"var(--input-bg)",border:todayScore>=300?"2px solid #f59e0b":todayScore>=200?"2px solid #22c55e":todayScore>=100?"2px solid #f59e0b":"none",position:"relative"}}>
+                  ${(logs.bestDayScore||0)>0&&todayScore>=(logs.bestDayScore||0)&&todayScore>0&&html`<div style=${{position:"absolute",top:-6,right:-4,fontSize:10,background:"#f59e0b",color:"#fff",borderRadius:8,padding:"1px 5px",fontWeight:900,boxShadow:"0 2px 4px rgba(0,0,0,.15)"}}>🏆新記録</div>`}
+                  <div class=${`stat-n tick-anim`} key=${`gs-${todayScore}`} style=${{color:todayScore>=300?"#d97706":todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
                     ${todayScore}
                   </div>
-                  <div class="stat-l">成長スコア</div>
+                  <div class="stat-l">成長スコア<span style=${{opacity:.6,marginLeft:2}}>/最高${logs.bestDayScore||0}</span></div>
                 </div>
               </div>
             </div>
@@ -4197,6 +4234,7 @@ function App(){
                     isPriorityReview=${isPriorityReview}
                     answerGains=${answerGains}
                     onActiveRecallAnswered=${handleActiveRecallAnswered}
+                    choicesDisabled=${!!pendingChoice}
                     onReport=${async()=>{
                       const rid=currentReviewItemId;
                       setLogs(p=>{const n=deepClone(p);
