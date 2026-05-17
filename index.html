@@ -504,12 +504,23 @@ const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(d
 // 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
 // 第4引数 preferMistakeType: 同 mistake_type の問題があれば優先 pop。
 // 無ければ通常の先頭から pop（フォールバック）。「理解した気」を即潰すための即出題用。
+// 旧バージョンで生成された構造不備の問題（hasValidQuiz==false）は pop 時に破棄する。
 const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
   const dam=getDam();
   const order=diff==="easy"?["easy","standard","hard"]:diff==="hard"?["hard","standard","easy"]:["standard","easy","hard"];
+  const isValid=(typeof hasValidQuiz==="function")?hasValidQuiz:(()=>true);
   for(const d of order){
-    const b=_ensureBucket(dam,subj,d);
-    if(!b.length)continue;
+    const bRaw=_ensureBucket(dam,subj,d);
+    if(!bRaw.length)continue;
+    // 旧データの不整合（wrong_analysis 欠落など）を pop 時にまとめて破棄して残りから供給
+    const b=bRaw.filter(isValid);
+    if(b.length!==bRaw.length){
+      dam[subj][d]=b;
+    }
+    if(!b.length){
+      saveDam(dam);
+      continue;
+    }
     // 優先 mistake_type 指定があれば先に試す
     if(preferMistakeType){
       const idx=b.findIndex(q=>q&&q.mistake_type===preferMistakeType);
@@ -523,6 +534,24 @@ const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
     dam[subj][d]=b.slice(take);saveDam(dam);return r;
   }
   return[];
+};
+// DAM 全体を構造検証で掃除する（旧バージョン生成の壊れた問題を起動時に一掃）
+// hasValidQuiz は後方で定義されるため、呼び出しタイミングは「マウント時 useEffect」など以降に限る。
+const cleanDam=()=>{
+  try{
+    if(typeof hasValidQuiz!=="function")return 0;
+    const dam=getDam();let removed=0;let changed=false;
+    for(const s of Object.keys(dam||{})){
+      const bucket=dam[s];if(!bucket||typeof bucket!=="object")continue;
+      for(const d of DIFFS){
+        const arr=Array.isArray(bucket[d])?bucket[d]:[];
+        const next=arr.filter(hasValidQuiz);
+        if(next.length!==arr.length){removed+=arr.length-next.length;bucket[d]=next;changed=true;}
+      }
+    }
+    if(changed)saveDam(dam);
+    return removed;
+  }catch(e){return 0;}
 };
 const getDamBucketCount=(subj,diff)=>{const dam=getDam();return (dam[subj]?.[diff]||[]).length;};
 const getDamSubjTotal=(subj)=>{const dam=getDam();const b=dam[subj]||{};return (b.easy?.length||0)+(b.standard?.length||0)+(b.hard?.length||0);};
@@ -2481,6 +2510,8 @@ function App(){
   useEffect(()=>{
     // gs は useState の lazy initializer で同期ロード済み。ここではプロフィール／ログ／DAMだけ。
     try{reloadProfile();}catch(e){}
+    // 旧バージョンで生成された構造不備の問題を一掃（「問題データが読み込めませんでした」発生抑止）
+    try{cleanDam();}catch(e){}
     loadLogs();setDamStats(getDamStats(subjectsR.current));
   },[]);
 
@@ -2713,38 +2744,32 @@ function App(){
   const updateLogs=useCallback((correct,subj,wrongItem,newBest,sessionComplete,wasRetry=false)=>{
     setLogs(prev=>{
       const next=deepClone(prev);const td=today();
-      // 「不正解→リトライ」での無限稼ぎ対策:
-      // 同じ問題のリトライ回は、問題数カウンタ・recentHistory・reviewQueue を二重に積まない。
-      // ステータス／単元力も後段で「ストレート正解と同等」になるよう調整する。
+      // 「不正解→リトライ」での扱い:
+      // 「初回の回答」を正答率／履歴の正本とする。同じ問題のリトライ回は、問題数・正解数・履歴・reviewQueue を二重に積まない。
+      // また、初回が不正解だった事実は書き換えず保持する（戻って正解しても正解率100%になる不整合を防ぐ）。
+      // ステータス／単元力は後段で「ストレート正解と同等の net 加算」になるよう wasRetry 分岐で調整する。
       if(!next.subjectStats[subj])next.subjectStats[subj]={q:0,c:0};
       if(!wasRetry){
         next.subjectStats[subj].q++;
+        if(correct)next.subjectStats[subj].c++;
       }
-      if(correct)next.subjectStats[subj].c++;
       if(!next.dailyLog[td])next.dailyLog[td]={q:0,c:0,subjects:[],sessions:0};
       if(!wasRetry){
         next.dailyLog[td].q++;
+        if(correct)next.dailyLog[td].c++;
       }
-      if(correct)next.dailyLog[td].c++;
-      if(sessionComplete)next.dailyLog[td].sessions++; // 3/3正解のセッションのみノルマカウント
+      if(sessionComplete&&!wasRetry)next.dailyLog[td].sessions++; // 初回正解のみノルマカウント（リトライ正解で水増ししない）
       if(!next.dailyLog[td].subjects.includes(subj))next.dailyLog[td].subjects.push(subj);
       if(!wasRetry){
         next.totalQ++;
+        if(correct)next.totalCorrect++;
       }
-      if(correct)next.totalCorrect++;
       if(newBest!==undefined)next.bestStreak=Math.max(next.bestStreak||0,newBest);
       if(!next.recentHistory)next.recentHistory=[];
       if(!wasRetry){
         next.recentHistory.push({correct,subject:subj,date:td,mistake_type:(!correct&&quiz?.mistake_type)||undefined,confidence:confidenceRatingR.current??undefined});
-      }else if(correct){
-        // リトライで正解した場合、最後の「不正解」エントリを正解に書き換え（履歴上もストレート正解と同等扱い）
-        const last=next.recentHistory[next.recentHistory.length-1];
-        if(last && last.date===td && last.subject===subj){
-          last.correct=true;
-          delete last.mistake_type;
-          last.confidence=confidenceRatingR.current??undefined;
-        }
       }
+      // リトライ回は recentHistory を書き換えない（初回の不正解とミス型を保持）
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       // 初回の不正解のみ reviewQueue へ追加（リトライ wrong は wrongItem=null で来る）
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
@@ -2754,7 +2779,8 @@ function App(){
       // 当日スコアの自己最高記録は dailyStatGains / dailyUnitGains の加算後に行う
       // （加算前に呼ぶと「今回の回答ぶん」が反映されず、自己ベストが常に1問遅れる）
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
-      if(topic){
+      if(topic&&!wasRetry){
+        // 初回の試行のみを単元マスター集計に反映（リトライで attempts を二重カウントしない）
         if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
         const tm=next.topicMastery[topic];tm.attempts++;if(correct)tm.correct++;
         if(!tm.mastered&&tm.attempts>=5&&tm.correct/tm.attempts>=.8)tm.mastered=true;
@@ -3784,7 +3810,7 @@ function App(){
       pollingCancelRef.current++;
       setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
       switchUser(remain[0].id);setCurrentUid(remain[0].id);
-      setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
+      setTimeout(()=>{reloadProfile();reloadUserScopedSettings();try{cleanDam();}catch(_){}loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
     }
     setShowUserEdit(false);
   };
@@ -3880,7 +3906,10 @@ function App(){
               current[targetSubj][diff]=[...existing,...incoming].slice(-DAM_MAX);
             }
           }
-          saveDam(current);setDamStats(getDamStats(subjectsR.current));
+          saveDam(current);
+          // 旧バージョンで生成された構造不備の問題はインポート時にも一掃
+          try{cleanDam();}catch(_){}
+          setDamStats(getDamStats(subjectsR.current));
         }
         if(d.birthday){
           setBirthday(d.birthday);
@@ -4087,7 +4116,7 @@ function App(){
                         pollingCancelRef.current++;
                         setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
                         switchUser(u.id);setCurrentUid(u.id);
-                        setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());welcomeShownRef.current=false;},0);
+                        setTimeout(()=>{reloadProfile();reloadUserScopedSettings();try{cleanDam();}catch(_){}loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());welcomeShownRef.current=false;},0);
                       }}>
                       <span class="uc-icon">${u.icon||"😀"}</span>${u.name}
                     </button>`
@@ -5015,7 +5044,7 @@ function App(){
                             pollingCancelRef.current++;
                             setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
                             switchUser(u.id);setCurrentUid(u.id);
-                            setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
+                            setTimeout(()=>{reloadProfile();reloadUserScopedSettings();try{cleanDam();}catch(_){}loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
                           }}>
                           <span class="uc-icon">${u.icon||"😀"}</span>${u.name}
                         </button>`
