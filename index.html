@@ -19,7 +19,9 @@
     if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1')){
       window.addEventListener('load',()=>{
         try{
-          const swCode = "const CACHE='manabi-v14';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.open(CACHE).then(c=>c.match(e.request).then(r=>{const f=fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){try{c.put(e.request,res.clone());}catch(_){}};return res;}).catch(()=>r);return r||f;})));});";
+          // CACHE 名は app バージョンに合わせて更新。activate で旧キャッシュを掃除し、
+          // stale-while-revalidate が古い HTML を返し続ける問題を防ぐ。
+          const swCode = "const CACHE='manabi-v20';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil((async()=>{const ks=await caches.keys();await Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();})());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.open(CACHE).then(c=>c.match(e.request).then(r=>{const f=fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){try{c.put(e.request,res.clone());}catch(_){}};return res;}).catch(()=>r);return r||f;})));});";
           const blob=new Blob([swCode],{type:'application/javascript'});
           const url=URL.createObjectURL(blob);
           navigator.serviceWorker.register(url).catch(()=>{});
@@ -552,6 +554,22 @@ const safeUUID=()=>{
 const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth+"T00:00:00"),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
 const jstYesterday=()=>{const d=new Date(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}));d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE');};
+// JST基準で n 日前の YYYY-MM-DD を返す（cal28 など UTC ズレ対策）
+const jstDaysAgo=(n)=>{const d=new Date(today()+"T00:00:00");d.setDate(d.getDate()-n);return d.toLocaleDateString('sv-SE');};
+// gs（ヘッダ表示用カウンタ）の永続化ルール:
+//   streak    … 不正解になるまで常時維持（日跨ぎでもリセットしない）
+//   best      … その日の最高値。日跨ぎで current streak にローテーション
+//   wrong     … その日の累積。日跨ぎで 0 にリセット
+//   qNum      … 現セッションの問題番号（resetFetch でリセット）
+//   dayKey    … best/wrong が紐づく日付。これと today() を比較してローテ判定
+const _initGsDefaults=()=>({streak:0,best:0,wrong:0,qNum:1,wrongStreak:0,dayKey:today()});
+const _rolloverGs=(g)=>{
+  if(!g||typeof g!=="object")return _initGsDefaults();
+  const td=today();
+  if(g.dayKey===td)return g;
+  // 日跨ぎ: best は current streak（持ち越し分）から再スタート、wrong は 0、streak はそのまま
+  return {...g,best:g.streak||0,wrong:0,dayKey:td};
+};
 let _ki=0;
 
 // ─── CHOICE SHUFFLE ───────────────────────────────────────────────
@@ -743,19 +761,25 @@ const calcTodayScore=(logs)=>{
 
 // ─── 累積ステータス（基本10項目） ─────────────────────────────────
 // 基本ステータス。各科目の単元力（subjectUnitStats）と合わせて 1+5=6 カテゴリで表示する。
+// 並び順は「学習プロセスの自然な流れ」に揃える：
+//   ① 入口（やる気・始動）  : 開始力 → 継続力
+//   ② 入力理解（読み解く）  : 読解力 → 論理整理
+//   ③ 実行品質（丁寧に解く）: 集中力 → 注意力 → 確認力
+//   ④ 立て直し（直す）      : 復帰力 → 再挑戦力 → 安定力
+// 表示順は「今日伸びた pill」(line 4429-) で見える。基本ステ TOP5 は値ソートのため不変。
 const STAT_LABELS={
-  retryPower:       {name:"復帰力",   icon:"💪"},
-  consistency:      {name:"継続力",   icon:"📅"},
   startingPower:    {name:"開始力",   icon:"🚀"},
+  consistency:      {name:"継続力",   icon:"📅"},
+  readingAccuracy:  {name:"読解力",   icon:"👁"},
+  logicalReasoning: {name:"論理整理", icon:"🧩"},
   focus:            {name:"集中力",   icon:"🧠"},
   attention:        {name:"注意力",   icon:"👀"},
   verificationPower:{name:"確認力",   icon:"🔍"},
+  retryPower:       {name:"復帰力",   icon:"💪"},
   retryAgain:       {name:"再挑戦力", icon:"🔁"},
   stability:        {name:"安定力",   icon:"⚖️"},
-  readingAccuracy:  {name:"読解力",   icon:"👁"},
-  logicalReasoning: {name:"論理整理", icon:"🧩"},
 };
-const STAT_ORDER=["retryPower","consistency","startingPower","focus","attention","verificationPower","retryAgain","stability","readingAccuracy","logicalReasoning"];
+const STAT_ORDER=["startingPower","consistency","readingAccuracy","logicalReasoning","focus","attention","verificationPower","retryPower","retryAgain","stability"];
 // 旧 signControl キーは attention にマイグレーション
 // ミスの型 → 対応ステータス
 const mistakeToStat=mt=>{
@@ -1414,6 +1438,19 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
   will-change:opacity,transform;
 }
 [data-theme="dark"] .bonus-pop-fly{background:linear-gradient(135deg,#1a3a24,#1f4a2e);border-color:#22c55e;color:#86efac;}
+
+/* ─── アクセシビリティ: 視覚過敏ユーザー向けアニメ抑制 ─────────── */
+/* OS設定 (System Preferences > Accessibility > Display > Reduce motion) ON 時、
+   ホップ・チック・スピン・ウィグル等の装飾アニメを停止。色変化や opacity 程度は残す。 */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .hop-anim,.tick-anim,.celebration-icon,.rankin-spark,.refill-dot,.norma-dot.now,.priority-banner .pb-icon{animation:none !important;transform:none !important;}
+}
 `;
 
 // ─── initLogs ────────────────────────────────────────────────────
@@ -2007,7 +2044,17 @@ function App(){
   const [growthTypeMsg,setGrowthTypeMsg]=useState(""); // 今日の成長タイプ
   const [aiReviewMsg,setAiReviewMsg]=useState("");     // 今日はここが良かった AI 総評
   const [subject,setSubject]=useState("");
-  const [gs,setGs]=useState({streak:0,best:0,wrong:0,qNum:1});
+  // 初期化はマウント時に同期で localStorage を読み込み、初回フレームでの "0" フラッシュを防ぐ。
+  // 旧スキーマ (savedDate のみで dayKey が無い) もここで吸収する。
+  const [gs,setGs]=useState(()=>{
+    try{
+      const s=_safeLS.get(SESS());
+      if(!s)return _initGsDefaults();
+      const p=JSON.parse(s);
+      const merged={..._initGsDefaults(),...p,dayKey:p.dayKey||p.savedDate||today()};
+      return _rolloverGs(merged);
+    }catch(e){return _initGsDefaults();}
+  });
   const [quiz,setQuiz]=useState(null);
   const [startError,setStartError]=useState("");
   const [appError,setAppError]=useState("");
@@ -2050,6 +2097,8 @@ function App(){
       if(td!==stopHereDateR.current){
         stopHereDateR.current=td;setStopHereDismissed(false);
       }
+      // 日跨ぎした瞬間にヘッダ表示の best/wrong も追従させる（idempotent: 同日なら何も起きない）
+      setGs(p=>_rolloverGs(p));
     },60000); // 1分ごとに日付チェック（軽量）
     return()=>clearInterval(id);
   },[]);
@@ -2187,7 +2236,7 @@ function App(){
   useEffect(()=>{gradeR.current=grade;},[grade]);
   useEffect(()=>{bdR.current=birthday;},[birthday]);
   useEffect(()=>{normaQueueR.current=normaQueue;},[normaQueue]);
-  useEffect(()=>{try{_safeLS.set(SESS(),JSON.stringify({...gs,savedDate:today()}));}catch(e){}},[gs]);
+  useEffect(()=>{try{_safeLS.set(SESS(),JSON.stringify({...gs,dayKey:gs.dayKey||today(),savedDate:today()}));}catch(e){}},[gs]);
   // ノルマ達成バナー
   useEffect(()=>{
     const cur=logs.dailyLog?.[today()]?.sessions||0;
@@ -2317,11 +2366,8 @@ function App(){
     setQuotaExhausted(false);
   };
   useEffect(()=>{
-    try{
-      reloadProfile();
-      const s=_safeLS.get(SESS());
-      if(s){const p2=JSON.parse(s);if(p2.savedDate===today())setGs(p2);else setGs(prev=>({...prev,streak:p2.streak||0,best:p2.best||0,wrong:0,qNum:1}));}
-    }catch(e){}
+    // gs は useState の lazy initializer で同期ロード済み。ここではプロフィール／ログ／DAMだけ。
+    try{reloadProfile();}catch(e){}
     loadLogs();setDamStats(getDamStats(subjectsR.current));
   },[]);
 
@@ -2592,10 +2638,8 @@ function App(){
       // ── 継続力: 新しい日かチェック（loginStreak更新前に確認）──
       const isNewDay=(next.lastLogin!==td);
       if(next.lastLogin!==td){const ys=jstYesterday();next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
-      // 当日スコアの自己最高記録（伸びた能力合計）
-      const {score:dayScore}=calcTodayScore(next);
-      if(!next.bestDayScore)next.bestDayScore=0;
-      if(dayScore>next.bestDayScore)next.bestDayScore=dayScore;
+      // 当日スコアの自己最高記録は dailyStatGains / dailyUnitGains の加算後に行う
+      // （加算前に呼ぶと「今回の回答ぶん」が反映されず、自己ベストが常に1問遅れる）
       const topic=quiz?.topic_tag||quiz?.question?.slice(0,20)||"";
       if(topic){
         if(!next.topicMastery[topic])next.topicMastery[topic]={subj,attempts:0,correct:0,debugDone:0,mastered:false};
@@ -2681,6 +2725,10 @@ function App(){
         if(ks.length>30)ks.slice(0,ks.length-30).forEach(k=>delete m[k]);
         next[dkey]=m;
       }
+      // 当日スコアの自己最高記録（伸びた能力合計）— 加算後の値で判定。
+      // bestLoginStreak / bestStreak と同じ Math.max スタイルに揃える。
+      const {score:dayScore}=calcTodayScore(next);
+      next.bestDayScore=Math.max(next.bestDayScore||0,dayScore);
       // 自動難易度を更新（次回出題時に反映）
       if(!next.subjectDifficulty)next.subjectDifficulty={};
       next.subjectDifficulty[subj]=getAutoDifficulty(subj,next);
@@ -3148,7 +3196,8 @@ function App(){
   },[]);
 
   const resetFetch=useCallback((subj,sg)=>{
-    const cur=gsR.current;const init={streak:cur.streak,best:cur.best,wrong:cur.wrong,qNum:1};
+    // ノルマセッション切替時にも日跨ぎ判定を入れ、表示の整合を取る
+    const cur=_rolloverGs(gsR.current);const init={...cur,qNum:1};
     // fetchLk/nextLkを明示リセット。rAF前に解放しないとfetchQ冒頭ガードで弾かれる。
     fetchLk.current=false;nextLk.current=false;
     resetState();setGs(init);setSubject(subj);pollingCancelRef.current++;setWaitingForStock(null);
@@ -3232,8 +3281,10 @@ function App(){
       dueDate:addDaysISO(today(),1),
       createdAt:today(),
     }:null;
-    const nextStr=correct?gs.streak+1:0;
-    const newBest=Math.max(gs.best,nextStr);
+    // 日跨ぎ（23:59→00:00で連続プレイ中など）に best/wrong をローテーション
+    const gsRolled=_rolloverGs(gs);
+    const nextStr=correct?gsRolled.streak+1:0;
+    const newBest=Math.max(gsRolled.best,nextStr);
     // 直前の回答情報を記録（handleNext で confidence との照合に使う）
     // wrongItemId も保存: handleConfidenceRate で思い込みアラートを付与する対象を特定
     prevAnswerR.current={correct,subject,quiz:{...quiz},wrongItemId:wrongItem?.id||null};
@@ -3248,16 +3299,18 @@ function App(){
     }
     // セッション内カウンタも「同じ問題の再挑戦」では二重カウントしない
     setGs(p=>{
+      // 日跨ぎローテ後の値を基準に更新（setGs reducer 内でも同じ td を見るため p ではなく rolled を使う）
+      const r=_rolloverGs(p);
       // ⑪ 連続ミス数（wrongStreak）：正解で 0 リセット、初回ミスで +1。
       // 3 以上で次の popFromDam が easy を強制する → 詰み感を防ぐ安全弁。
-      const nextWrongStreak=correct?0:(currentWasRetry?p.wrongStreak||0:(p.wrongStreak||0)+1);
+      const nextWrongStreak=correct?0:(currentWasRetry?r.wrongStreak||0:(r.wrongStreak||0)+1);
       return{
-        ...p,
+        ...r,
         streak:nextStr,
         best:newBest,
-        wrong: (!correct && !currentWasRetry) ? p.wrong+1 : p.wrong,
+        wrong: (!correct && !currentWasRetry) ? r.wrong+1 : r.wrong,
         wrongStreak:nextWrongStreak,
-        qNum: currentWasRetry ? p.qNum : p.qNum+1,
+        qNum: currentWasRetry ? r.qNum : r.qNum+1,
       };
     });
   },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
@@ -3618,7 +3671,7 @@ function App(){
       pollingCancelRef.current++;
       setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
       switchUser(remain[0].id);setCurrentUid(remain[0].id);
-      setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});},0);
+      setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
     }
     setShowUserEdit(false);
   };
@@ -3626,7 +3679,7 @@ function App(){
   const clearLogs=()=>{
     if(!confirm("学習記録・バッジをすべて削除しますか？\nストック問題は残ります。この操作は取り消せません。"))return;
     try{_safeLS.remove(STORE());_safeLS.remove(SESS());_safeLS.remove(REJ());}catch(e){}
-    setLogs(initLogs());setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);
+    setLogs(initLogs());setGs(_initGsDefaults());setRejectCount(0);
     alert("学習記録を削除しました。");
   };
 
@@ -3645,7 +3698,7 @@ function App(){
       // legacyキー掃除
       _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
     }catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});
+    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});
     alert("データを削除しました。");
   };
 
@@ -3753,8 +3806,9 @@ function App(){
   const {score:todayScore}=calcTodayScore(logs);
 
   const cal28=Array.from({length:28},(_,i)=>{
-    const base=new Date(today());base.setDate(base.getDate()-(27-i));
-    const key=base.toISOString().slice(0,10);
+    // JST基準で日付キーを生成（端末タイムゾーンに依存しない）
+    const key=jstDaysAgo(27-i);
+    const base=new Date(key+"T00:00:00");
     const dayOfMonth=base.getDate();
     const l=logs.dailyLog?.[key];
     return{key,d:dayOfMonth,dow:base.getDay(),q:l?.q||0,rate:l?.q>0?Math.round(l.c/l.q*100):null};
@@ -3920,7 +3974,7 @@ function App(){
                         pollingCancelRef.current++;
                         setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
                         switchUser(u.id);setCurrentUid(u.id);
-                        setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});welcomeShownRef.current=false;},0);
+                        setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());welcomeShownRef.current=false;},0);
                       }}>
                       <span class="uc-icon">${u.icon||"😀"}</span>${u.name}
                     </button>`
@@ -3948,7 +4002,7 @@ function App(){
                 <div style=${{fontSize:11,fontWeight:900,color:"#9990cc",letterSpacing:".06em",marginBottom:10}}>📋 はじめる前に</div>
                 ${[
                   ["📦","GeminiAPIを入力すると、バックグラウンドで問題を自動生成・ストックされます。"],
-                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、安定して動作します。Googleアカウントの数だけ取得可能であり、同じアカウント内での複数キーは意味がありません。"],
+                  ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、安定して動作します。Googleアカウントの数だけ取得可能であり、同じアカウント内での複数キーでは効果はありません。"],
                   ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。「問題を報告」ボタンで復習リストから除外できます。"],
                   ["💾","学習データはお使いの端末（ブラウザ）にのみ保存され、クラウド同期は行いません。機種変更・ブラウザのデータ削除・プライベートモードの長期未使用などで失われる可能性があるため、設定画面の『データをエクスポート』で定期的なバックアップを推奨します。"],
                   ["☁️","本アプリは Google が提供する Gemini API を利用しています。Google 側の仕様変更・料金体系の改定・サービス提供条件の変更により、将来にわたって同じ動作・無料での利用継続が出来なくなる可能性があります。"],
@@ -4000,13 +4054,19 @@ function App(){
                 <div class="stat"><div class="stat-n" style=${{color:"#f59e0b"}}>🔥${gs.streak}</div><div class="stat-l">連続</div></div>
                 <div class="stat"><div class="stat-n" style=${{color:"#5b3ff8"}}>${gs.best}</div><div class="stat-l">最高</div></div>
                 <div class="stat"><div class="stat-n" style=${{color:"#7c6fb0"}}>${gs.wrong}</div><div class="stat-l">${gs.wrong>0?"学んだ":"無傷"}</div></div>
-                <div class="stat" style=${{background:todayScore>=300?"#fef3c7":todayScore>=200?"#f0fdf4":todayScore>=100?"#fffbeb":"var(--input-bg)",border:todayScore>=300?"2px solid #f59e0b":todayScore>=200?"2px solid #22c55e":todayScore>=100?"2px solid #f59e0b":"none",position:"relative"}}>
-                  ${(logs.bestDayScore||0)>0&&todayScore>=(logs.bestDayScore||0)&&todayScore>0&&html`<div style=${{position:"absolute",top:-6,right:-4,fontSize:10,background:"#f59e0b",color:"#fff",borderRadius:8,padding:"1px 5px",fontWeight:900,boxShadow:"0 2px 4px rgba(0,0,0,.15)"}}>🏆新記録</div>`}
-                  <div class=${`stat-n tick-anim`} key=${`gs-${todayScore}`} style=${{color:todayScore>=300?"#d97706":todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
-                    ${todayScore}
-                  </div>
-                  <div class="stat-l">成長スコア<span style=${{opacity:.6,marginLeft:2}}>/最高${logs.bestDayScore||0}</span></div>
-                </div>
+                ${(()=>{
+                  const best=logs.bestDayScore||0;
+                  // 「現在＝最高」のときは『/最高X』を出さず、🏆 で自己ベスト中とだけ伝える。
+                  // best===todayScore かつ todayScore>0 の状態が「自己ベスト達成中」。
+                  const isAtBest=todayScore>0&&todayScore>=best;
+                  return html`<div class="stat" aria-label=${`成長スコア ${todayScore}${isAtBest?"・自己ベスト達成中":best>0?`（自己ベスト ${best}）`:""}`} style=${{background:todayScore>=300?"#fef3c7":todayScore>=200?"#f0fdf4":todayScore>=100?"#fffbeb":"var(--input-bg)",border:todayScore>=300?"2px solid #f59e0b":todayScore>=200?"2px solid #22c55e":todayScore>=100?"2px solid #f59e0b":"none",position:"relative"}}>
+                    ${isAtBest&&best>0&&html`<div style=${{position:"absolute",top:-6,right:-4,fontSize:10,background:"#f59e0b",color:"#fff",borderRadius:8,padding:"1px 5px",fontWeight:900,boxShadow:"0 2px 4px rgba(0,0,0,.15)"}}>🏆自己ベスト</div>`}
+                    <div class=${`stat-n tick-anim`} key=${`gs-${todayScore}`} style=${{color:todayScore>=300?"#d97706":todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
+                      ${todayScore}
+                    </div>
+                    <div class="stat-l">成長スコア${!isAtBest&&best>0?html`<span style=${{opacity:.6,marginLeft:2}}>/最高${best}</span>`:""}</div>
+                  </div>`;
+                })()}
               </div>
             </div>
 
@@ -4526,26 +4586,18 @@ function App(){
             ${tab==="record"&&(
               html`<${Fragment}>
 
-                ${(()=>{
-                  // ③ ミス改善率を正解率より前面に。「条件読み落としが半分！」を大きく出す。
-                  // 点数で折れる層は「改善幅」の方が継続率が伸びる。
-                  const imp=calcMistakeImprovement(logs.recentHistory||[]);
-                  if(!imp)return null;
-                  const isDown=imp.direction==="down";
-                  const isFlat=imp.direction==="flat";
-                  const bg=isDown?"linear-gradient(135deg,#f0fdf4,#bbf7d0)":isFlat?"linear-gradient(135deg,#f3f4f6,#e5e7eb)":"linear-gradient(135deg,#fff7ed,#fed7aa)";
-                  const fg=isDown?"#166534":isFlat?"#374151":"#7c2d12";
-                  const border=isDown?"#22c55e":isFlat?"#9ca3af":"#f59e0b";
-                  const headline=imp.direction==="down"?(imp.deltaPct<=-50?"半分以下！":`${Math.abs(imp.deltaPct)}%減！`):imp.direction==="flat"?"先週と同じ":imp.direction==="new"?"今週の弱点":`${imp.deltaPct}%増`;
-                  return(
-                    html`<div class="mistake-improve-card" style=${{background:bg,border:`2px solid ${border}`,color:fg}}>
-                      <div class="mic-tag">${isDown?"🎉 改善":isFlat?"📊 維持":"⚠️ 注意"}</div>
-                      <div class="mic-head">${headline}</div>
-                      <div class="mic-msg">${imp.msg}</div>
-                    </div>`
-                  );
-                })()}
+                ${/* ─── 並び順設計（学習者の自然な認知フロー）─────────────────
+                    🅐 現況: 直近100問の正解率 → 科目別正解率
+                    🅑 経過: 28日間の学習カレンダー
+                    🅒 診断(マクロ・型): ミス改善率 → 今週のミスパターン → ミスの型 TOP5
+                    🅒 診断(ミクロ・単元): 今週の重点単元 → 単元習熟マップ
+                    🅓 行動: 復習キュー
+                    システム: 問題ストック（折りたたみ・最下部）
+                    旧設計では先頭の「ミス改善率」が条件未達で空表示になり、また
+                    単元軸とミス型軸が交互に挟まっていたため、診断像が結べなかった。
+                */""}
 
+                ${/* 🅐 現況 — 直近100問の正解率（常に何かが出る、最初の答え）*/""}
                 <div style=${{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
                   <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div>
@@ -4608,7 +4660,75 @@ function App(){
                   </div>
                 </div>
 
-                
+                ${/* 🅒 診断(マクロ・1行サマリー) — 今週は先週からどう変わったか */""}
+                ${(()=>{
+                  const imp=calcMistakeImprovement(logs.recentHistory||[]);
+                  if(!imp)return null;
+                  const isDown=imp.direction==="down";
+                  const isFlat=imp.direction==="flat";
+                  const bg=isDown?"linear-gradient(135deg,#f0fdf4,#bbf7d0)":isFlat?"linear-gradient(135deg,#f3f4f6,#e5e7eb)":"linear-gradient(135deg,#fff7ed,#fed7aa)";
+                  const fg=isDown?"#166534":isFlat?"#374151":"#7c2d12";
+                  const border=isDown?"#22c55e":isFlat?"#9ca3af":"#f59e0b";
+                  const headline=imp.direction==="down"?(imp.deltaPct<=-50?"半分以下！":`${Math.abs(imp.deltaPct)}%減！`):imp.direction==="flat"?"先週と同じ":imp.direction==="new"?"今週の弱点":`${imp.deltaPct}%増`;
+                  return(
+                    html`<div class="mistake-improve-card" style=${{background:bg,border:`2px solid ${border}`,color:fg}}>
+                      <div class="mic-tag">${isDown?"🎉 改善":isFlat?"📊 維持":"⚠️ 注意"}</div>
+                      <div class="mic-head">${headline}</div>
+                      <div class="mic-msg">${imp.msg}</div>
+                    </div>`
+                  );
+                })()}
+
+                ${/* 🅒 診断(マクロ・型・週次) — 今週のミスパターン */""}
+                ${weeklySummary&&(
+                  html`<div class="weekly-summary">
+                    <div class="ws-head">📊 今週のミスパターン（直近7日）</div>
+                    <div class="ws-row">
+                      <span class="ws-rank">今週1位</span>
+                      <span class="ws-type">${weeklySummary.type}</span>
+                    </div>
+                    <div class="ws-row">
+                      <span class="ws-cnt">${weeklySummary.thisCnt}回</span>
+                      ${weeklySummary.diff>0?(
+                        html`<span class="ws-diff up">▲ 先週比 +${weeklySummary.diff}</span>`
+                      ):weeklySummary.diff<0?(
+                        html`<span class="ws-diff down">▼ 先週比 ${weeklySummary.diff}</span>`
+                      ):(
+                        html`<span class="ws-diff flat">→ 先週と同じ</span>`
+                      )}
+                      <span style=${{fontSize:11,color:"#92400e",fontWeight:700}}>（先週: ${weeklySummary.prevCnt}回）</span>
+                    </div>
+                    <div class="ws-tip">
+                      ${weeklySummary.diff>0
+                        ? `📈 増えている型です。次の生成問題ではこの型を狙い撃ち出題するよう設定済み。プライム表示で意識付けも自動で出ます。`
+                        : weeklySummary.diff<0
+                          ? `🎉 ${Math.abs(weeklySummary.diff)}回減少！この調子で重点単元の練習を続けよう。`
+                          : `🎯 今週の重点課題はこれ。次の${Math.max(3,weeklySummary.thisCnt)}問でこの型を集中攻略！`}
+                    </div>
+                  </div>`
+                )}
+
+                ${/* 🅒 診断(マクロ・型・直近200問) — ミスの型 TOP5 */""}
+                ${(()=>{
+                  const mistakeList=calcMistakeTypes(logs.recentHistory);
+                  if(!mistakeList.length)return null;
+                  const maxCnt=mistakeList[0][1];
+                  return(
+                    html`<div class="card">
+                      <div class="section-title">🔬 あなたのミスの型 TOP5</div>
+                      ${mistakeList.map(([type,cnt])=>(
+                        html`<div key=${type} class="dam-row">
+                          <span class="dam-label" style=${{minWidth:120,fontSize:11,flex:"0 0 auto"}}>${type}</span>
+                          <div class="dam-bw"><div class="dam-bf" style=${{width:`${Math.round(cnt/maxCnt*100)}%`,background:"#ef4444"}}/></div>
+                          <span style=${{fontSize:11,fontWeight:900,color:"#ef4444",minWidth:36,textAlign:"right"}}>${cnt}回</span>
+                        </div>`
+                      ))}
+                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>直近200問の不正解から集計</div>
+                    </div>`
+                  );
+                })()}
+
+                ${/* 🅒 診断(ミクロ・単元・最重点1件) — 今週の重点単元 */""}
                 ${weakestTopic&&(
                   html`<div class="card" style=${{background:"#fff7f7",border:"1.5px solid #fca5a5",padding:"14px 16px"}}>
                     <div style=${{fontWeight:900,color:"#991b1b",marginBottom:6,fontSize:12,letterSpacing:.5}}>
@@ -4640,7 +4760,7 @@ function App(){
                   </div>`
                 )}
 
-                
+                ${/* 🅒 診断(ミクロ・単元・全体俯瞰) — 単元習熟マップ */""}
                 ${Object.keys(logs.topicMastery||{}).length>0&&(
                   html`<div class="card">
                     <div class="section-title">🗺️ 単元習熟マップ</div>
@@ -4672,55 +4792,7 @@ function App(){
                   </div>`
                 )}
 
-                
-                ${weeklySummary&&(
-                  html`<div class="weekly-summary">
-                    <div class="ws-head">📊 今週のミスパターン（直近7日）</div>
-                    <div class="ws-row">
-                      <span class="ws-rank">今週1位</span>
-                      <span class="ws-type">${weeklySummary.type}</span>
-                    </div>
-                    <div class="ws-row">
-                      <span class="ws-cnt">${weeklySummary.thisCnt}回</span>
-                      ${weeklySummary.diff>0?(
-                        html`<span class="ws-diff up">▲ 先週比 +${weeklySummary.diff}</span>`
-                      ):weeklySummary.diff<0?(
-                        html`<span class="ws-diff down">▼ 先週比 ${weeklySummary.diff}</span>`
-                      ):(
-                        html`<span class="ws-diff flat">→ 先週と同じ</span>`
-                      )}
-                      <span style=${{fontSize:11,color:"#92400e",fontWeight:700}}>（先週: ${weeklySummary.prevCnt}回）</span>
-                    </div>
-                    <div class="ws-tip">
-                      ${weeklySummary.diff>0
-                        ? `📈 増えている型です。次の生成問題ではこの型を狙い撃ち出題するよう設定済み。プライム表示で意識付けも自動で出ます。`
-                        : weeklySummary.diff<0
-                          ? `🎉 ${Math.abs(weeklySummary.diff)}回減少！この調子で重点単元の練習を続けよう。`
-                          : `🎯 今週の重点課題はこれ。次の${Math.max(3,weeklySummary.thisCnt)}問でこの型を集中攻略！`}
-                    </div>
-                  </div>`
-                )}
-
-                
-                ${(()=>{
-                  const mistakeList=calcMistakeTypes(logs.recentHistory);
-                  if(!mistakeList.length)return null;
-                  const maxCnt=mistakeList[0][1];
-                  return(
-                    html`<div class="card">
-                      <div class="section-title">🔬 あなたのミスの型 TOP5</div>
-                      ${mistakeList.map(([type,cnt])=>(
-                        html`<div key=${type} class="dam-row">
-                          <span class="dam-label" style=${{minWidth:120,fontSize:11,flex:"0 0 auto"}}>${type}</span>
-                          <div class="dam-bw"><div class="dam-bf" style=${{width:`${Math.round(cnt/maxCnt*100)}%`,background:"#ef4444"}}/></div>
-                          <span style=${{fontSize:11,fontWeight:900,color:"#ef4444",minWidth:36,textAlign:"right"}}>${cnt}回</span>
-                        </div>`
-                      ))}
-                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>直近200問の不正解から集計</div>
-                    </div>`
-                  );
-                })()}
-
+                ${/* 🅓 行動 — 復習キュー（診断を踏まえた次の一手）*/""}
                 ${reviewCount>0&&(
                   html`<div class="card" style=${{background:"#fffbeb",border:"1.5px solid #fde68a"}}>
                     <div style=${{fontWeight:800,color:"#92400e",marginBottom:6}}>📝 復習キュー: ${reviewCount}件</div>
@@ -4802,7 +4874,7 @@ function App(){
                             pollingCancelRef.current++;
                             setWaitingForStock(null);setQuiz(null);setQuizPhase(null);
                             switchUser(u.id);setCurrentUid(u.id);
-                            setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});},0);
+                            setTimeout(()=>{reloadProfile();reloadUserScopedSettings();loadLogs();setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());},0);
                           }}>
                           <span class="uc-icon">${u.icon||"😀"}</span>${u.name}
                         </button>`
