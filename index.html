@@ -1540,18 +1540,12 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 }
 [data-theme="dark"] .bonus-pop-fly{background:linear-gradient(135deg,#1a3a24,#1f4a2e);border-color:#22c55e;color:#86efac;}
 
-/* ─── アクセシビリティ: 視覚過敏ユーザー向けアニメ抑制 ─────────── */
-/* OS設定 (System Preferences > Accessibility > Display > Reduce motion) ON 時、
-   ホップ・チック・スピン・ウィグル等の装飾アニメを停止。色変化や opacity 程度は残す。 */
-@media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{
-    animation-duration:.001ms !important;
-    animation-iteration-count:1 !important;
-    transition-duration:.001ms !important;
-    scroll-behavior:auto !important;
-  }
-  .hop-anim,.tick-anim,.celebration-icon,.rankin-spark,.refill-dot,.norma-dot.now,.priority-banner .pb-icon{animation:none !important;transform:none !important;}
-}
+/* ─── 演出ポリシー: 常時アニメーションON（変更禁止） ─────────── */
+/* 【方針確定 / 触らないこと】
+   ポップ・ホップ・チック・スピン・ウィグル・バースト等の演出は、
+   ユーザー設定や OS 設定 (prefers-reduced-motion) に関わらず常に有効にする。
+   "できてる感" を演出することがコア体験なので、抑制系の分岐は意図的に外している。
+   prefers-reduced-motion を尊重するブロックを再追加しないこと。 */
 `;
 
 // ─── initLogs ────────────────────────────────────────────────────
