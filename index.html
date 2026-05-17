@@ -498,15 +498,25 @@ const _ensureBucket=(dam,subj,diff)=>{
 const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));dam[subj][diff]=[...ex,...qs.filter(q=>!keys.has(dupKey(q)))].slice(-DAM_MAX);saveDam(dam);};
 const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 // 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
-const popFromDam=(subj,diff="standard",n=1)=>{
+// 第4引数 preferMistakeType: 同 mistake_type の問題があれば優先 pop。
+// 無ければ通常の先頭から pop（フォールバック）。「理解した気」を即潰すための即出題用。
+const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
   const dam=getDam();
   const order=diff==="easy"?["easy","standard","hard"]:diff==="hard"?["hard","standard","easy"]:["standard","easy","hard"];
   for(const d of order){
     const b=_ensureBucket(dam,subj,d);
-    if(b.length){
-      const take=Math.min(n,b.length);const r=b.slice(0,take);
-      dam[subj][d]=b.slice(take);saveDam(dam);return r;
+    if(!b.length)continue;
+    // 優先 mistake_type 指定があれば先に試す
+    if(preferMistakeType){
+      const idx=b.findIndex(q=>q&&q.mistake_type===preferMistakeType);
+      if(idx>=0){
+        const r=[b[idx]];
+        dam[subj][d]=[...b.slice(0,idx),...b.slice(idx+1)];
+        saveDam(dam);return r;
+      }
     }
+    const take=Math.min(n,b.length);const r=b.slice(0,take);
+    dam[subj][d]=b.slice(take);saveDam(dam);return r;
   }
   return[];
 };
@@ -639,6 +649,47 @@ const lastMistakeFromHistory=(history)=>{
     const r=history[i];if(!r.correct&&r.mistake_type)return r.mistake_type;
   }
   return null;
+};
+
+// ─── ミス型 → 子ども語 言い換えマップ（怒られてる感を消す） ─────────────
+// 専門用語のままだと「責められてる」気がしてしまうので、できる版の言葉で覚える。
+const KID_MISTAKE_LABELS={
+  "条件読み落とし":"最後まで読めば取れた！",
+  "条件読み落し":"最後まで読めば取れた！",
+  "規則の過剰適用":"いつものルールを使いすぎた！",
+  "符号ミス":"プラス・マイナスの見落とし！",
+  "単位ミス":"単位を合わせるとOK！",
+  "桁ミス":"桁を一つ見直そう！",
+  "助詞の取り違え":"小さい言葉に気をつけよう！",
+  "前置詞ミス":"小さい単語に気をつけよう！",
+  "用語逆転":"言葉の向きを逆にすると正解！",
+  "因果逆転":"原因と結果を入れ替えると正解！",
+  "公式の混同":"使う公式を一つ確かめよう！",
+  "用語の混同":"似た言葉を見分けよう！",
+};
+const kidifyMistakeType=(mt)=>{
+  if(!mt)return"";
+  if(KID_MISTAKE_LABELS[mt])return KID_MISTAKE_LABELS[mt];
+  for(const k of Object.keys(KID_MISTAKE_LABELS)){
+    if(mt.includes(k))return KID_MISTAKE_LABELS[k];
+  }
+  return mt; // マッピングが無ければ元のまま
+};
+
+// ─── ミス改善率（今週 vs 先週） ──────────────────────────────────
+// 「今日の TOP ミス型」が「先週より何%減ったか」を子ども向けに返す。
+// 改善があれば肯定メッセージ、悪化なら静かな注意喚起。
+const calcMistakeImprovement=(history)=>{
+  const w=calcWeeklyMistakeSummary(history);
+  if(!w)return null;
+  if(w.prevCnt<=0&&w.thisCnt<=0)return null;
+  if(w.prevCnt<=0)return {type:w.type,deltaPct:null,direction:"new",msg:`今週は「${kidifyMistakeType(w.type)}」型のミスが見えてきたよ。意識すれば確実に減るやつ！`};
+  const pct=Math.round(((w.thisCnt-w.prevCnt)/w.prevCnt)*100);
+  const k=kidifyMistakeType(w.type);
+  if(pct<=-50)return {type:w.type,deltaPct:pct,direction:"down",msg:`「${k}」が先週より半分以下！すごい！`};
+  if(pct<0)return {type:w.type,deltaPct:pct,direction:"down",msg:`「${k}」が先週より${Math.abs(pct)}%減ったよ！その調子！`};
+  if(pct===0)return {type:w.type,deltaPct:pct,direction:"flat",msg:`「${k}」は先週と同じ。あと少しで減る！`};
+  return {type:w.type,deltaPct:pct,direction:"up",msg:`「${k}」が先週より${pct}%増えた。今日は意識してみよう！`};
 };
 
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
@@ -1173,6 +1224,60 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 
 /* ─── プライム表示（直前のミス型）─── */
 .prime-banner{background:linear-gradient(135deg,#ede9ff,#ddd6fe);border:1.5px solid #a78bfa;border-radius:12px;padding:8px 14px;margin-bottom:10px;font-size:12px;font-weight:800;color:#5b3ff8;display:flex;align-items:center;gap:8px;line-height:1.5}
+/* 3秒見直しカード（決定前の確認ステップ）— 条件読み落とし対策 */
+.threesec-card{background:linear-gradient(135deg,#fffbeb,#fde68a);border:2px solid #f59e0b;border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:0 4px 18px rgba(245,158,11,.18);animation:result-slide-in .35s cubic-bezier(.22,1.2,.36,1) both}
+.threesec-card .threesec-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:900;color:#7c2d12;line-height:1.4;margin-bottom:8px}
+.threesec-card .threesec-icon{font-size:22px}
+.threesec-card .threesec-q{font-size:12.5px;font-weight:700;color:#7c2d12;background:rgba(255,255,255,.55);border-radius:10px;padding:8px 10px;line-height:1.55;margin-bottom:6px}
+.threesec-card .threesec-pick{font-size:12px;font-weight:800;color:#92400e;margin-bottom:10px;line-height:1.4}
+.threesec-card .threesec-row{display:flex;gap:8px}
+.threesec-card .threesec-row button{flex:1;border:none;border-radius:12px;padding:11px 8px;font-size:12.5px;font-weight:900;cursor:pointer;font-family:inherit;transition:transform .12s}
+.threesec-card .threesec-row button:active{transform:scale(.96)}
+.threesec-cancel{background:#fff;color:#92400e;border:1.5px solid #f59e0b !important}
+.threesec-go{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff}
+[data-theme="dark"] .threesec-card{background:#3a2f1a;border-color:#f59e0b;color:#fde68a}
+[data-theme="dark"] .threesec-card .threesec-head,[data-theme="dark"] .threesec-card .threesec-q,[data-theme="dark"] .threesec-card .threesec-pick{color:#fde68a}
+[data-theme="dark"] .threesec-card .threesec-q{background:rgba(0,0,0,.25)}
+[data-theme="dark"] .threesec-cancel{background:#1f1f35;color:#fde68a}
+/* ミス改善率カード（記録タブ最上部）— 点数より改善幅で動機付け */
+.mistake-improve-card{border-radius:16px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 14px rgba(0,0,0,.06)}
+.mistake-improve-card .mic-tag{display:inline-block;font-size:10px;font-weight:900;letter-spacing:.06em;background:rgba(255,255,255,.7);border-radius:99px;padding:3px 10px;margin-bottom:8px}
+.mistake-improve-card .mic-head{font-size:26px;font-weight:900;line-height:1.15;margin-bottom:6px}
+.mistake-improve-card .mic-msg{font-size:13px;font-weight:700;line-height:1.55}
+[data-theme="dark"] .mistake-improve-card{box-shadow:0 4px 14px rgba(0,0,0,.2)}
+/* 今日はここまででOK 終了導線カード */
+.stop-here-card{background:linear-gradient(135deg,#eef2ff,#c7d2fe);border:1.5px solid #818cf8;border-radius:14px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;position:relative}
+.stop-here-card .shc-icon{font-size:28px;flex-shrink:0}
+.stop-here-card .shc-body{flex:1}
+.stop-here-card .shc-title{font-size:13px;font-weight:900;color:#3730a3;line-height:1.3;margin-bottom:2px}
+.stop-here-card .shc-sub{font-size:11.5px;font-weight:700;color:#4338ca;line-height:1.5}
+.stop-here-card .shc-close{background:transparent;border:none;color:#6366f1;font-size:18px;cursor:pointer;font-family:inherit;padding:4px 8px;flex-shrink:0;font-weight:900}
+[data-theme="dark"] .stop-here-card{background:#1f2540;border-color:#818cf8}
+[data-theme="dark"] .stop-here-card .shc-title,[data-theme="dark"] .stop-here-card .shc-sub{color:#c7d2fe}
+/* 苦手単元 TOP3 カード（学習タブ・問題未表示時） */
+.weak-top3-card{background:linear-gradient(135deg,#fff7f7,#fee2e2);border:1.5px solid #fca5a5;border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.weak-top3-card .wtc-head{font-size:11.5px;font-weight:900;color:#991b1b;margin-bottom:8px;letter-spacing:.04em}
+.weak-top3-card .wtc-list{display:flex;flex-direction:column;gap:6px}
+.weak-top3-card .wtc-row{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #fca5a5;border-radius:10px;padding:8px 10px;font-family:inherit;cursor:pointer;width:100%;text-align:left;transition:transform .12s,background .15s}
+.weak-top3-card .wtc-row:hover{background:#fee2e2}
+.weak-top3-card .wtc-row:active{transform:scale(.98)}
+.weak-top3-card .wtc-rate{flex-shrink:0;background:#ef4444;color:#fff;border-radius:8px;padding:3px 8px;font-size:11px;font-weight:900;min-width:42px;text-align:center}
+.weak-top3-card .wtc-topic{flex:1;font-size:12.5px;font-weight:900;color:#7f1d1d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.weak-top3-card .wtc-subj{font-size:10.5px;font-weight:800;color:#991b1b;background:#fee2e2;border-radius:6px;padding:2px 6px;flex-shrink:0}
+.weak-top3-card .wtc-go{color:#ef4444;font-weight:900;font-size:14px;flex-shrink:0}
+[data-theme="dark"] .weak-top3-card{background:#3a1f24;border-color:#ef4444}
+[data-theme="dark"] .weak-top3-card .wtc-head,[data-theme="dark"] .weak-top3-card .wtc-topic{color:#fecaca}
+[data-theme="dark"] .weak-top3-card .wtc-row{background:#1f1f35;border-color:#ef4444}
+[data-theme="dark"] .weak-top3-card .wtc-subj{background:#3a1f24;color:#fecaca}
+/* 学習タブ上部の継続促進メッセージ — できてる感の演出（あと1問だけ） */
+.encourage-banner{background:linear-gradient(135deg,#ede9ff,#ddd6fe);border:1.5px solid #a78bfa;border-radius:10px;padding:6px 12px;margin-bottom:8px;font-size:11.5px;font-weight:900;color:#4c1d95;line-height:1.45;text-align:center}
+[data-theme="dark"] .encourage-banner{background:#3a2f5c;border-color:#a78bfa;color:#c4b5fd}
+/* 学習タブ上部の「今日の弱点」1行帯 — calcMistakeTypes TOP1 を子ども語で */
+.session-prime-banner{background:linear-gradient(135deg,#fff7ed,#fed7aa);border:1.5px solid #fbbf24;border-radius:10px;padding:6px 12px;margin-bottom:8px;font-size:11.5px;font-weight:800;color:#92400e;display:flex;align-items:center;gap:8px;line-height:1.4}
+.session-prime-banner .spb-tag{background:#f59e0b;color:#fff;border-radius:6px;padding:2px 7px;font-size:9.5px;font-weight:900;letter-spacing:.04em;flex-shrink:0}
+.session-prime-banner .spb-text{flex:1;color:#7c2d12;font-weight:900}
+[data-theme="dark"] .session-prime-banner{background:#3a2f1a;border-color:#f59e0b;color:#fde68a}
+[data-theme="dark"] .session-prime-banner .spb-text{color:#fde68a}
 .prime-banner .pb-tag{background:#5b3ff8;color:#fff;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:900;letter-spacing:.04em;flex-shrink:0}
 .prime-banner b{color:#4c1d95;font-weight:900}
 [data-theme="dark"] .prime-banner{background:#3a2f5c;border-color:#a78bfa;color:#c4b5fd}
@@ -1284,6 +1389,7 @@ const initLogs=()=>({
   cumulativeStats:_zeroStats(),
   dailyStatGains:{},
   dailyUnitGains:{},          // 日付→今日伸びた単元力合計
+  dailyUnitGainsByName:{},    // 日付→{単元名: 今日伸びたポイント}（成長カード詳細用）
   subjectUnitStats:{},        // {科目: {単元名: ポイント}}（科目毎に最大20件、表示は上位5件）
   subjectDifficulty:{},       // {科目: "easy"|"standard"|"hard"} 自動難易度
   trialMode:false,
@@ -1419,18 +1525,41 @@ const BonusPopStack=memo(({items})=>{
 });
 
 // クリックイベント / 要素から「pop を出す中心座標」を抽出。
-// currentTarget の中心 → clientX/Y → 画面中央、の順でフォールバック。
+// 触ったボタンの位置に pop を出したいので、まず currentTarget の rect を最優先で
+// 取得する。Preact のイベントは原則ネイティブ DOM Event をそのまま転送するので
+// 同期実行中の currentTarget は有効。target/clientXY/changedTouches を順次フォールバック。
 const popAnchorFromEvent=(e)=>{
   if(!e)return null;
+  // 1) currentTarget（onClick が貼られた要素自身）の中心
   try{
-    const t=e.currentTarget||e.target;
-    if(t&&t.getBoundingClientRect){
-      const r=t.getBoundingClientRect();
-      return {x:r.left+r.width/2, y:r.top+r.height/2};
+    const ct=e.currentTarget;
+    if(ct&&ct.getBoundingClientRect){
+      const r=ct.getBoundingClientRect();
+      if(r&&(r.width||r.height)){return {x:r.left+r.width/2, y:r.top+r.height/2};}
     }
   }catch(_){}
-  if(typeof e.clientX==="number"&&typeof e.clientY==="number"){
+  // 2) target（クリックされた子要素）→ 親へ遡って rect を持つ要素を探す
+  try{
+    let t=e.target;
+    let safety=4;
+    while(t&&safety-->0){
+      if(t.getBoundingClientRect){
+        const r=t.getBoundingClientRect();
+        if(r&&(r.width||r.height)){return {x:r.left+r.width/2, y:r.top+r.height/2};}
+      }
+      t=t.parentNode;
+    }
+  }catch(_){}
+  // 3) マウスイベントの座標
+  if(typeof e.clientX==="number"&&typeof e.clientY==="number"&&(e.clientX||e.clientY)){
     return {x:e.clientX, y:e.clientY};
+  }
+  // 4) タッチイベントの座標
+  if(e.changedTouches&&e.changedTouches[0]){
+    const t=e.changedTouches[0];
+    if(typeof t.clientX==="number"&&typeof t.clientY==="number"){
+      return {x:t.clientX, y:t.clientY};
+    }
   }
   return null;
 };
@@ -1458,16 +1587,21 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
     return()=>cancelAnimationFrame(id);
   },[quizPhase]);
   // ⑯ 自信度セレクター
-  const ConfidenceSelector=()=>(
-    html`<div class="confidence-wrap">
-      <div class="confidence-label-txt">この問題、どれくらいわかった？</div>
-      <div class="confidence-row">
-        <button class=${`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick=${(e)=>onConfidenceRate(1,e)}>🎲<br/>勘</button>
-        <button class=${`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick=${(e)=>onConfidenceRate(2,e)}>🤔<br/>半分わかった</button>
-        <button class=${`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick=${(e)=>onConfidenceRate(3,e)}>✅<br/>説明できる</button>
-      </div>
-    </div>`
-  );
+  // 回答前 (question フェーズ) → メタ認知を促す問いかけに切り替え（ガイナー効果）
+  const ConfidenceSelector=()=>{
+    const isBeforeAnswer=quizPhase==="question";
+    const label=isBeforeAnswer?"答える前に：自分の手応えは？":"この問題、どれくらいわかった？";
+    return(
+      html`<div class="confidence-wrap">
+        <div class="confidence-label-txt">${label}</div>
+        <div class="confidence-row">
+          <button class=${`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick=${(e)=>onConfidenceRate(1,e)}>🎲<br/>勘</button>
+          <button class=${`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick=${(e)=>onConfidenceRate(2,e)}>🤔<br/>半分わかった</button>
+          <button class=${`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick=${(e)=>onConfidenceRate(3,e)}>✅<br/>説明できる</button>
+        </div>
+      </div>`
+    );
+  };
   const ModeBanner=()=>{
     if(isReview&&isNorma)return(
       html`<${Fragment}>
@@ -1511,17 +1645,12 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         ${isPriorityReview&&(
           html`<div class="priority-banner">
             <span class="pb-icon">⚠️</span>
-            <span>思い込みアラート — 自信ありで間違えた問題。今度こそ慎重に！</span>
+            <span><b>⚠ 前回ここで間違えた</b> — 思い込みアラート。今度こそ慎重に！</span>
           </div>`
         )}
         
-        ${!isTrial&&primeMistakeType&&!hintSource&&(
-          html`<div class="prime-banner">
-            <span class="pb-tag">前回</span>
-            <span><b>${primeMistakeType}</b> → 今回も意識！</span>
-          </div>`
-        )}
-        
+        ${/* 重複していた「前回ミス型」帯は学習タブ上部の session-prime-banner に統一 */ ""}
+
         ${timeAttackEnabled&&timeLimit!==null&&timeLimit!==undefined&&!hintSource&&(
           html`<div style=${{marginBottom:10}}>
             <div style=${{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:800,color:timeLimit<=10?"#dc2626":"#5b3ff8",marginBottom:4}}>
@@ -1562,6 +1691,9 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
                 </button>`
               );
             })}
+
+            ${/* ⑩ 自信度セレクタを回答前に表示（ガイナー効果）— メタ認知をオンにする */ ""}
+            <${ConfidenceSelector}/>
             
             ${lifelineEnabled&&!lifelineUsed&&(
               html`<button class="btn btn-ghost" style=${{marginBottom:8,background:"linear-gradient(135deg,#fef3c7,#fde68a)",color:"#92400e",border:"1.5px solid #f59e0b"}} onClick=${onLifeline}>
@@ -1659,9 +1791,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
             })}
           </div>`
         )}
-        
-        <${ConfidenceSelector}/>
-        
+        ${/* 自信度は回答前で固定。結果フェーズでは再表示しない */ ""}
         <button class="btn-retry" onClick=${onRetry}>🔄 もう一回解く</button>
         ${!easyMode&&quiz.hint&&(
           html`<${Fragment}>
@@ -1723,7 +1853,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
             })}
           </div>`
         )}
-        <${ConfidenceSelector}/>
+        ${/* 自信度は回答前で固定。結果フェーズでは再表示しない */ ""}
         <button class="btn-green" onClick=${onNext}>次の問題へ →</button>
         <button class="report-btn" onClick=${onReport}>⚠️ この問題の内容がおかしい</button>
       </div>`
@@ -1808,7 +1938,7 @@ function App(){
   const [grade,setGrade]=useState("");
   // 上位者用モード: タイムアタック / 消去法ライフライン
   const [advancedMode,setAdvancedMode]=useState(()=>{
-    try{ const v=_safeLS.get(userKey("manabi_advanced_v1")); return v?JSON.parse(v):{timeAttack:false,lifeline:false}; }catch(e){ return{timeAttack:false,lifeline:false}; }
+    try{ const v=_safeLS.get(userKey("manabi_advanced_v1")); return v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false}; }catch(e){ return{timeAttack:false,lifeline:false,threeSecCheck:false}; }
   });
   useEffect(()=>{ _safeLS.set(ADV(),JSON.stringify(advancedMode)); },[advancedMode]);
   // ヒント表示モード（不正解後の挙動）
@@ -1861,6 +1991,25 @@ function App(){
   const [welcomeMsg,setWelcomeMsg]=useState("");
   // ⑨ 苦手科目改善メッセージ
   const [subjectImprovedMsg,setSubjectImprovedMsg]=useState("");
+  // ⑮ ミス → 即リトライ → 正解 を褒めるメッセージ（戻ってきたの強い！）
+  const [retryWinMsg,setRetryWinMsg]=useState("");
+  // ⑬ 今日はここまででOK カードの「閉じる」フラグ
+  //    日付が変わったら自動で復活させる（毎日新しいリセット）
+  const [stopHereDismissed,setStopHereDismissed]=useState(false);
+  const stopHereDateR=useRef(today());
+  useEffect(()=>{
+    const id=setInterval(()=>{
+      const td=today();
+      if(td!==stopHereDateR.current){
+        stopHereDateR.current=td;setStopHereDismissed(false);
+      }
+    },60000); // 1分ごとに日付チェック（軽量）
+    return()=>clearInterval(id);
+  },[]);
+  // ⑧ 3秒見直しモード：選択後に「本当にこれで決定？」確認ステップ
+  // pendingChoice = {idx, anchor, sec} または null
+  const [pendingChoice,setPendingChoice]=useState(null);
+  const pendingChoiceR=useRef(false);
   // ⑪ 休み明けメッセージ
   const [showRestartMsg,setShowRestartMsg]=useState(false);
   // 他科目スライドメッセージ
@@ -2115,7 +2264,7 @@ function App(){
   const reloadUserScopedSettings=()=>{
     try{const v=_safeLS.get(REJ());setRejectCount(v?parseInt(v,10)||0:0);}catch(e){setRejectCount(0);}
     try{const v=_safeLS.get(ARFL());setAutoRefill(v==null?true:JSON.parse(v));}catch(e){setAutoRefill(true);}
-    try{const v=_safeLS.get(ADV());setAdvancedMode(v?JSON.parse(v):{timeAttack:false,lifeline:false});}catch(e){setAdvancedMode({timeAttack:false,lifeline:false});}
+    try{const v=_safeLS.get(ADV());setAdvancedMode(v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false});}catch(e){setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});}
     // 一時フラグ（永続化なし）はユーザー切替で必ずリセット
     setQuotaExhausted(false);
   };
@@ -2217,8 +2366,8 @@ function App(){
     if(Array.isArray(out.debugHistory)&&out.debugHistory.length>50){
       out.debugHistory=out.debugHistory.slice(0,50);
     }
-    // dailyStatGains / dailyUnitGains: 直近30日まで
-    for(const k of ["dailyStatGains","dailyUnitGains"]){
+    // dailyStatGains / dailyUnitGains / dailyUnitGainsByName: 直近30日まで
+    for(const k of ["dailyStatGains","dailyUnitGains","dailyUnitGainsByName"]){
       const m={...(out[k]||{})};
       const ks=Object.keys(m).sort();
       if(ks.length>30)ks.slice(0,ks.length-30).forEach(kk=>delete m[kk]);
@@ -2247,6 +2396,7 @@ function App(){
         p.cumulativeStats={..._zeroStats(),...p.cumulativeStats};
         if(!p.dailyStatGains)p.dailyStatGains={};
         if(!p.dailyUnitGains)p.dailyUnitGains={};
+        if(!p.dailyUnitGainsByName)p.dailyUnitGainsByName={};
         if(!p.subjectUnitStats)p.subjectUnitStats={};
         if(!p.subjectDifficulty)p.subjectDifficulty={};
         // 旧 dailyStatGains 内の signControl も attention にマージ
@@ -2288,9 +2438,22 @@ function App(){
   // 表示は CSS アニメ + setTimeout のみで軽量。trial 中は視覚のみで永続化しない。
   const addBonusPop=useCallback(({icon,name,statKey,amount=1,anchor=null})=>{
     const vw=window.innerWidth||360, vh=window.innerHeight||640;
-    // アンカー無し → 画面中央上付近にフォールバック
-    let x=anchor?.x??vw/2;
-    let y=anchor?.y??Math.min(vh*0.25, 200);
+    // アンカー無し → 直前にクリックされた要素 (document.activeElement) を試し、
+    // それも無理なら画面中央へ（旧仕様の "画面上部" は遠すぎて見切れるためやめる）
+    let x=anchor?.x, y=anchor?.y;
+    if(typeof x!=="number"||typeof y!=="number"){
+      try{
+        const ae=document.activeElement;
+        if(ae&&ae.getBoundingClientRect){
+          const r=ae.getBoundingClientRect();
+          if(r&&(r.width||r.height)){
+            x=r.left+r.width/2; y=r.top+r.height/2;
+          }
+        }
+      }catch(_){}
+    }
+    if(typeof x!=="number")x=vw/2;
+    if(typeof y!=="number")y=vh/2;
     // 画面端で pop が見切れないようクランプ（pill 幅 ~150px / 高さ ~32px）
     x=Math.max(80, Math.min(vw-80, x));
     y=Math.max(48, Math.min(vh-48, y));
@@ -2319,8 +2482,12 @@ function App(){
 
   // 問題切替時にボーナス発火ガードをリセット（&残存タイマー掃除はそのまま自然消滅で OK）
   useEffect(()=>{
-    bonusFiredR.current={recall:false,whyWrong:false,confidence:false,timeAttack:false};
+    bonusFiredR.current={recall:false,whyWrong:false,confidence:false,timeAttack:false,hintShown:false};
   },[quiz]);
+  // ⑦ hint 表示有無の追跡：ヒントを見ずに正解できたかを判定するため
+  const hintUsedR=useRef(false);
+  useEffect(()=>{hintUsedR.current=false;},[quiz]);
+  useEffect(()=>{if(hintSource)hintUsedR.current=true;},[hintSource]);
 
   // アンマウント時のタイマー掃除
   useEffect(()=>()=>{ bonusTidsR.current.forEach(clearTimeout); bonusTidsR.current.clear(); },[]);
@@ -2448,9 +2615,13 @@ function App(){
         }
         if(!next.dailyUnitGains)next.dailyUnitGains={};
         next.dailyUnitGains[td]=(next.dailyUnitGains[td]||0)+ug;
+        // 単元名別の今日の伸び（成長スコア（今日）pill 表示用）
+        if(!next.dailyUnitGainsByName)next.dailyUnitGainsByName={};
+        if(!next.dailyUnitGainsByName[td])next.dailyUnitGainsByName[td]={};
+        next.dailyUnitGainsByName[td][unitName]=(next.dailyUnitGainsByName[td][unitName]||0)+ug;
       }
-      // dailyStatGains / dailyUnitGains は30日上限
-      for(const dkey of ["dailyStatGains","dailyUnitGains"]){
+      // dailyStatGains / dailyUnitGains / dailyUnitGainsByName は30日上限
+      for(const dkey of ["dailyStatGains","dailyUnitGains","dailyUnitGainsByName"]){
         const m=next[dkey]||{};const ks=Object.keys(m).sort();
         if(ks.length>30)ks.slice(0,ks.length-30).forEach(k=>delete m[k]);
         next[dkey]=m;
@@ -2939,17 +3110,31 @@ function App(){
       setHintSource("notLearned");
       return;
     }
+    // ⑧ 3秒見直しモード ON & 通常選択 (idx>=0) かつヒント非表示 → 確認ステップへ
+    //   pendingChoice に格納し、CountDown 経過 or 「決定」で本処理へ。
+    if(advancedMode.threeSecCheck && idx>=0 && !pendingChoiceR.current){
+      pendingChoiceR.current=true;
+      setPendingChoice({idx,anchor:clickAnchor,sec:3});
+      return;
+    }
     // タイムアウト(idx===-1)は不正解扱い
     const timedOut=idx===-1;
     const correct=!timedOut&&idx===quiz.correct;
     setSelectedChoice(timedOut?null:idx);setAnswerCorrect(correct);
     setQuizPhase("result");
     setTimeLimit(null); // ⑦ タイマー停止
+    // ② 正解時はアクティブリコール (RecallQuiz) を先に出す方針へ統一。
+    //    why-wrong パネルの自動展開はやめ、ユーザー操作で開く形に戻す。
     if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
     // タイムアタック ON & 時間内に正解 → +1 安定力（同じ問題内で1回）
     if(correct && !timedOut && advancedMode.timeAttack && !bonusFiredR.current.timeAttack){
       bonusFiredR.current.timeAttack=true;
       addBonusPop({icon:"⏱️",name:"タイムアタック",statKey:"stability",amount:1,anchor:clickAnchor});
+    }
+    // ⑦ ヒントを見ずに正解 → +1 集中力（望ましい困難で記憶定着）
+    //    hint がそもそも無い問題は対象外。リトライ時は再カウントしない。
+    if(correct && !timedOut && !wasRetryR.current && !hintUsedR.current && quiz?.hint){
+      addBonusPop({icon:"🧠",name:"ヒント未使用",statKey:"verificationPower",amount:1,anchor:clickAnchor});
     }
     // ⑥ 連続正解が途切れたとき
     if(!correct&&gs.streak>=3){
@@ -2958,6 +3143,12 @@ function App(){
     }
     const currentWasRetry=wasRetryR.current;
     wasRetryR.current=false;
+    // ⑮ リトライ正解 → 「戻ってきたの強い！」メッセージ（toast）
+    if(correct&&currentWasRetry){
+      const phrases=["🌱 戻ってきたの、強い！","💪 逃げずに再挑戦えらい！","🔁 リトライ成功！この粘りが伸びる！"];
+      setRetryWinMsg(phrases[Math.floor(Math.random()*phrases.length)]);
+      setTimeout(()=>setRetryWinMsg(""),3500);
+    }
     // 不正解→リトライでの reviewQueue 二重登録を防止：初回の不正解のみ wrongItem を作る
     const wrongItem=(!correct && !currentWasRetry)?{
       id:crypto.randomUUID(),
@@ -2984,15 +3175,60 @@ function App(){
       }
     }
     // セッション内カウンタも「同じ問題の再挑戦」では二重カウントしない
-    setGs(p=>({
-      ...p,
-      streak:nextStr,
-      best:newBest,
-      wrong: (!correct && !currentWasRetry) ? p.wrong+1 : p.wrong,
-      qNum: currentWasRetry ? p.qNum : p.qNum+1,
-    }));
+    setGs(p=>{
+      // ⑪ 連続ミス数（wrongStreak）：正解で 0 リセット、初回ミスで +1。
+      // 3 以上で次の popFromDam が easy を強制する → 詰み感を防ぐ安全弁。
+      const nextWrongStreak=correct?0:(currentWasRetry?p.wrongStreak||0:(p.wrongStreak||0)+1);
+      return{
+        ...p,
+        streak:nextStr,
+        best:newBest,
+        wrong: (!correct && !currentWasRetry) ? p.wrong+1 : p.wrong,
+        wrongStreak:nextWrongStreak,
+        qNum: currentWasRetry ? p.qNum : p.qNum+1,
+      };
+    });
   },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
   useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
+
+  // ⑧ 3秒見直し：pendingChoice 発火中は 1秒ごとにカウントダウン
+  //    0 になったら自動確定（pendingChoice → 実 handleChoice）。
+  useEffect(()=>{
+    if(!pendingChoice)return;
+    if(pendingChoice.sec<=0){
+      // 自動確定：pending を消してから handleChoice 本処理を呼ぶ
+      const {idx,anchor}=pendingChoice;
+      pendingChoiceR.current=false;
+      setPendingChoice(null);
+      // pendingChoice の anchor を擬似イベントとして渡す（rect 取得済み）
+      const fakeEvt={clientX:anchor?.x,clientY:anchor?.y};
+      handleChoiceR.current&&handleChoiceR.current(idx,fakeEvt);
+      return;
+    }
+    const tid=setTimeout(()=>{
+      setPendingChoice(p=>p?{...p,sec:p.sec-1}:null);
+    },1000);
+    return()=>clearTimeout(tid);
+  },[pendingChoice]);
+  // 「やめる」or 問題切り替えで pending をリセット
+  useEffect(()=>{
+    if(quizPhase!=="question"){
+      pendingChoiceR.current=false;setPendingChoice(null);
+    }
+  },[quizPhase,quiz]);
+
+  // 3秒見直しを「決定」/「やめる」
+  const confirmPendingChoice=useCallback(()=>{
+    if(!pendingChoice)return;
+    const {idx,anchor}=pendingChoice;
+    pendingChoiceR.current=false;
+    setPendingChoice(null);
+    const fakeEvt={clientX:anchor?.x,clientY:anchor?.y};
+    handleChoiceR.current&&handleChoiceR.current(idx,fakeEvt);
+  },[pendingChoice]);
+  const cancelPendingChoice=useCallback(()=>{
+    pendingChoiceR.current=false;setPendingChoice(null);
+  },[]);
 
   // まだ習ってないボタン
   const handleNotLearnedYet=useCallback(()=>{
@@ -3002,12 +3238,14 @@ function App(){
   // 自信度評価: クリック後に評価された自信度を recentHistory に遡及保存し、
   // 「説明できる(3)で正解」した場合は確認力ステータスにボーナス付与する
   const handleConfidenceRate=useCallback((rating,e)=>{
+    // ★ anchor 取得は最優先：setState などで currentTarget が解放される前に固定
+    const anchor=popAnchorFromEvent(e);
     setConfidenceRating(rating);
     // 自信度選択そのものに +1 集中力（同じ問題内で1回）
     // ※ trial 中は addBonusPop 側で永続化スキップ（視覚のみ）
     if(!bonusFiredR.current.confidence){
       bonusFiredR.current.confidence=true;
-      addBonusPop({icon:"🎯",name:"自己評価",statKey:"focus",amount:1,anchor:popAnchorFromEvent(e)});
+      addBonusPop({icon:"🎯",name:"自己評価",statKey:"focus",amount:1,anchor});
     }
     if(trialModeR.current)return;
     setLogs(prev=>{
@@ -3063,9 +3301,11 @@ function App(){
 
   // アクティブリコール回答で +1 確認力（問題内で1回）
   const handleActiveRecallAnswered=useCallback((correct,e)=>{
+    // ★ anchor 取得は最優先：state 更新で event が解放される前に固定
+    const anchor=popAnchorFromEvent(e);
     if(bonusFiredR.current.recall)return;
     bonusFiredR.current.recall=true;
-    addBonusPop({icon:"🧠",name:"アクティブリコール",statKey:"verificationPower",amount:1,anchor:popAnchorFromEvent(e)});
+    addBonusPop({icon:"🧠",name:"アクティブリコール",statKey:"verificationPower",amount:1,anchor});
   },[addBonusPop]);
 
   // お試しモード開始（APIキー不要）
@@ -3109,6 +3349,9 @@ function App(){
       const reDiff=getAutoDifficulty(prevAns.subject,logsR.current);
       addToDamFront(prevAns.subject,reDiff,[prevAns.quiz]);
     }
+    // ⑥ 直前が「リトライなし不正解」→ 次は同 mistake_type を即出題（DAM 内に在庫があれば）
+    // 無ければ通常の取り出し。生成は走らせない（API ゼロ）。
+    const preferMT=(prevAns&&!prevAns.correct&&prevAns.quiz?.mistake_type)?prevAns.quiz.mistake_type:null;
     prevAnswerR.current=null;
     // ⑦ handleNext開始時点の学年をスナップショット固定（途中の学年変更を無視）
     const currentGrade=gradeR.current;
@@ -3144,8 +3387,12 @@ function App(){
         // 指定科目のストックを確認、0なら緊急生成（他科目へはズレない）
         {
           const subs=subjectsR.current;
-          const diff=getAutoDifficulty(ns,logsR.current);
-          const fromDam=popFromDam(ns,diff,1);setDamStats(getDamStats(subs));
+          // ⑪ 連続3ミスで easy を強制挿入（詰み感の防止）
+          const _ws=(gsR.current&&gsR.current.wrongStreak)||0;
+          const diff=_ws>=3?"easy":getAutoDifficulty(ns,logsR.current);
+          // ⑥ 直前がミスなら同 mistake_type を優先（同科目に限る）
+          const _pmt=preferMT&&prevAns&&prevAns.subject===ns?preferMT:null;
+          const fromDam=popFromDam(ns,diff,1,_pmt);setDamStats(getDamStats(subs));
           if(fromDam.length){setQuiz(fromDam[0]);return;}
           // ストックなし → 緊急生成（3問）
           {
@@ -3181,8 +3428,12 @@ function App(){
         return;
       }
       const cand=subjR.current;
-      const candDiff=getAutoDifficulty(cand,logsR.current);
-      const fromDam=popFromDam(cand,candDiff,1);
+      // ⑪ フリーモードでも 連続3ミス なら easy を強制
+      const _ws2=(gsR.current&&gsR.current.wrongStreak)||0;
+      const candDiff=_ws2>=3?"easy":getAutoDifficulty(cand,logsR.current);
+      // ⑥ 同 mistake_type 優先（同科目に限る）
+      const _pmt2=preferMT&&prevAns&&prevAns.subject===cand?preferMT:null;
+      const fromDam=popFromDam(cand,candDiff,1,_pmt2);
       if(fromDam.length){
         setIsReview(false);setDamStats(getDamStats(subjectsR.current));
         setQuiz(fromDam[0]);return;
@@ -3268,7 +3519,7 @@ function App(){
       // legacyキー掃除
       _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
     }catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false});
+    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs({streak:0,best:0,wrong:0,qNum:1});setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});
     alert("データを削除しました。");
   };
 
@@ -3456,6 +3707,7 @@ function App(){
         ${welcomeMsg&&!showLoginBonus&&html`<div class="toast-base" style=${{background:"linear-gradient(135deg,#5b3ff8,#9b59f8)",color:"#fff",top:newBadges.length>0?68:20}}>${welcomeMsg}</div>`}
         
         ${subjectImprovedMsg&&html`<div class="toast-base" style=${{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",top:newBadges.length>0?68:20}}>${subjectImprovedMsg}</div>`}
+        ${retryWinMsg&&html`<div class="toast-base" style=${{background:"linear-gradient(135deg,#5b3ff8,#9b59f8)",color:"#fff",top:newBadges.length>0?68:20}}>${retryWinMsg}</div>`}
         
         ${streakBrokenMsg&&html`<div class="toast-base" style=${{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",top:20}}>${streakBrokenMsg}</div>`}
         
@@ -3645,7 +3897,72 @@ function App(){
             
             ${tab==="learn"&&(
               html`<${Fragment}>
-                
+
+                ${!trialMode&&quizPhase!=="question"&&(()=>{
+                  // ⓪ セッション開始時に「前回多かったミス型 TOP1」だけを1行表示。
+                  //    問題プレイ中(question)は注意を分散しないよう非表示。結果フェーズと初期表示でだけ出す。
+                  const top=calcMistakeTypes(logs.recentHistory||[])[0];
+                  if(!top)return null;
+                  const [mt,cnt]=top;
+                  if(cnt<2)return null; // 1件だけならノイズ。2件以上で表示。
+                  const kid=kidifyMistakeType(mt);
+                  return(
+                    html`<div class="session-prime-banner" title=${`「${mt}」が直近で${cnt}回`}>
+                      <span class="spb-tag">今日の弱点</span>
+                      <span class="spb-text">${kid}</span>
+                    </div>`
+                  );
+                })()}
+
+                ${!trialMode&&!quizPhase&&(()=>{
+                  // ⑫ 苦手単元 TOP3 カード（学習タブ・問題表示前のみ）。
+                  // attempts>=3 / 未習熟 / 試行数が多くて正解率が低い順で 3 件。
+                  // 軽量のため tm の値を 1 回だけソートする（30+ 単元想定）。
+                  const tm=logs.topicMastery||{};
+                  const items=Object.entries(tm)
+                    .map(([topic,v])=>({topic,subj:v.subj,attempts:v.attempts||0,correct:v.correct||0,mastered:!!v.mastered}))
+                    .filter(x=>x.attempts>=3&&!x.mastered)
+                    .map(x=>({...x,rate:x.attempts>0?x.correct/x.attempts:1,score:x.attempts*(1-(x.attempts>0?x.correct/x.attempts:1))}))
+                    .sort((a,b)=>b.score-a.score)
+                    .slice(0,3);
+                  if(!items.length)return null;
+                  return(
+                    html`<div class="weak-top3-card">
+                      <div class="wtc-head">🎯 次に伸ばすならココ — 苦手 TOP3</div>
+                      <div class="wtc-list">
+                        ${items.map((it)=>(
+                          html`<button key=${it.topic} class="wtc-row" title=${`${it.topic}（正解率${Math.round(it.rate*100)}%）`} onClick=${()=>{
+                            // タップで該当科目へ即移動（既存 resetFetch を活用）
+                            resetFetch(it.subj);
+                          }}>
+                            <span class="wtc-rate">${Math.round(it.rate*100)}%</span>
+                            <span class="wtc-topic">${it.topic}</span>
+                            <span class="wtc-subj">${displaySubject(it.subj,grade)}</span>
+                            <span class="wtc-go">→</span>
+                          </button>`
+                        ))}
+                      </div>
+                    </div>`
+                  );
+                })()}
+
+                ${!trialMode&&quiz&&quizPhase==="question"&&(()=>{
+                  // ⑨ 「あと1問だけ」継続促進。煽りではなく "できてる感" の演出。
+                  // 表示条件：連続2問正解 / または 連続2問ミス（励まし）
+                  let msg=null;
+                  if(gs.streak>=2&&gs.streak<5){
+                    msg=`🔥 ${gs.streak}連続！あと1問で ${gs.streak+1}連続！`;
+                  }else if(gs.streak>=5){
+                    msg=`🔥 ${gs.streak}連続！絶好調キープ！`;
+                  }else if((gs.wrongStreak||0)>=2){
+                    msg=`💪 ここで1問取れたら復帰力UP！戻ってこられる人が強い。`;
+                  }
+                  if(!msg)return null;
+                  return(
+                    html`<div class="encourage-banner">${msg}</div>`
+                  );
+                })()}
+
                 ${!trialMode&&(
                   html`<div class="quick-mode-row">
                     <button
@@ -3664,9 +3981,31 @@ function App(){
                       <span>消去法ライフライン</span>
                       <span class="qm-dot"/>
                     </button>
+                    <button
+                      class=${`quick-mode-btn${advancedMode.threeSecCheck?" on":""}`}
+                      onClick=${()=>setAdvancedMode({...advancedMode,threeSecCheck:!advancedMode.threeSecCheck})}
+                      title="選んだ後に「3秒見直す？」が出ます。条件読み落としの大半はここで救える。">
+                      <span class="qm-icon">🧐</span>
+                      <span>3秒見直し</span>
+                      <span class="qm-dot"/>
+                    </button>
                   </div>`
                 )}
                 
+                ${pendingChoice&&quizPhase==="question"&&quiz&&(
+                  html`<div class="threesec-card">
+                    <div class="threesec-head">
+                      <span class="threesec-icon">🧐</span>
+                      <span>本当に <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もう一度だけ条件を確認！</span>
+                    </div>
+                    <div class="threesec-q">${quiz.question}</div>
+                    <div class="threesec-pick">→ あなたの選択：${CHOICE_LABELS[pendingChoice.idx]}. ${quiz.choices?.[pendingChoice.idx]||""}</div>
+                    <div class="threesec-row">
+                      <button class="threesec-cancel" onClick=${cancelPendingChoice}>↩ やめる（選び直す）</button>
+                      <button class="threesec-go" onClick=${confirmPendingChoice}>これで決定 (${pendingChoice.sec})</button>
+                    </div>
+                  </div>`
+                )}
                 ${comebackMode&&(
                   html`<div class="comeback-banner">
                     <div style=${{fontSize:20}}>⏱</div>
@@ -3813,6 +4152,22 @@ function App(){
                 )}
 
                 
+                ${!trialMode&&(!quizPhase||quizPhase==="result")&&dailyGoalMet&&(()=>{
+                  // ⑬ 今日はここまででOK 終了導線（ノルマ達成後にだけ表示）
+                  // やめ時を作ると翌日戻りやすい。dismissedR で同セッション内は再表示しない。
+                  if(stopHereDismissed)return null;
+                  return(
+                    html`<div class="stop-here-card">
+                      <div class="shc-icon">🌙</div>
+                      <div class="shc-body">
+                        <div class="shc-title">今日はここまででOK！</div>
+                        <div class="shc-sub">ノルマ達成✨ 確認力かなり伸びた！ここで終わるのも良い学習。</div>
+                      </div>
+                      <button class="shc-close" title="閉じる" onClick=${()=>setStopHereDismissed(true)}>×</button>
+                    </div>`
+                  );
+                })()}
+
                 ${!trialMode&&(!quizPhase||quizPhase==="result")&&dailyGoalMet&&(
                   showSubjSel?(
                     html`<div class="card" style=${{padding:14,background:"#f8f7ff"}}>
@@ -3907,9 +4262,15 @@ function App(){
 
                 
                 ${(()=>{
-                  const tg=logs.dailyStatGains?.[today()]||{};
+                  const td=today();
+                  const tg=logs.dailyStatGains?.[td]||{};
                   const gained=STAT_ORDER.filter(k=>(tg[k]||0)>0);
-                  const unitGain=logs.dailyUnitGains?.[today()]||0;
+                  // 単元名別の今日の伸び（新形式）。空のときは総量(旧)にフォールバック。
+                  const ugMap=logs.dailyUnitGainsByName?.[td]||{};
+                  const unitEntries=Object.entries(ugMap).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+                  const ugTotalByName=unitEntries.reduce((a,[,v])=>a+v,0);
+                  const ugLegacy=logs.dailyUnitGains?.[td]||0;
+                  const unitGain=ugTotalByName||ugLegacy;
                   if(!gained.length&&!unitGain)return null;
                   const sumStat=gained.reduce((a,k)=>a+(tg[k]||0),0);
                   const total=sumStat+unitGain;
@@ -3925,11 +4286,22 @@ function App(){
                             ${STAT_LABELS[k].icon} ${STAT_LABELS[k].name} <span style=${{opacity:.7}}>+${tg[k]}</span>
                           </span>`
                         ))}
-                        ${unitGain>0&&(
+                        ${unitEntries.length>0?(
+                          // 単元名別 pill (例: 🎯 分数力 +6)。最大6件まで表示。
+                          unitEntries.slice(0,6).map(([name,v],idx)=>{
+                            const shortName=name.length>8?name.slice(0,7)+"…":name;
+                            return(
+                              html`<span key=${`u-${name}`} class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",borderColor:"#fde68a",color:"#92400e",animationDelay:`${(gained.length+idx)*0.4}s`}} title=${name}>
+                                🎯 ${shortName}力 <span style=${{opacity:.7}}>+${v}</span>
+                              </span>`
+                            );
+                          })
+                        ):(ugLegacy>0&&(
+                          // 旧データ（単元名なし）→ 従来の合算 pill
                           html`<span class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",borderColor:"#fde68a",color:"#92400e",animationDelay:`${gained.length*0.4}s`}}>
-                            🎯 単元力 <span style=${{opacity:.7}}>+${unitGain}</span>
+                            🎯 単元力 <span style=${{opacity:.7}}>+${ugLegacy}</span>
                           </span>`
-                        )}
+                        ))}
                       </div>
                     </div>`
                   );
@@ -4024,7 +4396,27 @@ function App(){
             
             ${tab==="record"&&(
               html`<${Fragment}>
-                
+
+                ${(()=>{
+                  // ③ ミス改善率を正解率より前面に。「条件読み落としが半分！」を大きく出す。
+                  // 点数で折れる層は「改善幅」の方が継続率が伸びる。
+                  const imp=calcMistakeImprovement(logs.recentHistory||[]);
+                  if(!imp)return null;
+                  const isDown=imp.direction==="down";
+                  const isFlat=imp.direction==="flat";
+                  const bg=isDown?"linear-gradient(135deg,#f0fdf4,#bbf7d0)":isFlat?"linear-gradient(135deg,#f3f4f6,#e5e7eb)":"linear-gradient(135deg,#fff7ed,#fed7aa)";
+                  const fg=isDown?"#166534":isFlat?"#374151":"#7c2d12";
+                  const border=isDown?"#22c55e":isFlat?"#9ca3af":"#f59e0b";
+                  const headline=imp.direction==="down"?(imp.deltaPct<=-50?"半分以下！":`${Math.abs(imp.deltaPct)}%減！`):imp.direction==="flat"?"先週と同じ":imp.direction==="new"?"今週の弱点":`${imp.deltaPct}%増`;
+                  return(
+                    html`<div class="mistake-improve-card" style=${{background:bg,border:`2px solid ${border}`,color:fg}}>
+                      <div class="mic-tag">${isDown?"🎉 改善":isFlat?"📊 維持":"⚠️ 注意"}</div>
+                      <div class="mic-head">${headline}</div>
+                      <div class="mic-msg">${imp.msg}</div>
+                    </div>`
+                  );
+                })()}
+
                 <div style=${{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
                   <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div>
