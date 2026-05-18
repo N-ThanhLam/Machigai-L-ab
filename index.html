@@ -1782,22 +1782,29 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   // 再マウント時の prev は null になるので、新しい問題の初期表示でも正しく発火する。
   // retry（result → question）でも prev が "result" のため正しく発火する。
   // smooth スクロールはアニメ中「画面が動いて今どこ？」感が出るため auto（瞬間）。
-  // setTimeout だと一瞬チラつくので rAF で描画前に位置確定。
+  // レイアウト確定待ちに「ダブル rAF」を使う。
+  // 単一 rAF だと、バナー・苦手TOP3 など問題カード上側の要素がまだレイアウト計算中のため
+  // getBoundingClientRect() が「画面内にある」と誤判定しスクロールをスキップすることがある。
+  // 1本目の rAF でブラウザの描画サイクルを1回消化させ、2本目で位置を確定させることで
+  // 「たまにフォーカスが遅い」問題を解消する。
   const prevPhaseR=useRef(null);
   useEffect(()=>{
     const prev=prevPhaseR.current;
     prevPhaseR.current=quizPhase;
     if(quizPhase!=="question")return;
     if(prev==="question")return; // 既に質問フェーズ中の再render（自信度クリック等）ではスクロールしない
-    const id=requestAnimationFrame(()=>{
-      const el=quizCardRef.current;
-      if(!el)return;
-      const top=el.getBoundingClientRect().top;
-      // 既に上端が画面上部（上から40%以内）にあるなら何もしない
-      if(top>=-8&&top<window.innerHeight*0.4)return;
-      el.scrollIntoView({behavior:"auto",block:"start"});
+    let outer,inner;
+    outer=requestAnimationFrame(()=>{
+      inner=requestAnimationFrame(()=>{
+        const el=quizCardRef.current;
+        if(!el)return;
+        const top=el.getBoundingClientRect().top;
+        // 既に上端が画面上部（上から40%以内）にあるなら何もしない
+        if(top>=-8&&top<window.innerHeight*0.4)return;
+        el.scrollIntoView({behavior:"auto",block:"start"});
+      });
     });
-    return()=>cancelAnimationFrame(id);
+    return()=>{ cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
   },[quizPhase]);
   // ⑯ 自信度セレクター
   // 回答前 (question フェーズ) → メタ認知を促す問いかけに切り替え（ガイナー効果）
@@ -2387,6 +2394,7 @@ function App(){
   const stepResultsR=useRef([null,null,null]);
 
   const logsR=useRef(logs);const gsR=useRef(gs);const subjR=useRef(subject);
+  const manualSubjectR=useRef(false); // true=ユーザーが手動で科目選択、false=AI自動選択
   const keysR=useRef(apiKeys);const gradeR=useRef(grade);const bdR=useRef(birthday);
   const refillLk=useRef(false);const fetchLk=useRef(false);const nextLk=useRef(false);const reqId=useRef(null);
 
@@ -2823,9 +2831,8 @@ function App(){
       let stGains;
       if(wasRetry){
         if(correct){
-          stGains=calcStatGainsForAnswer(true,quiz?.mistake_type,{streak:newStreak,isFirst:false});
-          const wrongAdj=calcStatGainsForAnswer(false,quiz?.mistake_type,{streak:0,isFirst:false});
-          for(const k of STAT_ORDER){ stGains[k]=(stGains[k]||0)-(wrongAdj[k]||0); }
+          stGains=_zeroStats();
+          stGains.verificationPower=1; // リトライ正解は確認力+1のみ
         }else{
           stGains=_zeroStats();
         }
@@ -2973,7 +2980,7 @@ function App(){
   const pickSubject=cur=>{
     const subs=subjectsR.current;
     const rates=calcSubjRates(cur.recentHistory);
-    const ws=subs.map(s=>{const r=rates[s];if(!r||r.q===0)return{s,w:5};if(r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
+    const ws=subs.map(s=>{if(s===subjR.current)return{s,w:0};const r=rates[s];if(!r||r.q===0)return{s,w:5};if(r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
     const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
     for(const x of ws){r-=x.w;if(r<=0)return x.s;}return subs[0];
   };
@@ -3010,6 +3017,7 @@ function App(){
   };
 
   const startWithNorma=(cur,g)=>{
+    manualSubjectR.current=false; // ノルマ開始はAI自動選択
     const nq=buildNormaQueue(cur);
     if(nq.length){
       const[first,...rest]=nq;
@@ -3768,7 +3776,7 @@ function App(){
         }
         return;
       }
-      const cand=subjR.current;
+      const cand=manualSubjectR.current?subjR.current:pickSubject(logsR.current);
       // ⑪ フリーモードでも 連続3ミス なら easy を強制
       const _ws2=(gsR.current&&gsR.current.wrongStreak)||0;
       const candDiff=_ws2>=3?"easy":getAutoDifficulty(cand,logsR.current);
@@ -4300,6 +4308,7 @@ function App(){
                         ${items.map((it)=>(
                           html`<button key=${it.topic} class="wtc-row" title=${`${it.topic}（正解率${Math.round(it.rate*100)}%）`} onClick=${()=>{
                             // タップで該当科目へ即移動（既存 resetFetch を活用）
+                            manualSubjectR.current=true;
                             resetFetch(it.subj);
                           }}>
                             <span class="wtc-rate">${Math.round(it.rate*100)}%</span>
@@ -4542,7 +4551,7 @@ function App(){
                       <div style=${{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
                       <div style=${{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                         ${subjects.map(s=>(
-                          html`<button key=${s} class="btn btn-primary" style=${{padding:"10px 8px",fontSize:14}} onClick=${()=>{setShowSubjSel(false);resetFetch(s);}} >${displaySubject(s,grade)}</button>`
+                          html`<button key=${s} class="btn btn-primary" style=${{padding:"10px 8px",fontSize:14}} onClick=${()=>{setShowSubjSel(false);manualSubjectR.current=true;resetFetch(s);}} >${displaySubject(s,grade)}</button>`
                         ))}
                         <button class="btn btn-ghost" style=${{padding:"10px 8px",fontSize:14,background:"#e8e3ff"}} onClick=${()=>setShowSubjSel(false)} >もどる</button>
                       </div>
@@ -4552,6 +4561,7 @@ function App(){
                       <div class="row2" style=${{marginTop:4}}>
                         <button class="btn btn-ghost" onClick=${()=>setShowSubjSel(true)} >科目選択</button>
                         <button class="btn btn-ghost" onClick=${()=>{
+                          manualSubjectR.current=false; // AI自動選択（苦手科目はAIが判定）
                           const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
                           const un=subjects.filter(s=>!rates[s]||rates[s].q===0);
                           if(un.length&&Math.random()<.7){resetFetch(un[Math.floor(Math.random()*un.length)]);return;}
