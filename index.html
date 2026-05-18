@@ -21,7 +21,7 @@
         try{
           // CACHE 名は app バージョンに合わせて更新。activate で旧キャッシュを掃除し、
           // stale-while-revalidate が古い HTML を返し続ける問題を防ぐ。
-          const swCode = "const CACHE='manabi-v20';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil((async()=>{const ks=await caches.keys();await Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();})());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.open(CACHE).then(c=>c.match(e.request).then(r=>{const f=fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){try{c.put(e.request,res.clone());}catch(_){}};return res;}).catch(()=>r);return r||f;})));});";
+          const swCode = "const CACHE='manabi-v21';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil((async()=>{const ks=await caches.keys();await Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();})());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.open(CACHE).then(c=>c.match(e.request).then(r=>{const f=fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){try{c.put(e.request,res.clone());}catch(_){}};return res;}).catch(()=>r);return r||f;})));});";
           const blob=new Blob([swCode],{type:'application/javascript'});
           const url=URL.createObjectURL(blob);
           navigator.serviceWorker.register(url).catch(()=>{});
@@ -591,13 +591,13 @@ const jstDaysAgo=(n)=>{const d=new Date(today()+"T00:00:00");d.setDate(d.getDate
 //   wrong     … その日の累積。日跨ぎで 0 にリセット
 //   qNum      … 現セッションの問題番号（resetFetch でリセット）
 //   dayKey    … best/wrong が紐づく日付。これと today() を比較してローテ判定
-const _initGsDefaults=()=>({streak:0,best:0,wrong:0,qNum:1,wrongStreak:0,dayKey:today()});
+const _initGsDefaults=()=>({streak:0,best:0,wrong:0,qNum:1,wrongStreak:0,dayKey:today(),todayScore:0});
 const _rolloverGs=(g)=>{
   if(!g||typeof g!=="object")return _initGsDefaults();
   const td=today();
   if(g.dayKey===td)return g;
-  // 日跨ぎ: best は current streak（持ち越し分）から再スタート、wrong は 0、streak はそのまま
-  return {...g,best:g.streak||0,wrong:0,dayKey:td};
+  // 日跨ぎ: best は current streak（持ち越し分）から再スタート、wrong/todayScore は 0、streak はそのまま
+  return {...g,best:g.streak||0,wrong:0,todayScore:0,dayKey:td};
 };
 let _ki=0;
 
@@ -1776,11 +1776,19 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   const isCorrect=selectedChoice!==null&&selectedChoice===quiz.correct;
   // ─ スクロール制御 ─
   const quizCardRef=useRef(null);
-  // フェーズが変わったとき、カード上端が画面外なら "瞬時に" 上端へスナップ。
+  // 「問題文へのフォーカス（スクロール）」は "他フェーズ → question" の遷移時のみ。
+  // 旧実装は [quizPhase] 変化のたび発火していたため、question → result の遷移でも
+  // もう一度スクロールが走り「フォーカスが2回かかる」感覚を生んでいた（bug:「たまに2回」）。
+  // 再マウント時の prev は null になるので、新しい問題の初期表示でも正しく発火する。
+  // retry（result → question）でも prev が "result" のため正しく発火する。
   // smooth スクロールはアニメ中「画面が動いて今どこ？」感が出るため auto（瞬間）。
   // setTimeout だと一瞬チラつくので rAF で描画前に位置確定。
+  const prevPhaseR=useRef(null);
   useEffect(()=>{
-    if(!quizPhase)return;
+    const prev=prevPhaseR.current;
+    prevPhaseR.current=quizPhase;
+    if(quizPhase!=="question")return;
+    if(prev==="question")return; // 既に質問フェーズ中の再render（自信度クリック等）ではスクロールしない
     const id=requestAnimationFrame(()=>{
       const el=quizCardRef.current;
       if(!el)return;
@@ -2172,6 +2180,7 @@ function App(){
   // ランクイン演出
   const [rankInToast,setRankInToast]=useState(null);   // {label, rank}
   const [hopKey,setHopKey]=useState(0);                // 成長スコアの hop アニメ再生キー
+  const gainForGsRef=useRef(0);                        // updateLogs→setGs へゲインを橋渡し
   const [answerGains,setAnswerGains]=useState(null);   // 結果画面で順次フェード表示する +ステータス一覧
   // ─── 操作起点のボーナス +ステータス（アクティブリコール／なぜ他は違う／自信度／タイムアタック）
   // setLogs を発火するためアプリ側で集中管理。fire 用ガードは問題ごとにリセットする。
@@ -2233,16 +2242,26 @@ function App(){
   //    日付が変わったら自動で復活させる（毎日新しいリセット）
   const [stopHereDismissed,setStopHereDismissed]=useState(false);
   const stopHereDateR=useRef(today());
+  // 成長カードの「今日」キー。state にしておくことで日跨ぎ時に確実に再レンダーを起こす。
+  const [todayKey,setTodayKey]=useState(()=>today());
   useEffect(()=>{
-    const id=setInterval(()=>{
+    const checkDate=()=>{
       const td=today();
       if(td!==stopHereDateR.current){
         stopHereDateR.current=td;setStopHereDismissed(false);
+        // 日付が変わったら成長カード用 todayKey も更新（gs と同じ仕組み）
+        setTodayKey(td);
       }
       // 日跨ぎした瞬間にヘッダ表示の best/wrong も追従させる（idempotent: 同日なら何も起きない）
       setGs(p=>_rolloverGs(p));
-    },60000); // 1分ごとに日付チェック（軽量）
-    return()=>clearInterval(id);
+    };
+    const id=setInterval(checkDate,60000); // 1分ごとに日付チェック（軽量）
+    // モバイルでバックグラウンドから復帰した際もチェック
+    // （iOS Safari 等は setInterval をバックグラウンド中に停止するため、
+    //   visibilitychange でフォアグラウンド復帰を捕捉して強制ローテする）
+    const onVisible=()=>{ if(!document.hidden) checkDate(); };
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{ clearInterval(id); document.removeEventListener('visibilitychange',onVisible); };
   },[]);
   // ⑧ 3秒見直しモード：選択後に「本当にこれで決定？」確認ステップ
   // pendingChoice = {idx, anchor, sec} または null
@@ -2868,6 +2887,8 @@ function App(){
       // bestLoginStreak / bestStreak と同じ Math.max スタイルに揃える。
       const {score:dayScore}=calcTodayScore(next);
       next.bestDayScore=Math.max(next.bestDayScore||0,dayScore);
+      // gs.todayScore 更新用：今回 1 問で増えた分を ref 経由で setGs に橋渡し
+      gainForGsRef.current=Math.floor(dayScore-(calcTodayScore(prev).score||0));
       // 自動難易度を更新（次回出題時に反映）
       if(!next.subjectDifficulty)next.subjectDifficulty={};
       next.subjectDifficulty[subj]=getAutoDifficulty(subj,next);
@@ -3428,6 +3449,7 @@ function App(){
     // wrongItemId も保存: handleConfidenceRate で思い込みアラートを付与する対象を特定
     prevAnswerR.current={correct,subject,quiz:{...quiz},wrongItemId:wrongItem?.id||null};
     // お試しモードは記録に残さない（ゲストプレイ扱い）
+    gainForGsRef.current=0; // 試用モード時は加算しない。非試用なら updateLogs 内で上書きされる。
     if(!trialModeR.current){
       updateLogs(correct,subject,wrongItem,newBest,correct,currentWasRetry);
       // updateAnalysisStats（debugStats / debugHistory / review SM-2）は
@@ -3450,6 +3472,7 @@ function App(){
         wrong: (!correct && !currentWasRetry) ? r.wrong+1 : r.wrong,
         wrongStreak:nextWrongStreak,
         qNum: currentWasRetry ? r.qNum : r.qNum+1,
+        todayScore: (r.todayScore||0)+gainForGsRef.current,
       };
     });
   },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
@@ -3944,8 +3967,8 @@ function App(){
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
   const dailyGoalMet=todaySessions>=3;
   const reviewCount=logs.reviewQueue?.length||0;
-  // 当日スコア = 今日伸びた能力の合計値（毎日リセット）
-  const {score:todayScore}=calcTodayScore(logs);
+  // 当日スコア = gs に蓄積（_rolloverGs で毎日リセット。best/wrong と同じ仕組み）
+  const todayScore = gs.todayScore||0;
 
   const cal28=Array.from({length:28},(_,i)=>{
     // JST基準で日付キーを生成（端末タイムゾーンに依存しない）
@@ -4621,7 +4644,8 @@ function App(){
 
                 
                 ${(()=>{
-                  const td=today();
+                  // todayKey は state 変数（日跨ぎ時に checkDate が setTodayKey して再レンダーを保証）
+                  const td=todayKey;
                   const tg=logs.dailyStatGains?.[td]||{};
                   const gained=STAT_ORDER.filter(k=>(tg[k]||0)>0);
                   // 単元名別の今日の伸び（新形式）。空のときは総量(旧)にフォールバック。
@@ -5092,7 +5116,7 @@ function App(){
                 <div class="card">
                   <div class="section-title">問題ストック設定</div>
                   <div class="setting-row" style=${{borderBottom:"none",paddingBottom:0}}>
-                    <span class="setting-label">📦 ストック自動更新</span>
+                    <span class="setting-label">📦 問題最新化設定</span>
                     <div style=${{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
                       <button
                         onClick=${()=>setAutoRefill(v=>!v)}
