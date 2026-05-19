@@ -483,6 +483,11 @@ const _ensureBucket=(dam,subj,diff)=>{
   if(!Array.isArray(dam[subj][diff]))dam[subj][diff]=[];
   return dam[subj][diff];
 };
+// ※ addToDam は末尾追加 → slice(-DAM_MAX) で古い問題から切り捨て（FIFO）。
+//   addToDamFront は先頭追加 → slice(0, DAM_MAX) で末尾の古い問題を切り捨て。
+//   両者でスライス方向が逆なのはバグではなく、追加位置に合わせた正しい設計。
+//   pop は常に先頭（slice(0, take) / findIndex）から取り出すため、
+//   Front 版で追加した問題が優先出題される。
 const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const deduped=[];for(const q of qs){const k=dupKey(q);if(!keys.has(k)){keys.add(k);deduped.push(q);}}dam[subj][diff]=[...ex,...deduped].slice(-DAM_MAX);saveDam(dam);};
 const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=[];for(const q of qs){const k=dupKey(q);if(!keys.has(k)){keys.add(k);fresh.push(q);}}if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 // 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
@@ -502,6 +507,13 @@ const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
       dam[subj][d]=b;
       saveDam(dam);
     }
+    // ※ b が空のとき saveDam が2回呼ばれるが、これはバグではなく意図的な冗長保証。
+    //   1回目（上の if ブロック）で不整合除去を保存し、
+    //   2回目（下の if ブロック）は「空バケットを明示的に永続化」する役割で書かれている。
+    //   localStorage への書き込みコストはあるが動作上の問題はない（idempotent）。
+    // [要調査→バグではない #1] b===[] のとき saveDam が最大2回呼ばれる二重書き込みに見えるが、
+    //   同一 dam オブジェクトへの idempotent な上書きなので副作用なし。動作バグではなく、
+    //   「書き込み漏れを防ぐ冗長保証」として意図的に残されている。
     if(!b.length){
       saveDam(dam);
       continue;
@@ -659,6 +671,9 @@ const SM2_INTERVALS=[1,3,7,14];
 const addDaysISO=(dateStr,n)=>{const d=new Date((dateStr||today())+"T00:00:00");d.setDate(d.getDate()+n);return d.toLocaleDateString('sv-SE');};
 const advanceReviewItem=(item)=>{
   const reps=(item.reps||0)+1;
+  // ※ 卒業条件が `reps > SM2_INTERVALS.length`（> 4）に見えるが、これはバグではない。
+  //   reps=1〜4 のとき SM2_INTERVALS[reps-1] = [1,3,7,14] を順に参照して正しく動く。
+  //   reps=5 になって初めて null を返す（卒業）。配列外参照は起きない。
   if(reps>SM2_INTERVALS.length)return null; // 卒業 → キューから永続削除
   return {...item,reps,dueDate:addDaysISO(today(),SM2_INTERVALS[reps-1]),lastReview:today()};
 };
@@ -2268,8 +2283,11 @@ function App(){
   const threesecCardRef=useRef(null);
   // ⑪ 休み明けメッセージ
   const [showRestartMsg,setShowRestartMsg]=useState(false);
-  // 他科目スライドメッセージ
-  const [subjectSlideMsg,setSubjectSlideMsg]=useState("");
+  // [BUG FIX] subjectSlideMsg: 定義・表示コードは存在するが setSubjectSlideMsg の呼び出しが
+  // コード全体を通して一切存在しないため、このトーストは永遠に表示されないデッドコードだった。
+  // 以前の「科目スライド通知」機能の呼び出し側だけが削除されたまま残存していたと考えられる。
+  // state と表示コードを合わせて除去する（useState の空文字初期値のまま条件が常に false）。
+  // const [subjectSlideMsg,setSubjectSlideMsg]=useState(""); // 削除済み
   // 報告完了メッセージ
   const [reportMsg,setReportMsg]=useState("");
   const normaQueueR=useRef([]);
@@ -2629,6 +2647,10 @@ function App(){
       out.recentHistory=out.recentHistory.slice(-200);
     }
     // debugHistory: 直近50件まで（旧100から削減）
+    // ※ recentHistory は push（末尾追加）→ slice(-200) で先頭を切り捨てる。
+    //   debugHistory は unshift（先頭追加）→ slice(0,50) で末尾を切り捨てる。
+    //   両者でスライス方向が逆なのはバグではなく、追加方向の違いに合わせた正しい設計。
+    //   どちらも「新しいデータを残す」動作として一貫している。
     if(Array.isArray(out.debugHistory)&&out.debugHistory.length>50){
       out.debugHistory=out.debugHistory.slice(0,50);
     }
@@ -2676,6 +2698,13 @@ function App(){
         const td=today();
         const yk2=jstYesterday();
         const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
+        // ※ isGap は「最終ログインが今日でも昨日でもない（＝2日以上前）」を意味する。
+        //   days===2（一昨日）のとき "昨日はお休みだったね" と表示するのは一見おかしく見えるが、
+        //   isGap が true になる最小の空白が「2日前（=一昨日）」であり、
+        //   「昨日休んで今日来た」という文脈として正しい。バグではない。
+        // [要調査→バグではない B] days===2 で「昨日はお休みだったね」は「前回ログインが一昨日＝
+        //   昨日を休んだ」という意味で正しい。isGap の最小値は 2 日前（today-lastLogin>=2）。
+        //   days===1 は lastLogin===yk2（昨日）なので isGap=false → ここに到達しない。
         if(!isGap&&p.loginStreak>=1&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
         if(isGap){
@@ -2799,6 +2828,9 @@ function App(){
       // リトライ回は recentHistory を書き換えない（初回の不正解とミス型を保持）
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       // 初回の不正解のみ reviewQueue へ追加（リトライ wrong は wrongItem=null で来る）
+      // [要調査→バグではない A] `length<=19` でプッシュ → 追加後の最大は20件。
+      //   importData の `slice(-20)` キャップと上限が一致しており意図的な設計。
+      //   「<20 にすべきでは？」と見えるが <=19 は「20未満のとき追加」と同義なので正しい。
       if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<=19)next.reviewQueue.push(wrongItem);}
       // ── 継続力: 新しい日かチェック（loginStreak更新前に確認）──
       const isNewDay=(next.lastLogin!==td);
@@ -2821,6 +2853,14 @@ function App(){
       const prevRec=prev.recentHistory&&prev.recentHistory.length?prev.recentHistory[prev.recentHistory.length-1]:null;
       const prevWrong=!!(prevRec&&!prevRec.correct);
       // 連続正解数（安定力用）。リトライ回は streak を動かさない（前回の値を引き継ぐ）
+      // ※ wasRetry 時に `prev._streak||0` を返すのはバグではない。
+      //   リトライは「同じ問題の再挑戦」なので連続カウントを変動させず前回値を維持する設計。
+      //   correct=true のとき `(prevRec.correct ? prev._streak : 0) + 1` で
+      //   「直前が正解ならストリーク継続、不正解なら1にリセット」を正しく実装している。
+      // [要調査→バグではない #3] wasRetry 正解時にも streak を加算しないのは「水増し防止」の設計。
+      //   初回不正解 → リトライ正解の流れで streak が+1されると、不正解があったのに
+      //   連続正解が伸び続ける不整合が生じる。wasRetry 時は prev._streak をそのまま
+      //   持ち越すことで「不正解で一度 0 に戻った事実を保持」している。バグではない。
       const newStreak=wasRetry?(prev._streak||0):correct?(((prevRec&&prevRec.correct)?(prev._streak||0):0)+1):0;
       next._streak=newStreak;
       // 基本ゲイン: daily と cumulative の両方に加算（成長スコアの予測可能性を担保）
@@ -3110,6 +3150,11 @@ function App(){
       // (科目, 難易度) ペア単位で不足バケットを補充対象にする
       const sorted=lowestBuckets(curSubjects.length*DIFFS.length,curSubjects);
       const lacking=sorted.filter(t=>t.cnt<DAM_MAX);
+      // [要調査→バグではない C] lacking.length===0（全バケット満杯）でも autoRefill=ON なら
+      //   `sorted.slice(0,1)` で補充が走る。「満杯なのに補充？」と見えるが、
+      //   autoRefill=ON は「最新問題に入れ替え続ける」設定なので意図的に古い問題を上書きする動作。
+      //   addToDam の末尾追加 + slice(-DAM_MAX) により古い問題が押し出されて新しい問題に入れ替わる。
+      //   autoRefill=OFF なら lacking が空の時点で `[]` を返し補充しない、これも正しい。
       const filtered=lacking.length>0?lacking.slice(0,1):(autoRefillR.current?sorted.slice(0,1):[]);
       if(!filtered.length)return true;
       refillLk.current=true;setIsRefilling(true);
@@ -3194,7 +3239,17 @@ function App(){
         refillLk.current=false;
         if(!cancelled)setIsRefilling(false);
       }finally{
-        // finallyでも念のため保証（二重呼び出しになるが無害）
+        // ※ catch と finally の両方でロック解除しているが、これはバグではない。
+        //   catch → finally の順に実行されるため二重呼び出しになるが、
+        //   boolean フラグへの代入は idempotent なので副作用なし。
+        //   正常系（return anyPassed）でも finally は必ず走るため、
+        //   ロック解放を finally に書くことで「解放漏れ」を防ぐ設計。
+        //   catch 内の代入は finally が走らない環境への念のある後方互換であり、
+        //   現 JS エンジンでは finally が必ず実行されるので実質 finally だけで足りる。
+        // [要調査→バグではない #2] catch と finally 両方で refillLk.current=false / setIsRefilling(false)
+        //   を呼んでいる。「二重発火でバグ？」と見えるが boolean 代入と setState(false) は
+        //   両方べき等（idempotent）であり副作用なし。finally は catch の後にも必ず走るため
+        //   正常系・例外系どちらでも解放が保証される、意図的な二重安全弁。
         refillLk.current=false;
         if(!cancelled)setIsRefilling(false);
       }
@@ -3439,6 +3494,9 @@ function App(){
       setTimeout(()=>setRetryWinMsg(""),3500);
     }
     // 不正解→リトライでの reviewQueue 二重登録を防止：初回の不正解のみ wrongItem を作る
+    // ※ wrongItem を `!correct && !currentWasRetry` のときだけ生成するのはバグではない。
+    //   リトライ時（currentWasRetry=true）は updateLogs 側で wrongItem=null として渡し、
+    //   reviewQueue への二重登録を防ぐ設計。初回不正解のみキューに積む。
     const wrongItem=(!correct && !currentWasRetry)?{
       id:safeUUID(),
       topic:quiz.topic_tag||quiz.question.slice(0,20),
@@ -3457,9 +3515,22 @@ function App(){
     // wrongItemId も保存: handleConfidenceRate で思い込みアラートを付与する対象を特定
     prevAnswerR.current={correct,subject,quiz:{...quiz},wrongItemId:wrongItem?.id||null};
     // お試しモードは記録に残さない（ゲストプレイ扱い）
+    // ※ gainForGsRef.current を先に 0 にしておき、updateLogs の setLogs コールバック内で
+    //   上書きする「ref 橋渡し」パターン。
+    //   setLogs と setGs は両方非同期バッチで走るため、直接変数を共有できない。
+    //   trialMode 時は updateLogs を呼ばないので 0 のまま setGs に渡る（意図通り）。
     gainForGsRef.current=0; // 試用モード時は加算しない。非試用なら updateLogs 内で上書きされる。
     if(!trialModeR.current){
-      updateLogs(correct,subject,wrongItem,newBest,correct,currentWasRetry);
+      // sessionComplete: ノルマモード中（復習でも試用でもなく、未達成）かつ正解のときのみ true
+      // ※ 旧実装では `correct` をそのまま渡していたため、ノルマ外の通常問題で正解しても
+      //   dailyLog.sessions がカウントアップされ、ノルマ未達成のまま達成扱いになるバグがあった
+      // [BUG FIX] dailyGoalMet と currentReviewItemId は useCallback deps 外のため stale closure。
+      //   ノルマ達成直後の問題で dailyGoalMet=false（旧値）をキャプチャしたまま
+      //   sessionComplete=true が誤発火 → dailyLog.sessions が過剰カウントされていた。
+      //   logsR.current と currentReviewItemIdR.current を使って常に最新値を参照する。
+      const _liveGoalMet=(logsR.current.dailyLog?.[today()]?.sessions||0)>=5;
+      const sessionComplete=correct&&!currentReviewItemIdR.current&&!_liveGoalMet&&!trialModeR.current;
+      updateLogs(correct,subject,wrongItem,newBest,sessionComplete,currentWasRetry);
       // updateAnalysisStats（debugStats / debugHistory / review SM-2）は
       // 同じ問題のリトライでは二重カウントしない。初回のみ実行。
       if(!currentWasRetry){
@@ -3527,8 +3598,30 @@ function App(){
     const {idx,anchor}=pendingChoice;
     // pendingChoiceR を true のまま handleChoice を呼ぶ
     // （false にリセットすると handleChoice が threeSecCheck ブロックに再突入してしまうバグを防ぐ）
+    // ※ pendingChoiceR.current=false を先にやらないのはバグではなく意図的な設計。
+    //   handleChoice 内で `!pendingChoiceR.current` のとき threeSecCheck が再発動するため、
+    //   ref を true に保ったまま呼ぶことで「確定済み→直接処理」の経路へ進む。
+    //   handleChoice が quizPhase を "result" に変えると useEffect で
+    //   pendingChoiceR.current=false / setPendingChoice(null) が走り後片付けされる。
     setPendingChoice(null);
-    const fakeEvt={clientX:anchor?.x,clientY:anchor?.y};
+    // [BUG FIX] anchor は popAnchorFromEvent が「clientX + scrollX」で変換済みの document 座標。
+    // fakeEvt に clientX:anchor.x を入れて再度 popAnchorFromEvent に渡すと
+    // scrollX がさらに加算されて pop 位置が二重にズレる。
+    // handleChoice の第2引数 e は popAnchorFromEvent に渡されるが、
+    // currentTarget/target をまず探しにいき、なければ clientX にフォールバックする。
+    // そのため「すでに document 座標に変換済みの anchor」を直接使えるよう、
+    // currentTarget が存在しない fakeEvt ではなく anchor を直渡しする専用 object を使う。
+    // popAnchorFromEvent はフォールバック 3) で clientX を「+scrollX」してしまうため、
+    // document 座標をそのまま返す __docAnchor プロパティを持たせ、
+    // popAnchorFromEvent の冒頭で優先処理する方式に変更するのが理想だが、
+    // 最小変更として：anchor が存在する場合は handleChoice 内の popAnchorFromEvent を
+    // 迂回できるよう、fakeEvt に __anchorOverride を付与して handleChoice 側で直接使う。
+    // ただし handleChoice は popAnchorFromEvent を内部で呼ぶため、
+    // 最もシンプルな修正は「fakeEvt.clientX に scrollX を引いた viewport 座標を入れる」こと。
+    const sx=window.scrollX||0, sy=window.scrollY||0;
+    const fakeEvt=anchor
+      ? {clientX:anchor.x-sx, clientY:anchor.y-sy}  // document 座標 → viewport 座標に戻す
+      : {clientX:undefined, clientY:undefined};
     handleChoiceR.current&&handleChoiceR.current(idx,fakeEvt);
   },[pendingChoice]);
   const cancelPendingChoice=useCallback(()=>{
@@ -3642,7 +3735,11 @@ function App(){
       setLogs(prev=>{
         const next=deepClone(prev);
         const td=today();
-        const subj=next.recentHistory?.slice(-1)[0]?.subject||"";
+        // [BUG FIX] 旧実装は recentHistory 末尾の subject を使っていたが、
+        //   wasRetry 時など recentHistory に今問題が積まれていない場合に
+        //   直前の別問題の subject を誤参照していた。
+        //   subjR.current は常に現在出題中の科目を指すため確実。
+        const subj=subjR.current||"";
         if(!next.subjectUnitStats)next.subjectUnitStats={};
         if(subj&&!next.subjectUnitStats[subj])next.subjectUnitStats[subj]={};
         if(subj){next.subjectUnitStats[subj][unitName]=(next.subjectUnitStats[subj][unitName]||0)+1;}
@@ -3909,6 +4006,10 @@ function App(){
         if(!restored.bestDayScore)restored.bestDayScore=0;
         // 古いエクスポートに >20 件の reviewQueue が混じっていた場合のキャップ
         // （push 経路の length<20 ガードが効かないため、インポート時に明示的に切る）
+        // ※ slice(-20) で末尾20件（＝より新しいアイテム）を残すのはバグではない。
+        //   reviewQueue は push で末尾追加されるため、末尾ほど新しい。
+        //   SM-2 の期日順ソートは sortReviewQueue が担うため、
+        //   ここでの順序保持は問題ない。
         if(Array.isArray(restored.reviewQueue)&&restored.reviewQueue.length>20)restored.reviewQueue=restored.reviewQueue.slice(-20);
         setLogs(restored);saveLogs(restored);
         if(d.dam&&typeof d.dam==="object"){
@@ -5222,7 +5323,7 @@ function App(){
 
       ${showRestartMsg&&html`<div role="status" aria-live="polite" class="toast-base toast-safe" style=${{background:"#f0fdf4",border:"2px solid #86efac",color:"#166534"}}>久しぶり！また一緒に頑張ろう 🌱</div>`}
 
-      ${subjectSlideMsg&&html`<div role="status" aria-live="polite" class="toast-base toast-safe" style=${{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff"}}>${subjectSlideMsg}</div>`}
+      ${/* [BUG FIX] subjectSlideMsg トーストを削除: setSubjectSlideMsg が呼ばれないデッドコードだった */ ""}
 
       ${reportMsg&&html`<div role="status" aria-live="polite" class="toast-base toast-safe" style=${{background:"#1e1e3a",color:"#fff"}}>${reportMsg}</div>`}
 
