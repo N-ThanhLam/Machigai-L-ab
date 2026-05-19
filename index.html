@@ -40,7 +40,7 @@ const _safeLS = {
     // 重要キーは IndexedDB にも複製（非同期・失敗無視）
     // manabi_logs_v4 / manabi_dam_v4 / manabi_profile_v2 などのバージョン番号末尾、
     // および __u{id} のユーザー接尾辞付きも対象にする。
-    if(/^manabi_/.test(k) && /(_v\d+|profile|session|dam|logs|users|curUser|theme|autorefill|reject_count|advanced)(?:__u[a-z0-9]+)?$/.test(k)){
+    if(/^manabi_/.test(k) && /(_v\d+|profile|session|dam|logs|users|curUser|theme|autorefill|reject_count|advanced|easy_text_mode)(?:__u[a-z0-9]+)?$/.test(k)){
       try{ _idbSet(k,v); }catch(e){}
     }
   },
@@ -175,6 +175,159 @@ const displaySubject = (subj, grade) =>
   subj === "算数" && grade && (grade.startsWith("中") || grade.startsWith("高"))
     ? "数学"
     : subj;
+
+// ─── 低学年向け語彙切替（小1-3 / 設定タブのトグルで上書き可） ───────
+// EASY_TEXT/NORMAL_TEXT の切替トリガ。デフォルトは小1-3で自動ON だが、
+// 設定タブの「やさしい表記」トグル（auto/on/off）で明示的に上書きできる。
+// App の useEffect が state→ここのモジュール変数に同期する設計のため、
+// isLowGrade(grade) の呼び出し側（100箇所超）は変更不要。
+// "auto" 時のみ学年判定にフォールバックする。
+let _easyTextOverride = "auto"; // "auto" | "on" | "off"
+const _isLowGradeRaw = (grade) =>
+  !!grade && (grade.startsWith("小学1") || grade.startsWith("小学2") || grade.startsWith("小学3"));
+const isLowGrade = (grade) => {
+  if (_easyTextOverride === "on") return true;
+  if (_easyTextOverride === "off") return false;
+  return _isLowGradeRaw(grade);
+};
+const NORMAL_TEXT = {
+  normaTitle:"ノルマ問題",
+  normaGoal:"5問正解でノルマ達成！",
+  reviewTitle:"復習問題",
+  reviewSub:"以前まちがえた問題に再チャレンジ！",
+  priorityHead:"⚠ 前回ここで間違えた",
+  prioritySub:"思い込みアラート。今度こそ慎重に！",
+  next:"次の問題へ →",
+  retry:"🔄 もう一回解く",
+  correct:"正解！",
+  correctSub:"その調子！🌟",
+  learnTime:"💡 学びどき",
+  confidenceBefore:"答える前に：自分の手応えは？",
+  confidenceAfter:"この問題、どれくらいわかった？",
+  confKan:"勘",
+  confHalf:"半分わかった",
+  confCan:"説明できる",
+  whyWrongOpen:"👁️ なぜ他は違うか分析する",
+  whyWrongClose:"▲ 他の選択肢の理由を閉じる",
+  notLearned:"まだ習ってない",
+  showHintBtn:"💭 前提ヒントを見る（覚えていなくてOK）",
+  lifeline:"💡 ライフライン：間違いを1つ消す",
+  reportBtn:"⚠️ この問題の内容がおかしい",
+  hintLabel:"💡 前提ヒント（まだ習ってなくてOK）",
+  understoodNext:"わかった → 次の問題へ",
+  backToProblem:"✏️ 問題に戻って解く",
+  hintInline:"💡 前提ヒント",
+  hintInlineSub:"→ 次の同じ型の問題で使えます。<b>もう一回解く</b>で身につけよう。",
+  showHintInline:"💡 ヒントを見る（前提知識）",
+  closeHintInline:"▲ ヒントを閉じる",
+  encourageEasy:"🌱 まちがいは「いまの自分の弱点」が見えた瞬間。これがいちばん成長する！",
+  thisMissType:"このミスの型",
+  yourThought:"🤔 あなたの考え（思考のズレ）",
+  hereCorrect:"✅ ここまでは合ってた",
+  improvePrecision:"消去法の精度を上げる",
+  timeAttack:"⏱ タイムアタック",
+  trialMode:"お試しモード — APIキーなしで体験中",
+  revivalCheers:["折れなかった！","🌱 戻ってきたの、強い！","💪 逃げずに再挑戦えらい！","🔁 リトライ成功！この粘りが伸びる！","🔥 復活！この一問が伸びる！"],
+  revivalBig:"復活ボーナス！",
+  revivalSub:"ミスから立て直した",
+  // タブ・全体共通
+  tabLearn:"📚 学習",
+  tabRecord:"📒 記録",
+  tabLog:"📈 成長",
+  tabSettings:"⚙️ 設定",
+  growthScore:"成長スコア",
+  best:"最高",
+  bestSelf:"自己ベスト",
+  streak:"連続",
+  reviewLeft:"復習",
+  apiKeyMissing:"APIキーを登録してください",
+  setApiKey:"⚙️ 設定でAPIキーを登録",
+  loading:"問題を読み込み中...",
+  noData:"問題データが読み込めませんでした",
+  todayTitle:"今日のがんばり",
+  // 記録タブ
+  recordTitle:"記録",
+  mistakeList:"まちがえた問題",
+  reviewQueueLabel:"復習リスト",
+  // 成長タブ
+  logTitle:"成長",
+  growthAbilities:"能力スコア",
+  todayGrowth:"今日伸びた能力",
+  subjectAccuracy:"科目別の正解率",
+  // 設定タブ
+  settingsTitle:"設定",
+  birthdayLabel:"🎂 生年月日（学年自動計算）",
+};
+const EASY_TEXT = {
+  normaTitle:"きょうのもんだい",
+  normaGoal:"5もん せいかいで ゴール！",
+  reviewTitle:"もういちど もんだい",
+  reviewSub:"まえに まちがえた もんだいだよ！",
+  priorityHead:"⚠ まえに ここで まちがえたよ",
+  prioritySub:"こんどは ゆっくり よんでみよう！",
+  next:"つぎへ →",
+  retry:"🔄 もういっかい",
+  correct:"せいかい！",
+  correctSub:"その ちょうし！🌟",
+  learnTime:"💡 まなびのとき",
+  confidenceBefore:"こたえるまえに：どんな かんじ？",
+  confidenceAfter:"この もんだい、どれくらい わかった？",
+  confKan:"あてずっぽう",
+  confHalf:"なんとなく",
+  confCan:"ばっちり！",
+  whyWrongOpen:"👁️ ほかは どうして ダメか みる",
+  whyWrongClose:"▲ とじる",
+  notLearned:"まだ ならってない",
+  showHintBtn:"💭 ヒントを見る（おぼえてなくてOK）",
+  lifeline:"💡 ヒント：1つ けす",
+  reportBtn:"⚠️ この もんだい、へん？",
+  hintLabel:"💡 ヒント（おぼえてなくて OK）",
+  understoodNext:"わかった → つぎへ",
+  backToProblem:"✏️ もんだいに もどる",
+  hintInline:"💡 ヒント",
+  hintInlineSub:"→ つぎの にた もんだいで つかえるよ。<b>もういっかい</b>で みにつけよう。",
+  showHintInline:"💡 ヒントを みる",
+  closeHintInline:"▲ ヒントを とじる",
+  encourageEasy:"🌱 まちがいは「いま よわい ところ」が みえた しゅんかん。いちばん のびるよ！",
+  thisMissType:"この まちがいの かたち",
+  yourThought:"🤔 きみの かんがえ（ちょっと ずれた）",
+  hereCorrect:"✅ ここまでは あってた",
+  improvePrecision:"のこりを けして せいかいに ちかづく",
+  timeAttack:"⏱ タイムアタック",
+  trialMode:"おためしモード — APIキーなしで たいけんちゅう",
+  revivalCheers:["やったね！もどってきた！","💪 また できた！すごい！","🌱 もういっかいで せいかい！えらい！","🔥 ぜんかい まちがえたのに できた！"],
+  revivalBig:"ふっかつ ボーナス！",
+  revivalSub:"まちがいから たちなおった",
+  // タブ・全体共通
+  tabLearn:"📚 もんだい",
+  tabRecord:"📒 きろく",
+  tabLog:"📈 のびた",
+  tabSettings:"⚙️ せってい",
+  growthScore:"のびたかず",
+  best:"さいこう",
+  bestSelf:"じぶんで さいこう",
+  streak:"れんぞく",
+  reviewLeft:"もういちど",
+  apiKeyMissing:"APIキーを とうろくしてね",
+  setApiKey:"⚙️ せっていで APIキーを とうろく",
+  loading:"もんだいを よみこんでるよ...",
+  noData:"もんだいが よみこめなかった",
+  todayTitle:"きょうの がんばり",
+  // 記録タブ
+  recordTitle:"きろく",
+  mistakeList:"まちがえた もんだい",
+  reviewQueueLabel:"もういちど リスト",
+  // 成長タブ
+  logTitle:"のびた",
+  growthAbilities:"のうりょく スコア",
+  todayGrowth:"きょう のびた ちから",
+  subjectAccuracy:"かもくべつの せいかいりつ",
+  // 設定タブ
+  settingsTitle:"せってい",
+  birthdayLabel:"🎂 たんじょうび（がくねん じどう）",
+};
+// 学年に応じたテキスト辞書を返す（QuizPanel/App 双方で参照）
+const pickText = (grade) => (isLowGrade(grade) ? EASY_TEXT : NORMAL_TEXT);
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────
 // 設計方針：
@@ -784,14 +937,18 @@ const calcPartialSuccesses=(quiz,opts={})=>{
 // 親が子供に "正解した" 以外で褒めやすい一言を自動生成する。
 // 親が褒める対象を増やすことが子供のやる気に効くため、最も褒め甲斐のあるシグナルを1つ選んで返す。
 // 入力: logs（既存の累積）。出力: {title, body} | null
-const calcParentPraise=(logs)=>{
+const calcParentPraise=(logs,grade)=>{
   if(!logs)return null;
   const td=today();
   const hist=logs.recentHistory||[];
+  const low=isLowGrade(grade);
+  const title=low?"きょうの ほめポイント":"今日はここを褒めてあげて";
   // 1. ミス改善率: 先週比で TOP ミス型が減っていれば最優先
   const imp=calcMistakeImprovement(hist);
   if(imp&&imp.direction==="down"){
-    return {title:"今日はここを褒めてあげて",body:`「${kidifyMistakeType(imp.type)}」が先週より${Math.abs(imp.deltaPct)}%減っています。地味だけど一番伸びてる力です。`};
+    return {title,body:low
+      ?`「${kidifyMistakeType(imp.type)}」が せんしゅうより ${Math.abs(imp.deltaPct)}% へったよ。じみだけど いちばん のびてる ちから。`
+      :`「${kidifyMistakeType(imp.type)}」が先週より${Math.abs(imp.deltaPct)}%減っています。地味だけど一番伸びてる力です。`};
   }
   // 2. リトライからの正解（粘った）
   const today24=hist.filter(r=>r.date===td);
@@ -800,19 +957,27 @@ const calcParentPraise=(logs)=>{
     if(today24[i].correct&&!today24[i-1].correct)retryWins++;
   }
   if(retryWins>=1){
-    return {title:"今日はここを褒めてあげて",body:`不正解の次に正解を取り戻した回数 ${retryWins} 回。「途中で投げずに考え直せた」が今日の主役です。`};
+    return {title,body:low
+      ?`まちがえた つぎに とりかえした かいすう ${retryWins} かい。「とちゅうで なげずに かんがえなおせた」が きょうの しゅやく。`
+      :`不正解の次に正解を取り戻した回数 ${retryWins} 回。「途中で投げずに考え直せた」が今日の主役です。`};
   }
   // 3. ノルマ完遂 or 開始力
   const todayQ=logs.dailyLog?.[td]?.q||0;
   if(todayQ>=3&&(logs.loginStreak||0)>=2){
-    return {title:"今日はここを褒めてあげて",body:`${logs.loginStreak}日連続で取り組めています。「続ける力」が静かに育っています。`};
+    return {title,body:low
+      ?`${logs.loginStreak}にち つづけて とりくめてる！「つづける ちから」が しずかに そだってるよ。`
+      :`${logs.loginStreak}日連続で取り組めています。「続ける力」が静かに育っています。`};
   }
   if(todayQ>=5){
-    return {title:"今日はここを褒めてあげて",body:`今日 ${todayQ} 問に挑戦。「最後まで読む」「選びきる」を ${todayQ} 回くり返した、それだけで十分な成長です。`};
+    return {title,body:low
+      ?`きょう ${todayQ} もんに ちょうせん。「さいごまで よむ」「えらびきる」を ${todayQ} かい くりかえした、それだけで じゅうぶんな せいちょう。`
+      :`今日 ${todayQ} 問に挑戦。「最後まで読む」「選びきる」を ${todayQ} 回くり返した、それだけで十分な成長です。`};
   }
   // 4. 直近の自己ベスト連続
   if((logs.bestStreak||0)>=3){
-    return {title:"今日はここを褒めてあげて",body:`連続正解の自己ベストは ${logs.bestStreak} 問。「集中が切れずに続けられた」瞬間が確かにあります。`};
+    return {title,body:low
+      ?`れんぞく せいかいの じこベストは ${logs.bestStreak} もん。「しゅうちゅうが きれずに つづけられた」しゅんかんが ちゃんと あったよ。`
+      :`連続正解の自己ベストは ${logs.bestStreak} 問。「集中が切れずに続けられた」瞬間が確かにあります。`};
   }
   return null;
 };
@@ -881,6 +1046,21 @@ const STAT_LABELS={
   retryAgain:       {name:"再挑戦力", icon:"🔁"},
   stability:        {name:"安定力",   icon:"⚖️"},
 };
+// 低学年（小1-3）向けのやさしい呼び名。icon は共通。表示時のみ name を差替える。
+const EASY_STAT_LABELS={
+  startingPower:    {name:"はじめる ちから",   icon:"🚀"},
+  consistency:      {name:"つづける ちから",   icon:"📅"},
+  readingAccuracy:  {name:"よみとる ちから",   icon:"👁"},
+  logicalReasoning: {name:"せいりする ちから", icon:"🧩"},
+  focus:            {name:"しゅうちゅう",       icon:"🧠"},
+  attention:        {name:"よく みる ちから",   icon:"👀"},
+  verificationPower:{name:"たしかめる ちから", icon:"🔍"},
+  retryPower:       {name:"たちなおる ちから", icon:"💪"},
+  retryAgain:       {name:"もういちど ちから", icon:"🔁"},
+  stability:        {name:"あんてい",           icon:"⚖️"},
+};
+// 学年でラベルを切り替えるヘルパー。引数省略時は通常版。
+const getStatLabel=(key,grade)=>(isLowGrade(grade)?EASY_STAT_LABELS:STAT_LABELS)[key]||STAT_LABELS[key];
 const STAT_ORDER=["startingPower","consistency","readingAccuracy","logicalReasoning","focus","attention","verificationPower","retryPower","retryAgain","stability"];
 // 旧 signControl キーは attention にマイグレーション
 // ミスの型 → 対応ステータス
@@ -1301,6 +1481,31 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 [data-theme="dark"] .stat-line .stat-line-name{color:#aba6cf}
 [data-theme="dark"] .stat-line .stat-line-val{color:#c4b5fd}
 
+/* ── 復活ボーナス（ミス→次で正解）派手な演出 ──
+   ・中央に大型ヒーロー、紙吹雪14片、3連リング、軽い揺れ
+   ・transform/opacity だけで合成（reflow を起こさない）→ 瞬間負荷のみ
+   ・pointer-events:none で操作を一切ブロックしない
+*/
+@keyframes revival-hero-in{0%{transform:translate(-50%,-50%) scale(.35) rotate(-6deg);opacity:0}45%{transform:translate(-50%,-50%) scale(1.18) rotate(2deg);opacity:1}70%{transform:translate(-50%,-50%) scale(.94) rotate(-1deg)}100%{transform:translate(-50%,-50%) scale(1) rotate(0);opacity:1}}
+@keyframes revival-hero-out{0%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(-50%,-50%) scale(1.12);opacity:0}}
+@keyframes revival-hero-shake{0%,100%{margin-left:0}25%{margin-left:-4px}75%{margin-left:4px}}
+@keyframes revival-ring{0%{transform:translate(-50%,-50%) scale(.35);opacity:.75}100%{transform:translate(-50%,-50%) scale(3.6);opacity:0}}
+@keyframes revival-flake{0%{transform:translate(0,0) rotate(0);opacity:0}10%{opacity:1}100%{transform:translate(var(--dx,80px),var(--dy,120px)) rotate(var(--rot,360deg));opacity:0}}
+@keyframes revival-aura{0%{box-shadow:0 0 0 0 rgba(236,72,153,.6),0 24px 64px rgba(124,58,237,.5)}50%{box-shadow:0 0 0 18px rgba(236,72,153,0),0 26px 70px rgba(124,58,237,.55)}100%{box-shadow:0 0 0 0 rgba(236,72,153,0),0 24px 64px rgba(124,58,237,.5)}}
+.revival-overlay{position:fixed;inset:0;z-index:1500;pointer-events:none;overflow:hidden;will-change:contents}
+.revival-hero{position:fixed;top:48%;left:50%;background:linear-gradient(135deg,#7c3aed 0%,#ec4899 55%,#f59e0b 100%);color:#fff;border-radius:24px;padding:18px 28px 16px;font-weight:900;text-align:center;max-width:88vw;letter-spacing:.02em;border:3px solid rgba(255,255,255,.4);animation:revival-hero-in .6s cubic-bezier(.34,1.56,.64,1) both,revival-aura 1.4s ease-in-out .55s 2}
+.revival-hero .rh-shake{display:inline-block;animation:revival-hero-shake .42s ease-in-out .55s 2}
+.revival-hero .rh-icon{font-size:46px;display:block;line-height:1;margin-bottom:6px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.28))}
+.revival-hero .rh-big{font-size:22px;font-weight:900;line-height:1.2;text-shadow:0 2px 8px rgba(0,0,0,.22)}
+.revival-hero .rh-sub{font-size:11.5px;font-weight:800;opacity:.95;margin-top:6px;letter-spacing:.06em;text-shadow:0 1px 4px rgba(0,0,0,.22)}
+.revival-hero .rh-phrase{display:block;margin-top:8px;font-size:13px;font-weight:800;background:rgba(255,255,255,.22);border-radius:12px;padding:6px 10px;backdrop-filter:blur(2px)}
+.revival-hero.fadeout{animation:revival-hero-out .35s ease-in both !important}
+.revival-ring{position:fixed;top:48%;left:50%;width:130px;height:130px;border-radius:50%;border:5px solid #f0abfc;animation:revival-ring .95s ease-out both;pointer-events:none}
+.revival-ring.r2{border-color:#fde68a;animation-delay:.08s;animation-duration:1.05s;border-width:4px}
+.revival-ring.r3{border-color:#86efac;animation-delay:.18s;animation-duration:1.15s;border-width:3px}
+.revival-flake{position:fixed;top:48%;left:50%;width:10px;height:14px;border-radius:2px;will-change:transform,opacity;animation:revival-flake 1.15s ease-out both;pointer-events:none}
+[data-theme="dark"] .revival-hero{border-color:rgba(255,255,255,.5)}
+
 /* ランクイン演出: TOP5入りトースト */
 @keyframes rankin-pop{0%{transform:translate(-50%,-30px) scale(.6);opacity:0}50%{transform:translate(-50%,4px) scale(1.1);opacity:1}100%{transform:translate(-50%,0) scale(1);opacity:1}}
 @keyframes celebration-pop{0%{transform:translateY(-12px) scale(.92);opacity:0}60%{transform:translateY(3px) scale(1.03);opacity:1}100%{transform:translateY(0) scale(1);opacity:1}}
@@ -1657,7 +1862,10 @@ const RecallQuiz=memo(({quiz,onAnswered})=>{
 // 1.8s 後に削除する。タブ非表示時はタイマーを全キャンセルして消す。
 // 結果ボックス内（result-big-ok / -ng）の % 座標。pill は translateX(-50%) で中心寄せ。
 // 縦アニメで上方向に 46px 上昇するので、最終的にボックス上端からも自由に飛び出す。
-const _SG_POS=[[25,40],[75,40],[40,20],[60,25],[30,70],[70,75],[50,30],[50,75]];
+// 2列×4段の重ならないグリッド。stat-pop-float は -46px 上昇するため、
+// 上下の段は少なくとも約20%（≒50px @ 250px box）あけて配置する。
+// idx の順番で「左→右→左→右」と交互に置くと、連続発火時に隣同士で重ならない。
+const _SG_POS=[[22,18],[78,18],[22,40],[78,40],[22,62],[78,62],[22,82],[78,82]];
 const StatGainsPop=memo(({answerGains})=>{
   const [shown,setShown]=useState([]);
   const tids=useRef([]);
@@ -1703,6 +1911,65 @@ const StatGainsPop=memo(({answerGains})=>{
           </div>`
         );
       })}
+    </div>`
+  );
+});
+
+// ─── RevivalBurst ────────────────────────────────────────────────
+// 復活ボーナス（直前ミス→次で正解）の派手な演出。
+// 紙吹雪は data.show が立った瞬間に乱数で一度だけ作り、メモ化（再render で再生しない）。
+// 1.6s 後に fadeout クラスを付けて 0.35s でフェード、その後 onDone() で親に消してもらう。
+const _RB_COLORS=["#fef08a","#fb7185","#22d3ee","#86efac","#c4b5fd","#fdba74","#f0abfc"];
+const RevivalBurst=memo(({show,big,sub,phrase,onDone})=>{
+  const [phase,setPhase]=useState("in"); // in → out → null
+  const flakes=useMemo(()=>{
+    if(!show)return [];
+    const N=16, vw=Math.min(window.innerWidth||360,520);
+    return Array.from({length:N},(_,i)=>{
+      const ang=(Math.PI*2)*(i/N) + (Math.random()*.4-.2);
+      const dist=Math.max(110, Math.min(vw*0.45, 140 + Math.random()*120));
+      const dx=Math.cos(ang)*dist;
+      const dy=Math.sin(ang)*dist*0.85 - 20; // 少し上に偏らせる
+      return {
+        c:_RB_COLORS[i%_RB_COLORS.length],
+        dx, dy,
+        rot:(Math.random()*720-360)|0,
+        delay:Math.random()*0.18,
+        size:8+Math.random()*8,
+      };
+    });
+  },[show]);
+  useEffect(()=>{
+    if(!show)return;
+    setPhase("in");
+    const t1=setTimeout(()=>setPhase("out"),1700);
+    const t2=setTimeout(()=>{ setPhase("in"); onDone&&onDone(); },2100);
+    return()=>{ clearTimeout(t1); clearTimeout(t2); };
+  },[show,onDone]);
+  if(!show)return null;
+  const fade=phase==="out";
+  return(
+    html`<div class="revival-overlay" aria-hidden="true">
+      <div class="revival-ring"/>
+      <div class="revival-ring r2"/>
+      <div class="revival-ring r3"/>
+      ${flakes.map((f,i)=>(
+        html`<div key=${i} class="revival-flake" style=${{
+          background:f.c,
+          width:`${f.size}px`,height:`${f.size*1.4}px`,
+          marginLeft:`-${f.size/2}px`,marginTop:`-${f.size*0.7}px`,
+          animationDelay:`${f.delay}s`,
+          ['--dx']:`${f.dx}px`,
+          ['--dy']:`${f.dy}px`,
+          ['--rot']:`${f.rot}deg`,
+        }}/>`
+      ))}
+      <div class=${`revival-hero${fade?" fadeout":""}`} role="status" aria-live="polite">
+        <span class="rh-icon rh-shake">💥</span>
+        <div class="rh-big">${big}</div>
+        <div class="rh-sub">${sub}</div>
+        ${phrase&&html`<span class="rh-phrase">${phrase}</span>`}
+      </div>
     </div>`
   );
 });
@@ -1756,7 +2023,8 @@ const popAnchorFromEvent=(e)=>{
     }
   }catch(_){}
   // 3) マウスイベントの座標（clientX/Y はビューポート基準 → +scroll で document 座標へ）
-  if(typeof e.clientX==="number"&&typeof e.clientY==="number"&&(e.clientX||e.clientY)){
+  //    typeof で number 確認済みなので truthy チェックは不要（0 を弾く誤判定を防ぐ）。
+  if(typeof e.clientX==="number"&&typeof e.clientY==="number"){
     return {x:e.clientX+sx, y:e.clientY+sy};
   }
   // 4) タッチイベントの座標
@@ -1771,8 +2039,10 @@ const popAnchorFromEvent=(e)=>{
 
 // ─── QuizPanel ───────────────────────────────────────────────────
 const CHOICE_LABELS=["A","B","C","D"];
-const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered,choicesDisabled})=>{
+const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered,choicesDisabled,grade})=>{
   if(!quiz||!quizPhase)return null;
+  // 学年に応じた UI 文言（低学年=ひらがな中心）。calcSubjects と同じ「学年で分岐」の系譜。
+  const TXT=pickText(grade);
   const isCorrect=selectedChoice!==null&&selectedChoice===quiz.correct;
   // ─ スクロール制御 ─
   const quizCardRef=useRef(null);
@@ -1800,12 +2070,9 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
       inner=requestAnimationFrame(()=>{
         const el=quizCardRef.current;
         if(!el)return;
-        // question フェーズ: 既に上端が画面上部にあるなら何もしない
-        // result フェーズ: カードが同位置でもコンテンツ入れ替わりがあるので必ずスクロール
-        if(quizPhase==="question"){
-          const top=el.getBoundingClientRect().top;
-          if(top>=-8&&top<window.innerHeight*0.4)return;
-        }
+        // 旧仕様の「既に上端にあるならスキップ」は、結果→次へで card が同位置に
+        // 再マウントされるケースで誤発火（=スキップ）し、新問題のヘッダー被りを起こす。
+        // result/question どちらでも必ず scrollIntoView を呼ぶ（瞬間=auto、軽い操作）。
         el.scrollIntoView({behavior:"auto",block:"start"});
       });
     });
@@ -1815,14 +2082,14 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   // 回答前 (question フェーズ) → メタ認知を促す問いかけに切り替え（ガイナー効果）
   const ConfidenceSelector=()=>{
     const isBeforeAnswer=quizPhase==="question";
-    const label=isBeforeAnswer?"答える前に：自分の手応えは？":"この問題、どれくらいわかった？";
+    const label=isBeforeAnswer?TXT.confidenceBefore:TXT.confidenceAfter;
     return(
       html`<div class="confidence-wrap">
         <div class="confidence-label-txt">${label}</div>
         <div class="confidence-row">
-          <button class=${`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick=${(e)=>onConfidenceRate(1,e)}>🎲<br/>勘</button>
-          <button class=${`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick=${(e)=>onConfidenceRate(2,e)}>🤔<br/>半分わかった</button>
-          <button class=${`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick=${(e)=>onConfidenceRate(3,e)}>✅<br/>説明できる</button>
+          <button class=${`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick=${(e)=>onConfidenceRate(1,e)}>🎲<br/>${TXT.confKan}</button>
+          <button class=${`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick=${(e)=>onConfidenceRate(2,e)}>🤔<br/>${TXT.confHalf}</button>
+          <button class=${`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick=${(e)=>onConfidenceRate(3,e)}>✅<br/>${TXT.confCan}</button>
         </div>
       </div>`
     );
@@ -1832,24 +2099,24 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
       html`<${Fragment}>
         <div style=${{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
           <span style=${{fontSize:16}}>🎯</span>
-          <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>5問正解でノルマ達成！</div></div>
+          <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>${TXT.normaTitle} ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>${TXT.normaGoal}</div></div>
         </div>
         <div style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
           <span style=${{fontSize:16}}>📝</span>
-          <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div><div style=${{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div></div>
+          <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>${TXT.reviewTitle}</div><div style=${{fontSize:11,color:"#78350f"}}>${TXT.reviewSub}</div></div>
         </div>
       <//>`
     );
     if(isReview)return(
       html`<div style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style=${{fontSize:16}}>📝</span>
-        <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>復習問題</div><div style=${{fontSize:11,color:"#78350f"}}>以前まちがえた問題に再チャレンジ！</div></div>
+        <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>${TXT.reviewTitle}</div><div style=${{fontSize:11,color:"#78350f"}}>${TXT.reviewSub}</div></div>
       </div>`
     );
     if(isNorma)return(
       html`<div style=${{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style=${{fontSize:16}}>🎯</span>
-        <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>ノルマ問題 ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>5問正解でノルマ達成！</div></div>
+        <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>${TXT.normaTitle} ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>${TXT.normaGoal}</div></div>
       </div>`
     );
     return null;
@@ -1862,15 +2129,15 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         ${isTrial&&(
           html`<div style=${{background:"linear-gradient(135deg,#fff7ed,#fed7aa)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:800,color:"#92400e"}}>
             <span style=${{fontSize:16}}>🎁</span>
-            <span>お試しモード — APIキーなしで体験中</span>
+            <span>${TXT.trialMode}</span>
           </div>`
         )}
         ${ModeBanner()}
-        
+
         ${isPriorityReview&&(
           html`<div class="priority-banner">
             <span class="pb-icon">⚠️</span>
-            <span><b>⚠ 前回ここで間違えた</b> — 思い込みアラート。今度こそ慎重に！</span>
+            <span><b>${TXT.priorityHead}</b> — ${TXT.prioritySub}</span>
           </div>`
         )}
         
@@ -1879,7 +2146,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         ${timeAttackEnabled&&timeLimit!==null&&timeLimit!==undefined&&!hintSource&&(
           html`<div style=${{marginBottom:10}}>
             <div style=${{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:800,color:timeLimit<=10?"#dc2626":"#5b3ff8",marginBottom:4}}>
-              <span>⏱ タイムアタック</span>
+              <span>${TXT.timeAttack}</span>
               <span>${timeLimit}秒</span>
             </div>
             <div class="comeback-bar-wrap" style=${{height:6}}>
@@ -1890,15 +2157,15 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         ${hintSource&&quiz.hint?(
           html`<${Fragment}>
             <div class="hint-box">
-              <div class="hint-label">💡 前提ヒント（まだ習ってなくてOK）</div>
+              <div class="hint-label">${TXT.hintLabel}</div>
               ${quiz.hint}
               ${hintSource==="notLearned"?(
                 html`<button class="btn btn-ghost" style=${{marginTop:10}} onClick=${onNext}>
-                  わかった → 次の問題へ
+                  ${TXT.understoodNext}
                 </button>`
               ):(
                 html`<button class="btn btn-ghost" style=${{marginTop:10,background:"#f0fdf4",color:"#166534",border:"1.5px solid #86efac"}} onClick=${()=>onShowHint(null)}>
-                  ✏️ 問題に戻って解く
+                  ${TXT.backToProblem}
                 </button>`
               )}
             </div>
@@ -1925,18 +2192,18 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
             
             ${lifelineEnabled&&!lifelineUsed&&(
               html`<button class="btn btn-ghost" style=${{marginBottom:8,background:"linear-gradient(135deg,#fef3c7,#fde68a)",color:"#92400e",border:"1.5px solid #f59e0b"}} onClick=${onLifeline}>
-                💡 ライフライン：間違いを1つ消す
+                ${TXT.lifeline}
               </button>`
             )}
-            
+
             ${quiz.hint&&(
               html`<button class="btn btn-ghost" style=${{marginBottom:8,background:"#f0f9ff",color:"#1e40af",border:"1.5px solid #93c5fd"}} onClick=${()=>onShowHint("hintBtn")}>
-                💭 前提ヒントを見る（覚えていなくてOK）
+                ${TXT.showHintBtn}
               </button>`
             )}
             <button class="not-learned-btn" onClick=${onNotLearnedYet}>
               <span class="choice-label" style=${{background:"#f3f4f6",color:"#6b7280"}}>E</span>
-              まだ習ってない
+              ${TXT.notLearned}
             </button>
           <//>`
         )}
@@ -1962,7 +2229,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
             <div class="result-big-icon" style=${{fontSize:36,marginBottom:0}}>💡</div>
             <div>
               <div style=${{fontSize:10,fontWeight:900,color:"#92400e",letterSpacing:".06em"}}>
-                このミスの型
+                ${TXT.thisMissType}
                 <span class="detective-tag" title="ミス探偵モード">${detective.icon} ${detective.label}</span>
               </div>
               <div style=${{fontSize:18,fontWeight:900,color:"#78350f",lineHeight:1.2}}>${quiz.mistake_type}</div>
@@ -1976,7 +2243,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
 
         ${partials.length>0&&(
           html`<div class="partial-success-box">
-            <div class="partial-success-label">✅ ここまでは合ってた</div>
+            <div class="partial-success-label">${TXT.hereCorrect}</div>
             <div class="partial-success-pills">
               ${partials.map((p,i)=>(
                 html`<span key=${i} class="partial-success-pill">${p.icon} ${p.label}</span>`
@@ -1987,17 +2254,17 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
 
         ${chosenAnalysis&&selectedChoice!==null&&(
           html`<div class="thought-quote">
-            <div class="thought-label">🤔 あなたの考え（思考のズレ）— ${CHOICE_LABELS[selectedChoice]}: ${quiz.choices[selectedChoice]}</div>
+            <div class="thought-label">${TXT.yourThought} — ${CHOICE_LABELS[selectedChoice]}: ${quiz.choices[selectedChoice]}</div>
             <div class="thought-text">
               あなたは<span class="qmark">「</span>${chosenAnalysis.why_chosen}<span class="qmark">」</span>と考えた
             </div>
             <div class="thought-why-wrong">✗ ${chosenAnalysis.why_wrong}</div>
           </div>`
         )}
-        
+
         ${easyMode&&(
           html`<div class="encourage-box">
-            🌱 まちがいは「いまの自分の弱点」が見えた瞬間。これがいちばん成長する！
+            ${TXT.encourageEasy}
           </div>`
         )}
         
@@ -2019,11 +2286,11 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         </div>
         
         <button class="why-wrong-btn" onClick=${onToggleWhyWrong}>
-          ${showWhyWrong?"▲ 他の選択肢の理由を閉じる":"👁️ なぜ他は違うか分析する"}
+          ${showWhyWrong?TXT.whyWrongClose:TXT.whyWrongOpen}
         </button>
         ${showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
           html`<div class="why-wrong-panel">
-            <div style=${{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>消去法の精度を上げる</div>
+            <div style=${{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>${TXT.improvePrecision}</div>
             ${quiz.wrong_analysis.map((wa,i)=>{
               const idx=typeof wa.index==="number"?wa.index:null;
               const choiceText=idx!==null?quiz.choices[idx]:"";
@@ -2038,25 +2305,23 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           </div>`
         )}
         ${/* 自信度は回答前で固定。結果フェーズでは再表示しない */ ""}
-        <button class="btn-retry" onClick=${onRetry}>🔄 もう一回解く</button>
+        <button class="btn-retry" onClick=${onRetry}>${TXT.retry}</button>
         ${!easyMode&&quiz.hint&&(
           html`<${Fragment}>
             <button class="btn btn-ghost" onClick=${onToggleHintPanel} style=${{marginBottom:8}}>
-              ${hintPanelOpen?"▲ ヒントを閉じる":"💡 ヒントを見る（前提知識）"}
+              ${hintPanelOpen?TXT.closeHintInline:TXT.showHintInline}
             </button>
             ${hintPanelOpen&&(
               html`<div class="hint-box" style=${{marginBottom:8}}>
-                <div class="hint-label">💡 前提ヒント</div>
+                <div class="hint-label">${TXT.hintInline}</div>
                 <div>${quiz.hint}</div>
-                <div style=${{marginTop:6,fontSize:11,color:"#a16207",lineHeight:1.5}}>
-                  → 次の同じ型の問題で使えます。<b>もう一回解く</b>で身につけよう。
-                </div>
+                <div style=${{marginTop:6,fontSize:11,color:"#a16207",lineHeight:1.5}} dangerouslySetInnerHTML=${{__html:TXT.hintInlineSub}}/>
               </div>`
             )}
           <//>`
         )}
-        <button class="an-next" onClick=${onNext}>次の問題へ →</button>
-        <button class="report-btn" onClick=${onReport}>⚠️ この問題の内容がおかしい</button>
+        <button class="an-next" onClick=${onNext}>${TXT.next}</button>
+        <button class="report-btn" onClick=${onReport}>${TXT.reportBtn}</button>
       </div>`
     );
   }
@@ -2069,8 +2334,8 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         
         <div class="result-big-ok">
           <div class="result-big-icon">✅</div>
-          <div class="result-big-title" style=${{color:"#166534"}}>正解！</div>
-          ${easyMode&&html`<div class="result-big-sub" style=${{color:"#166534"}}>その調子！🌟</div>`}
+          <div class="result-big-title" style=${{color:"#166534"}}>${TXT.correct}</div>
+          ${easyMode&&html`<div class="result-big-sub" style=${{color:"#166534"}}>${TXT.correctSub}</div>`}
           <${StatGainsPop} answerGains=${answerGains}/>
         </div>
         
@@ -2081,11 +2346,11 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         <${RecallQuiz} quiz=${quiz} onAnswered=${onActiveRecallAnswered}/>
         
         <button class="why-wrong-btn" onClick=${onToggleWhyWrong}>
-          ${showWhyWrong?"▲ 他の選択肢の理由を閉じる":"👁️ なぜ他は違うか分析する"}
+          ${showWhyWrong?TXT.whyWrongClose:TXT.whyWrongOpen}
         </button>
         ${showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
           html`<div class="why-wrong-panel">
-            <div style=${{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>消去法の精度を上げる</div>
+            <div style=${{fontSize:10,fontWeight:900,color:"#7c6fb0",letterSpacing:".04em",marginBottom:8}}>${TXT.improvePrecision}</div>
             ${quiz.wrong_analysis.map((wa,i)=>{
               const idx=typeof wa.index==="number"?wa.index:null;
               const choiceText=idx!==null?quiz.choices[idx]:"";
@@ -2100,8 +2365,8 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           </div>`
         )}
         ${/* 自信度は回答前で固定。結果フェーズでは再表示しない */ ""}
-        <button class="btn-green" onClick=${onNext}>次の問題へ →</button>
-        <button class="report-btn" onClick=${onReport}>⚠️ この問題の内容がおかしい</button>
+        <button class="btn-green" onClick=${onNext}>${TXT.next}</button>
+        <button class="report-btn" onClick=${onReport}>${TXT.reportBtn}</button>
       </div>`
     );
   }
@@ -2170,6 +2435,7 @@ function App(){
   const REJ  =()=>userKey("manabi_reject_count");
   const ARFL =()=>userKey("manabi_autorefill");
   const ADV  =()=>userKey("manabi_advanced_v1");
+  const ETXT =()=>userKey("manabi_easy_text_mode");
 
   const [users,setUsers]=useState(()=>getUsers());
   const [currentUid,setCurrentUid]=useState(()=>getCurrentUserId());
@@ -2193,6 +2459,7 @@ function App(){
   // ランクイン演出
   const [rankInToast,setRankInToast]=useState(null);   // {label, rank}
   const [hopKey,setHopKey]=useState(0);                // 成長スコアの hop アニメ再生キー
+  const hopResetTidR=useRef(null);                     // hopKey リセット用 timeout の id（連続発火時の競合を防ぐ）
   const gainForGsRef=useRef(0);                        // updateLogs→setGs へゲインを橋渡し
   const [answerGains,setAnswerGains]=useState(null);   // 結果画面で順次フェード表示する +ステータス一覧
   // ─── 操作起点のボーナス +ステータス（アクティブリコール／なぜ他は違う／自信度／タイムアタック）
@@ -2250,7 +2517,7 @@ function App(){
   // ⑨ 苦手科目改善メッセージ
   const [subjectImprovedMsg,setSubjectImprovedMsg]=useState("");
   // ⑮ ミス → 即リトライ → 正解 を褒めるメッセージ（戻ってきたの強い！）
-  const [retryWinMsg,setRetryWinMsg]=useState("");
+  const [revivalBurst,setRevivalBurst]=useState(null); // {big,sub,phrase} | null
   // ⑬ 今日はここまででOK カードの「閉じる」フラグ
   //    日付が変わったら自動で復活させる（毎日新しいリセット）
   const [stopHereDismissed,setStopHereDismissed]=useState(false);
@@ -2296,6 +2563,8 @@ function App(){
   // 初期値は -1。loadLogs 後の初回 useEffect ではバナーを出さず、その回で current を確定する。
   const prevSessionsRef=useRef(-1);
   const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(_safeLS.get(userKey("manabi_autorefill"))??'true');}catch(e){return true;}});
+  // ── やさしい表記モード（auto/on/off）── 設定タブのトグルで切替
+  const [easyTextMode,setEasyTextMode]=useState(()=>{try{const v=_safeLS.get(userKey("manabi_easy_text_mode"));return v==="on"||v==="off"?v:"auto";}catch(e){return"auto";}});
   // ── テーマ（light / dark）──
   const [theme,setTheme]=useState(()=>{try{return _safeLS.get("manabi_theme")||"light";}catch(e){return"light";}});
   useEffect(()=>{
@@ -2334,7 +2603,7 @@ function App(){
   useEffect(()=>{trialIndexR.current=trialIndex;},[trialIndex]);
   // ── 直前の回答情報（confidence 遅延保存用）──
   // handleChoice 時点では confidenceRating は null なので、次へ押した瞬間に保存する
-  const prevAnswerR=useRef(null); // {correct, subject, wrongItem} | null
+  const prevAnswerR=useRef(null); // {correct, subject, quiz} | null
   // ── リトライ追跡 ──
   const wasRetryR=useRef(false);
   const [waitingForStock,setWaitingForStock]=useState(null); // null | 科目名
@@ -2351,8 +2620,24 @@ function App(){
   // 学年に応じた科目リスト（gradeが変わると自動更新）
   const subjects = calcSubjects(grade);
   const subjectsR = useRef(subjects);
-  useEffect(()=>{ subjectsR.current = calcSubjects(grade); setDamStats(getDamStats(calcSubjects(grade))); },[grade]);
+  useEffect(()=>{
+    const subs=calcSubjects(grade);
+    subjectsR.current=subs;
+    setDamStats(getDamStats(subs));
+    // 学年変更で現在の選択科目が新リストから外れた場合、安全な値に引き戻す。
+    // これを行わないと「英語」を選択中に小1へ切替→補充ループが該当科目を見失う事故が起きる。
+    if(subject && !subs.includes(subject)){
+      setSubject(subs[0]||"");
+    }
+  },[grade]);
   useEffect(()=>{autoRefillR.current=autoRefill;try{_safeLS.set(ARFL(),JSON.stringify(autoRefill));}catch(e){};},[autoRefill]);
+  // やさしい表記モードはモジュール変数 _easyTextOverride に同期する。
+  // isLowGrade(grade) は 100箇所超で呼ばれるが、内部で _easyTextOverride を参照しているため
+  // state 変更→このeffect→モジュール変数更新の流れで全UIが次レンダで切り替わる。
+  useEffect(()=>{
+    _easyTextOverride=easyTextMode;
+    try{_safeLS.set(ETXT(),easyTextMode);}catch(e){}
+  },[easyTextMode]);
 
   // ストック待機中: 補充されたら自動で問題を表示（全科目チェック、あればズレて出題）
   useEffect(()=>{
@@ -2459,17 +2744,30 @@ function App(){
   },[logs]);
 
   // 「今日の成長タイプ」と「AI総評」を成長スコアタブ表示時に動的算出
+  // 低学年（小1-3）はやさしい文言。学年が変わると useEffect が再走するため gradeR ではなく grade を依存に含める。
   useEffect(()=>{
     if(tab!=="log")return;
     const td=today();
     const tg=logs.dailyStatGains?.[td]||{};
+    const low=isLowGrade(grade);
     const gained=STAT_ORDER.filter(k=>(tg[k]||0)>0)
-      .map(k=>({k,v:tg[k]||0,label:STAT_LABELS[k].name,icon:STAT_LABELS[k].icon}))
+      .map(k=>{const lbl=getStatLabel(k,grade);return{k,v:tg[k]||0,label:lbl.name,icon:lbl.icon};})
       .sort((a,b)=>b.v-a.v);
     if(gained.length){
       const top=gained[0];
       // 成長タイプ: TOP1 のステータスから判定
-      const typeMap={
+      const typeMap=low?{
+        retryPower:"💪 たちなおりタイプ — まちがえた つぎの もんだいで とりかえす ちからが のびた",
+        consistency:"📅 まいにちタイプ — まいにち つづける ちからが きょうの しゅやく",
+        startingPower:"🚀 はじめるタイプ — ノルマを やりきる いきおいが ひかった",
+        focus:"🧠 しゅうちゅうタイプ — おちついて せいかいを つみあげた1日",
+        attention:"👀 よく みるタイプ — まちがいから ちゅういりょくを みがいた1日",
+        verificationPower:"🔍 たしかめタイプ — 『せつめいできる』せいかいが おおかった",
+        retryAgain:"🔁 ねばりタイプ — もういっかい といて せいかいした しゅんかんが おおかった",
+        stability:"⚖️ あんていタイプ — れんぞくせいかいで あんていした",
+        readingAccuracy:"👁 よみとりタイプ — もんだいぶんを ちゃんと よめた",
+        logicalReasoning:"🧩 せいりタイプ — じゅんばんを せいりする ちからが のびた",
+      }:{
         retryPower:"💪 立ち直り型 — 不正解の次の問題で正解を取り戻す力が伸びている",
         consistency:"📅 継続型 — 毎日続ける力が今日の主役",
         startingPower:"🚀 着火型 — ノルマを達成しきる勢いが光った",
@@ -2481,7 +2779,7 @@ function App(){
         readingAccuracy:"👁 読解型 — 条件・助詞の読み取りが光った",
         logicalReasoning:"🧩 論理型 — 因果関係の整理が伸びた",
       };
-      setGrowthTypeMsg(typeMap[top.k]||`${top.icon} ${top.label}が今日の主役`);
+      setGrowthTypeMsg(typeMap[top.k]||`${top.icon} ${top.label}${low?"が きょうの しゅやく":"が今日の主役"}`);
     }else{
       setGrowthTypeMsg("");
     }
@@ -2491,15 +2789,22 @@ function App(){
     if(todayQ>=3){
       const rate=todayC/todayQ;
       const reviews=[];
-      if(rate>=0.8)reviews.push(`正解率${Math.round(rate*100)}%は素晴らしい安定感。`);
-      if(logs.bestStreak>=5)reviews.push(`連続正解の最高${logs.bestStreak}問はあなたの強み。`);
-      if((logs.dailyLog?.[td]?.subjects||[]).length>=3)reviews.push(`${(logs.dailyLog[td].subjects||[]).length}科目を回せたバランス感覚。`);
-      if(reviews.length===0)reviews.push(`${todayQ}問挑戦し続けたこと自体が一番の成果。`);
+      if(low){
+        if(rate>=0.8)reviews.push(`せいかいりつ ${Math.round(rate*100)}% は すごい あんていかん。`);
+        if(logs.bestStreak>=5)reviews.push(`れんぞく せいかい さいこう ${logs.bestStreak}もんは きみの つよみ。`);
+        if((logs.dailyLog?.[td]?.subjects||[]).length>=3)reviews.push(`${(logs.dailyLog[td].subjects||[]).length}かもくを まわせた バランスかんかく。`);
+        if(reviews.length===0)reviews.push(`${todayQ}もんに ちょうせんし つづけた ことが いちばんの せいか。`);
+      }else{
+        if(rate>=0.8)reviews.push(`正解率${Math.round(rate*100)}%は素晴らしい安定感。`);
+        if(logs.bestStreak>=5)reviews.push(`連続正解の最高${logs.bestStreak}問はあなたの強み。`);
+        if((logs.dailyLog?.[td]?.subjects||[]).length>=3)reviews.push(`${(logs.dailyLog[td].subjects||[]).length}科目を回せたバランス感覚。`);
+        if(reviews.length===0)reviews.push(`${todayQ}問挑戦し続けたこと自体が一番の成果。`);
+      }
       setAiReviewMsg(reviews.join(" "));
     }else{
       setAiReviewMsg("");
     }
-  },[tab,logs]);
+  },[tab,logs,grade]);
 
   // quiz がセットされたら問題フェーズを自動スタート
   useEffect(()=>{
@@ -2540,6 +2845,7 @@ function App(){
     try{const v=_safeLS.get(REJ());setRejectCount(v?parseInt(v,10)||0:0);}catch(e){setRejectCount(0);}
     try{const v=_safeLS.get(ARFL());setAutoRefill(v==null?true:JSON.parse(v));}catch(e){setAutoRefill(true);}
     try{const v=_safeLS.get(ADV());setAdvancedMode(v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false});}catch(e){setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});}
+    try{const v=_safeLS.get(ETXT());setEasyTextMode(v==="on"||v==="off"?v:"auto");}catch(e){setEasyTextMode("auto");}
     // 一時フラグ（永続化なし）はユーザー切替で必ずリセット
     setQuotaExhausted(false);
   };
@@ -2757,7 +3063,16 @@ function App(){
     x=Math.max(sx+80, Math.min(sx+vw-80, x));
     y=Math.max(sy+48, Math.min(sy+vh-48, y));
     const id=++bonusIdR.current;
-    setBonusPops(p=>[...p.slice(-5),{id,icon,name,amount,x,y}]);
+    // 同じ近傍に既存ポップがあるとき（自信度→ヒント→リコール 等を連打した場合）
+    // 同座標で重なって読めなくなる。横±90px / 縦±120px 以内にある既存数だけ
+    // 上方向にずらして縦積みにする（最大 4 段 = 152px）。
+    setBonusPops(prev=>{
+      const tail=prev.slice(-5);
+      const nearCount=tail.filter(p=>Math.abs(p.x-x)<90 && Math.abs(p.y-y)<120).length;
+      const offsetY=Math.min(nearCount,4)*38;
+      const adjY=Math.max(sy+48, y-offsetY);
+      return [...tail,{id,icon,name,amount,x,y:adjY}];
+    });
     const tid=setTimeout(()=>{
       setBonusPops(p=>p.filter(x=>x.id!==id));
       bonusTidsR.current.delete(id);
@@ -2889,6 +3204,15 @@ function App(){
       for(const k of Object.keys(stBonus)){
         if(stBonus[k]>0)next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stBonus[k];
       }
+      // 自信度=3（説明できる）で初回正解 → 確認力 +2（累積のみ）。
+      // ※ recentHistory.push 直前で confidence は confidenceRatingR.current として記録済み。
+      //   リトライ正解は別途 stGains.verificationPower=1 を付与しているため、ここでは付与しない（二重防止）。
+      const _confNow=confidenceRatingR.current;
+      let _confVerifGain=0;
+      if(!wasRetry&&correct&&_confNow===3){
+        _confVerifGain=2;
+        next.cumulativeStats.verificationPower=(next.cumulativeStats.verificationPower||0)+_confVerifGain;
+      }
       // 継続力: 新しい日ログイン時に+5（累積のみ）
       if(isNewDay){
         next.cumulativeStats.consistency=(next.cumulativeStats.consistency||0)+5;
@@ -2949,7 +3273,7 @@ function App(){
           const prevR=prevSnap[item.k]||999;
           if(prevR>5 && newRank[item.k]<=5 && item.v>0){
             // ランクイン！
-            setRankInToast({label:STAT_LABELS[item.k].name,rank:newRank[item.k]});
+            setRankInToast({label:getStatLabel(item.k,gradeR.current).name,rank:newRank[item.k]});
             setTimeout(()=>setRankInToast(null),3200);
             break;
           }
@@ -2958,8 +3282,10 @@ function App(){
       }catch(e){}
       checkBadges(next);saveLogs(next);
       // 成長ホップ再生（0.4s/item で順次跳ねる）
+      // ※ 直前の reset タイマーが残っていると新しいアニメを途中で打ち切るため、必ず先にクリア。
+      if(hopResetTidR.current){clearTimeout(hopResetTidR.current);hopResetTidR.current=null;}
       setHopKey(k=>k+1);
-      setTimeout(()=>setHopKey(0),2600); // 5項目 × 0.4s + 余裕 0.6s
+      hopResetTidR.current=setTimeout(()=>{setHopKey(0);hopResetTidR.current=null;},2600); // 5項目 × 0.4s + 余裕 0.6s
       // 結果画面で順次フェード表示する +ステータスの一覧を構築
       {
         const merged={};
@@ -2967,6 +3293,7 @@ function App(){
         for(const k of STAT_ORDER){if(stBonus[k]>0)merged[k]=(merged[k]||0)+stBonus[k];}
         if(isNewDay)merged.consistency=(merged.consistency||0)+5;
         if(sessionComplete)merged.startingPower=(merged.startingPower||0)+2;
+        if(_confVerifGain>0)merged.verificationPower=(merged.verificationPower||0)+_confVerifGain;
         const list=STAT_ORDER.filter(k=>merged[k]>0).map(k=>({key:k,icon:STAT_LABELS[k].icon,name:STAT_LABELS[k].name,amount:merged[k]}));
         if(unitName&&subj){
           // 単元力の pill は「分数力 +6」のように実際の単元名で表示。
@@ -3487,16 +3814,23 @@ function App(){
     }
     const currentWasRetry=wasRetryR.current;
     wasRetryR.current=false;
-    // ⑮ リトライ正解 → 「戻ってきたの強い！」メッセージ（toast）
+    // ⑮ リトライ正解 → 復活バーストで派手に祝う（紙吹雪＋3連リング＋大型ヒーロー）
+    // 学年に応じた文言。アプリ常駐負荷は無し（show=true の間だけ DOM が生え、終わると消える）
     if(correct&&currentWasRetry){
-      const phrases=["🌱 戻ってきたの、強い！","💪 逃げずに再挑戦えらい！","🔁 リトライ成功！この粘りが伸びる！"];
-      setRetryWinMsg(phrases[Math.floor(Math.random()*phrases.length)]);
-      setTimeout(()=>setRetryWinMsg(""),3500);
+      const TXT=pickText(gradeR.current);
+      const phrases=TXT.revivalCheers;
+      setRevivalBurst({
+        big:TXT.revivalBig,
+        sub:TXT.revivalSub,
+        phrase:phrases[Math.floor(Math.random()*phrases.length)],
+      });
     }
     // 不正解→リトライでの reviewQueue 二重登録を防止：初回の不正解のみ wrongItem を作る
     // ※ wrongItem を `!correct && !currentWasRetry` のときだけ生成するのはバグではない。
     //   リトライ時（currentWasRetry=true）は updateLogs 側で wrongItem=null として渡し、
     //   reviewQueue への二重登録を防ぐ設計。初回不正解のみキューに積む。
+    // 自信度=3（説明できる）で初回不正解 → 思い込みアラート扱い：priority=true・期日を今日に前倒し
+    const _isPriorityMiss=(!correct&&!currentWasRetry&&confidenceRatingR.current===3);
     const wrongItem=(!correct && !currentWasRetry)?{
       id:safeUUID(),
       topic:quiz.topic_tag||quiz.question.slice(0,20),
@@ -3504,16 +3838,16 @@ function App(){
       mistakeType:quiz.mistake_type||"不明",
       // SM-2: 不正解→翌日が初回期日、reps=0 から開始
       reps:0,
-      dueDate:addDaysISO(today(),1),
+      dueDate:_isPriorityMiss?today():addDaysISO(today(),1),
       createdAt:today(),
+      ...(_isPriorityMiss?{priority:true,priorityReason:"思い込み(自信3で不正解)"}:{}),
     }:null;
     // 日跨ぎ（23:59→00:00で連続プレイ中など）に best/wrong をローテーション
     const gsRolled=_rolloverGs(gs);
     const nextStr=correct?gsRolled.streak+1:0;
     const newBest=Math.max(gsRolled.best,nextStr);
     // 直前の回答情報を記録（handleNext で confidence との照合に使う）
-    // wrongItemId も保存: handleConfidenceRate で思い込みアラートを付与する対象を特定
-    prevAnswerR.current={correct,subject,quiz:{...quiz},wrongItemId:wrongItem?.id||null};
+    prevAnswerR.current={correct,subject,quiz:{...quiz}};
     // お試しモードは記録に残さない（ゲストプレイ扱い）
     // ※ gainForGsRef.current を先に 0 にしておき、updateLogs の setLogs コールバック内で
     //   上書きする「ref 橋渡し」パターン。
@@ -3633,8 +3967,12 @@ function App(){
     setHintSource("notLearned");
   },[]);
 
-  // 自信度評価: クリック後に評価された自信度を recentHistory に遡及保存し、
-  // 「説明できる(3)で正解」した場合は確認力ステータスにボーナス付与する
+  // 自信度評価: 回答前に押されるため、ここでは「即時確定する単元力 +1」のみ行う。
+  // 確認力ボーナスと思い込みアラート（reviewQueue priority）の付与は、
+  // 正誤が確定する updateLogs / wrongItem 構築側に集約する。
+  // ※ 旧実装は recentHistory[last] を書き換えていたが、回答前にボタンを押せる仕様では
+  //   「1つ前の問題」を誤って書き換えるバグになるため除去した（confidence は updateLogs の
+  //   recentHistory.push 時に confidenceRatingR.current から正しく記録される）。
   const handleConfidenceRate=useCallback((rating,e)=>{
     // ★ anchor 取得は最優先：setState などで currentTarget が解放される前に固定
     const anchor=popAnchorFromEvent(e);
@@ -3664,33 +4002,6 @@ function App(){
         });
       }
     }
-    if(trialModeR.current)return;
-    setLogs(prev=>{
-      if(!prev.recentHistory||!prev.recentHistory.length)return prev;
-      const next=deepClone(prev);
-      const last=next.recentHistory[next.recentHistory.length-1];
-      const td=today();
-      if(!last||last.date!==td)return prev;
-      const prevConf=last.confidence;
-      last.confidence=rating;
-      // 「説明できる(3)」で正解 → 確認力 +2（累積のみ。初回のみで重複防止）
-      if(last.correct&&rating===3&&prevConf!==3){
-        next.cumulativeStats={..._zeroStats(),...(next.cumulativeStats||{})};
-        next.cumulativeStats.verificationPower=(next.cumulativeStats.verificationPower||0)+2;
-      }
-      // 思い込みアラート: 「説明できる(3)」と答えたのに不正解 → 復習キュー最優先化
-      // 最も危険な誤概念（自信があるのに間違える=理解の歪み）を集中攻略する
-      if(!last.correct&&rating===3){
-        const targetId=prevAnswerR.current?.wrongItemId;
-        if(targetId&&Array.isArray(next.reviewQueue)){
-          next.reviewQueue=next.reviewQueue.map(q=>
-            q.id===targetId?{...q,priority:true,priorityReason:"思い込み(自信3で不正解)",dueDate:today()}:q
-          );
-        }
-      }
-      saveLogs(next);
-      return next;
-    });
   },[quiz,addBonusPop]);
 
   // リトライ（もう一回解く）
@@ -3767,6 +4078,18 @@ function App(){
 
   const handleNext=async()=>{
     if(nextLk.current)return;nextLk.current=true;
+    // 結果→次へで前の問題の浮遊ポップ(bonusPops)が新しい問題に被るのを防ぐ。
+    // タイマーは自然消滅で OK。state を即 [] にすれば描画は1フレームで消える。
+    setBonusPops([]);
+    // 復活バーストが残っていたら早めに片付ける（中央オーバーレイで新問題が見えない事故を防止）
+    setRevivalBurst(null);
+    // 次の問題が描画される前に上端へスクロール（瞬間移動 = アニメ無し＝軽量）。
+    // window だけでなく documentElement.scrollTop も触る（iOS Safari の挙動差を吸収）。
+    try{
+      if(typeof window!=="undefined"&&window.scrollTo){window.scrollTo(0,0);}
+      if(document.documentElement)document.documentElement.scrollTop=0;
+      if(document.body)document.body.scrollTop=0;
+    }catch(_){}
     // お試しモード: SAMPLE_QUESTIONSを順に出題、終了時にスタート画面に戻す
     if(trialModeR.current){
       const nextIdx=trialIndexR.current+1;
@@ -3963,11 +4286,11 @@ function App(){
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
     try{
       _safeLS.remove(STORE());_safeLS.remove(DAM_KEY());_safeLS.remove(SESS());
-      _safeLS.remove(REJ());_safeLS.remove(ARFL());_safeLS.remove(ADV());_safeLS.remove(PROF());
+      _safeLS.remove(REJ());_safeLS.remove(ARFL());_safeLS.remove(ADV());_safeLS.remove(PROF());_safeLS.remove(ETXT());
       // legacyキー掃除
       _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
     }catch(e){}
-    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});
+    setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});setEasyTextMode("auto");
     alert("データを削除しました。");
   };
 
@@ -4243,30 +4566,30 @@ function App(){
                   ${logs.loginStreak>0&&html`<span class="hdr-fire">${"🔥".repeat(getFireLevel(logs.loginStreak))}<span class="hdr-fire-n">${logs.loginStreak}日</span></span>`}
                 </div>
                 <div class="hdr-mode-row">
-                  ${isRefilling&&html`<span class="hdr-refill"><span class="refill-dot"/>補充</span>`}
+                  ${isRefilling&&html`<span class="hdr-refill"><span class="refill-dot"/>${isLowGrade(grade)?"ふやしてる":"補充"}</span>`}
                   
                   ${subject&&(
-                    html`<span class=${`diff-pill diff-${getAutoDifficulty(subject,logs)}`} title="難易度は自動調整中">
-                      ${getAutoDifficulty(subject,logs)==="easy"?"🌱 やさしい":getAutoDifficulty(subject,logs)==="hard"?"🔥 むずい":"📝 ふつう"}
+                    html`<span class=${`diff-pill diff-${getAutoDifficulty(subject,logs)}`} title=${isLowGrade(grade)?"むずかしさは じどうで かわるよ":"難易度は自動調整中"}>
+                      ${getAutoDifficulty(subject,logs)==="easy"?"🌱 やさしい":getAutoDifficulty(subject,logs)==="hard"?(isLowGrade(grade)?"🔥 むずかしい":"🔥 むずい"):"📝 ふつう"}
                     </span>`
                   )}
                 </div>
               </div>
               
               <div class="hdr-subject-row">
-                <div class="hdr-subject">${displaySubject(subject, grade)||"科目選択中..."}</div>
+                <div class="hdr-subject">${displaySubject(subject, grade)||(isLowGrade(grade)?"かもく えらびちゅう...":"科目選択中...")}</div>
                 <div class="hdr-pills">
-                  ${!!currentReviewItemId&&html`<span class="pill pill-review">📝 復習</span>`}
-                  ${quizPhase==="result"&&answerCorrect===true&&html`<span class="pill pill-ok">✅ 正解</span>`}
-                  ${quizPhase==="result"&&answerCorrect===false&&html`<span class="pill pill-ng">💡 学びどき</span>`}
+                  ${!!currentReviewItemId&&html`<span class="pill pill-review">${isLowGrade(grade)?"📝 もういちど":"📝 復習"}</span>`}
+                  ${quizPhase==="result"&&answerCorrect===true&&html`<span class="pill pill-ok">✅ ${pickText(grade).correct.replace("！","")}</span>`}
+                  ${quizPhase==="result"&&answerCorrect===false&&html`<span class="pill pill-ng">${pickText(grade).learnTime}</span>`}
                   ${!dailyGoalMet&&normaReason&&html`<span class="pill pill-norma">${normaReason}</span>`}
                 </div>
               </div>
               
               <div class="hdr-stats">
-                <div class="stat"><div class="stat-n" style=${{color:"#f59e0b"}}>🔥${gs.streak}</div><div class="stat-l">連続</div></div>
-                <div class="stat"><div class="stat-n" style=${{color:"#5b3ff8"}}>${gs.best}</div><div class="stat-l">最高</div></div>
-                <div class="stat"><div class="stat-n" style=${{color:"#7c6fb0"}}>${gs.wrong}</div><div class="stat-l">${gs.wrong>0?"学んだ":"無傷"}</div></div>
+                <div class="stat"><div class="stat-n" style=${{color:"#f59e0b"}}>🔥${gs.streak}</div><div class="stat-l">${pickText(grade).streak}</div></div>
+                <div class="stat"><div class="stat-n" style=${{color:"#5b3ff8"}}>${gs.best}</div><div class="stat-l">${pickText(grade).best}</div></div>
+                <div class="stat"><div class="stat-n" style=${{color:"#7c6fb0"}}>${gs.wrong}</div><div class="stat-l">${gs.wrong>0?(isLowGrade(grade)?"まなんだ":"学んだ"):(isLowGrade(grade)?"まちがいなし":"無傷")}</div></div>
                 ${(()=>{
                   const best=logs.bestDayScore||0;
                   // 「現在＝最高」のときは『/最高X』を出さず、🏆 で自己ベスト中とだけ伝える。
@@ -4277,22 +4600,22 @@ function App(){
                     <div class=${`stat-n tick-anim`} key=${`gs-${todayScore}`} style=${{color:todayScore>=300?"#d97706":todayScore>=200?"#16a34a":todayScore>=100?"#d97706":"#5b3ff8",fontSize:14}}>
                       ${todayScore}
                     </div>
-                    <div class="stat-l">成長スコア${!isAtBest&&best>0?html`<span style=${{opacity:.6,marginLeft:2}}>/最高${best}</span>`:""}</div>
+                    <div class="stat-l">${pickText(grade).growthScore}${!isAtBest&&best>0?html`<span style=${{opacity:.6,marginLeft:2}}>/${pickText(grade).best}${best}</span>`:""}</div>
                   </div>`;
                 })()}
               </div>
             </div>
 
             ${!trialMode&&(
-              html`<div class="tabs">
-                <button class=${`tab${tab==="learn"?" active":""}`} onClick=${()=>setTab("learn")}>📚 学習</button>
+              (()=>{const _T=pickText(grade);return html`<div class="tabs">
+                <button class=${`tab${tab==="learn"?" active":""}`} onClick=${()=>setTab("learn")}>${_T.tabLearn}</button>
                 <button class=${`tab${tab==="record"?" active":""}`} onClick=${()=>setTab("record")}>
-                  📒 記録
+                  ${_T.tabRecord}
                   ${reviewCount>0&&html`<span class="tab-badge">${reviewCount}</span>`}
                 </button>
-                <button class=${`tab${tab==="log"?" active":""}`} onClick=${()=>setTab("log")}>📈 成長</button>
-                <button class=${`tab${tab==="settings"?" active":""}`} onClick=${()=>setTab("settings")}>⚙️ 設定</button>
-              </div>`
+                <button class=${`tab${tab==="log"?" active":""}`} onClick=${()=>setTab("log")}>${_T.tabLog}</button>
+                <button class=${`tab${tab==="settings"?" active":""}`} onClick=${()=>setTab("settings")}>${_T.tabSettings}</button>
+              </div>`;})()
             )}
 
             
@@ -4307,8 +4630,8 @@ function App(){
                   if(pct<25)return null; // 小さすぎる改善はノイズ。25%以上で表示。
                   return(
                     html`<div class="improvement-banner" title=${`「${imp.type}」が先週比で${pct}%減少`}>
-                      <span class="ib-tag">今日の成長</span>
-                      <span>「${kidifyMistakeType(imp.type)}」が先週より <b>${pct}%</b> 減ったよ！</span>
+                      <span class="ib-tag">${isLowGrade(grade)?"きょうの せいちょう":"今日の成長"}</span>
+                      <span>${isLowGrade(grade)?html`「${kidifyMistakeType(imp.type)}」が せんしゅうより <b>${pct}%</b> へったよ！`:html`「${kidifyMistakeType(imp.type)}」が先週より <b>${pct}%</b> 減ったよ！`}</span>
                     </div>`
                   );
                 })()}
@@ -4323,7 +4646,7 @@ function App(){
                   const kid=kidifyMistakeType(mt);
                   return(
                     html`<div class="session-prime-banner" title=${`「${mt}」が直近で${cnt}回`}>
-                      <span class="spb-tag">今日の弱点</span>
+                      <span class="spb-tag">${isLowGrade(grade)?"きょうの にがて":"今日の弱点"}</span>
                       <span class="spb-text">${kid}</span>
                     </div>`
                   );
@@ -4343,7 +4666,7 @@ function App(){
                   if(!items.length)return null;
                   return(
                     html`<div class="weak-top3-card">
-                      <div class="wtc-head">🎯 次に伸ばすならココ — 苦手 TOP3</div>
+                      <div class="wtc-head">${isLowGrade(grade)?"🎯 つぎは ここを のばそう — にがて TOP3":"🎯 次に伸ばすならココ — 苦手 TOP3"}</div>
                       <div class="wtc-list">
                         ${items.map((it)=>(
                           html`<button key=${it.topic} class="wtc-row" title=${`${it.topic}（正解率${Math.round(it.rate*100)}%）`} onClick=${()=>{
@@ -4365,13 +4688,14 @@ function App(){
                 ${!trialMode&&quiz&&quizPhase==="question"&&(()=>{
                   // ⑨ 「あと1問だけ」継続促進。煽りではなく "できてる感" の演出。
                   // 表示条件：連続2問正解 / または 連続2問ミス（励まし）
+                  const _low=isLowGrade(grade);
                   let msg=null;
                   if(gs.streak>=2&&gs.streak<5){
-                    msg=`🔥 ${gs.streak}連続！あと1問で ${gs.streak+1}連続！`;
+                    msg=_low?`🔥 ${gs.streak}れんぞく！あと1もんで ${gs.streak+1}れんぞく！`:`🔥 ${gs.streak}連続！あと1問で ${gs.streak+1}連続！`;
                   }else if(gs.streak>=5){
-                    msg=`🔥 ${gs.streak}連続！絶好調キープ！`;
+                    msg=_low?`🔥 ${gs.streak}れんぞく！ぜっこうちょう！`:`🔥 ${gs.streak}連続！絶好調キープ！`;
                   }else if((gs.wrongStreak||0)>=2){
-                    msg=`💪 ここで1問取れたら復帰力UP！戻ってこられる人が強い。`;
+                    msg=_low?`💪 ここで 1もん とれたら たちなおる ちからアップ！もどってこられる ひとが つよい。`:`💪 ここで1問取れたら復帰力UP！戻ってこられる人が強い。`;
                   }
                   if(!msg)return null;
                   return(
@@ -4394,7 +4718,7 @@ function App(){
                       onClick=${()=>setAdvancedMode({...advancedMode,lifeline:!advancedMode.lifeline})}
                       title="1問1回、誤答を1つ消せるボタンが表示されます。">
                       <span class="qm-icon">💡</span>
-                      <span>消去法ライフライン</span>
+                      <span>ライフライン</span>
                       <span class="qm-dot"/>
                     </button>
                     <button
@@ -4412,13 +4736,13 @@ function App(){
                   html`<div ref=${threesecCardRef} class="threesec-card">
                     <div class="threesec-head">
                       <span class="threesec-icon">🧐</span>
-                      <span>本当に <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もう一度だけ条件を確認！</span>
+                      <span>${isLowGrade(grade)?html`ほんとうに <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もういちど じょうけんを たしかめよう！`:html`本当に <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もう一度だけ条件を確認！`}</span>
                     </div>
                     <div class="threesec-q">${quiz.question}</div>
-                    <div class="threesec-pick">→ あなたの選択：${CHOICE_LABELS[pendingChoice.idx]}. ${quiz.choices?.[pendingChoice.idx]||""}</div>
+                    <div class="threesec-pick">→ ${isLowGrade(grade)?"きみの えらんだの":"あなたの選択"}：${CHOICE_LABELS[pendingChoice.idx]}. ${quiz.choices?.[pendingChoice.idx]||""}</div>
                     <div class="threesec-row">
-                      <button class="threesec-cancel" onClick=${cancelPendingChoice}>↩ やめる（選び直す）</button>
-                      <button class="threesec-go" onClick=${confirmPendingChoice}>これで決定 ✓</button>
+                      <button class="threesec-cancel" onClick=${cancelPendingChoice}>${isLowGrade(grade)?"↩ えらびなおす":"↩ やめる（選び直す）"}</button>
+                      <button class="threesec-go" onClick=${confirmPendingChoice}>${isLowGrade(grade)?"これで OK ✓":"これで決定 ✓"}</button>
                     </div>
                   </div>`
                 )}
@@ -4426,13 +4750,13 @@ function App(){
                   html`<div class="comeback-banner">
                     <div style=${{fontSize:20}}>⏱</div>
                     <div style=${{flex:1}}>
-                      <div style=${{fontSize:11,fontWeight:800,color:"#92400e",marginBottom:4}}>3分チャレンジ中！</div>
+                      <div style=${{fontSize:11,fontWeight:800,color:"#92400e",marginBottom:4}}>${isLowGrade(grade)?"3ぷん チャレンジ ちゅう！":"3分チャレンジ中！"}</div>
                       <div class="comeback-bar-wrap">
                         <div class="comeback-bar-fill" style=${{width:`${(comebackTimer/180)*100}%`}}/>
                       </div>
                     </div>
                     <div class="comeback-timer-num">${Math.floor(comebackTimer/60)}:${String(comebackTimer%60).padStart(2,"0")}</div>
-                    <button class="comeback-end-btn" onClick=${()=>{setComebackMode(false);setComebackTimer(0);}}>終了</button>
+                    <button class="comeback-end-btn" onClick=${()=>{setComebackMode(false);setComebackTimer(0);}}>${isLowGrade(grade)?"おわる":"終了"}</button>
                   </div>`
                 )}
                 
@@ -4443,20 +4767,26 @@ function App(){
                       html`<${Fragment}>
                         <div class="spin" style=${{marginBottom:14}}></div>
                         <div style=${{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:6}}>
-                          ${isEmergencyGen?"⚡ 問題を生成中...":(!!currentReviewItemId?"📝 復習問題を準備中...":"⚡ 問題を準備中です...")}
+                          ${isLowGrade(grade)
+                            ?(isEmergencyGen?"⚡ もんだいを つくってるよ...":(!!currentReviewItemId?"📝 もういちど もんだいを よういちゅう...":"⚡ もんだいを よういちゅう..."))
+                            :(isEmergencyGen?"⚡ 問題を生成中...":(!!currentReviewItemId?"📝 復習問題を準備中...":"⚡ 問題を準備中です..."))}
                         </div>
                         <div style=${{color:"#9990cc",fontSize:12,fontWeight:700}}>
-                          ${isEmergencyGen?"ストックがないため3問を直接生成しています...":(isRefilling
-                            ?(!!currentReviewItemId?"復習問題をバックグラウンドで補充中。もうすぐ出題されます！":"ストックを補充中。もうすぐ出題されます！")
-                            :(!!currentReviewItemId?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！"))}
+                          ${isLowGrade(grade)
+                            ?(isEmergencyGen?"ストックが ないから 3もん つくってるよ...":(isRefilling
+                                ?(!!currentReviewItemId?"もういちど もんだいを ようい してるよ。すぐ でるよ！":"もんだいを ふやしてるよ。すぐ でるよ！")
+                                :(!!currentReviewItemId?"もういちど もんだいを よういするよ。まっててね！":"うらで もんだいを ふやすよ。まっててね！")))
+                            :(isEmergencyGen?"ストックがないため3問を直接生成しています...":(isRefilling
+                                ?(!!currentReviewItemId?"復習問題をバックグラウンドで補充中。もうすぐ出題されます！":"ストックを補充中。もうすぐ出題されます！")
+                                :(!!currentReviewItemId?"復習用にストックを準備します。そのままお待ちください！":"バックグラウンドで補充します。そのままお待ちください！")))}
                         </div>
                       <//>`
                     ):(
                       html`<${Fragment}>
                         <div style=${{fontSize:36,marginBottom:12}}>📦</div>
-                        <div style=${{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:8}}>ストックがありません</div>
-                        <div style=${{color:"#9990cc",fontSize:12,fontWeight:700,marginBottom:16}}>APIキーを登録すると問題が自動補充されます。</div>
-                        <button class="btn btn-primary" style=${{maxWidth:240,margin:"0 auto"}} onClick=${()=>setTab("settings")}>⚙️ 設定でAPIキーを登録</button>
+                        <div style=${{color:"#5b3ff8",fontSize:15,fontWeight:800,marginBottom:8}}>${isLowGrade(grade)?"ストックが ないよ":"ストックがありません"}</div>
+                        <div style=${{color:"#9990cc",fontSize:12,fontWeight:700,marginBottom:16}}>${isLowGrade(grade)?"APIキーを とうろくすると もんだいが じどうで ふえるよ。":"APIキーを登録すると問題が自動補充されます。"}</div>
+                        <button class="btn btn-primary" style=${{maxWidth:240,margin:"0 auto"}} onClick=${()=>setTab("settings")}>${pickText(grade).setApiKey}</button>
                       <//>`
                     )}
                   </div>`
@@ -4468,15 +4798,15 @@ function App(){
                       class="btn btn-primary"
                       disabled=${retryCooldown>0}
                       onClick=${()=>{setAppError("");setRetryCooldown(0);if(retryTimerRef.current)clearInterval(retryTimerRef.current);fetchQ(grade,subjR.current);}}
-                    >${retryCooldown>0?`⏳ もう一度（${retryCooldown}秒）`:"もう一度"}</button>
+                    >${retryCooldown>0?(isLowGrade(grade)?`⏳ もういちど（${retryCooldown}びょう）`:`⏳ もう一度（${retryCooldown}秒）`):(isLowGrade(grade)?"もういちど":"もう一度")}</button>
                   </div>`
                 )}
 
                 
                 ${quiz&&!quizPhase&&!hasValidQuiz(quiz)&&(
                   html`<div class="card" style=${{textAlign:"center",padding:"24px"}}>
-                    <div style=${{fontSize:13,color:"#9990cc",marginBottom:12}}>問題データが読み込めませんでした</div>
-                    <button class="btn btn-ghost" onClick=${handleNext} >次の問題へ →</button>
+                    <div style=${{fontSize:13,color:"#9990cc",marginBottom:12}}>${pickText(grade).noData}</div>
+                    <button class="btn btn-ghost" onClick=${handleNext} >${pickText(grade).next}</button>
                   </div>`
                 )}
 
@@ -4523,6 +4853,7 @@ function App(){
                     answerGains=${answerGains}
                     onActiveRecallAnswered=${handleActiveRecallAnswered}
                     choicesDisabled=${!!pendingChoice}
+                    grade=${grade}
                     onReport=${async()=>{
                       const rid=currentReviewItemId;
                       const reportedQ=quiz;
@@ -4542,7 +4873,7 @@ function App(){
                           if(changed)saveDam(dam);
                         }catch(_){}
                       }
-                      setReportMsg("⚠️ 報告しました。復習リストから削除されます。");
+                      setReportMsg(isLowGrade(grade)?"⚠️ おしえてくれて ありがとう！もういちど リストから けすね。":"⚠️ 報告しました。復習リストから削除されます。");
                       setTimeout(()=>setReportMsg(""),3000);
                       await handleNext();
                     }}
@@ -4553,7 +4884,9 @@ function App(){
                 ${!trialMode&&(!quizPhase||quizPhase==="result")&&!dailyGoalMet&&(
                   html`<div style=${{marginTop:4,padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,fontSize:12,color:"#92400e",fontWeight:800}} class=${todaySessions===4?"norma-last":""}>
                     <div style=${{textAlign:"center",marginBottom:6}}>
-                      🎯 ${todaySessions===4?"あと1問でノルマ達成！":todaySessions===3?"もう少し！":todaySessions===2?"半分を超えた！":todaySessions===1?"スタートOK！":"まずは5問でノルマ達成！"}
+                      🎯 ${isLowGrade(grade)
+                        ?(todaySessions===4?"あと1もんで ゴール！":todaySessions===3?"もうすこし！":todaySessions===2?"はんぶんを こえた！":todaySessions===1?"スタートOK！":"まずは 5もんで ゴール！")
+                        :(todaySessions===4?"あと1問でノルマ達成！":todaySessions===3?"もう少し！":todaySessions===2?"半分を超えた！":todaySessions===1?"スタートOK！":"まずは5問でノルマ達成！")}
                     </div>
                     <div class="norma-dots">
                       ${[0,1,2,3,4].map(i=>{
@@ -4573,12 +4906,12 @@ function App(){
                 ${trialMode&&(!quizPhase||quizPhase==="result")&&(
                   html`<${Fragment}>
                     <div style=${{marginTop:4,padding:"10px 14px",background:"linear-gradient(135deg,#fff7ed,#fed7aa)",border:"1.5px solid #f59e0b",borderRadius:12,textAlign:"center",fontSize:12,color:"#92400e",fontWeight:800}}>
-                      🎁 お試し ${trialIndex+1}/${SAMPLE_QUESTIONS.length}問目
+                      🎁 ${isLowGrade(grade)?"おためし":"お試し"} ${trialIndex+1}/${SAMPLE_QUESTIONS.length}${isLowGrade(grade)?"もんめ":"問目"}
                     </div>
                     <button class="btn btn-ghost" style=${{marginTop:8}} onClick=${()=>{
                       setTrialMode(false);trialModeR.current=false;setTrialIndex(0);trialIndexR.current=0;
                       resetState();setScreen("start");
-                    }}>← スタート画面に戻る</button>
+                    }}>${isLowGrade(grade)?"← さいしょの がめんに もどる":"← スタート画面に戻る"}</button>
                   <//>`
                 )}
 
@@ -4592,7 +4925,7 @@ function App(){
                       <div class="shc-icon">🌙</div>
                       <div class="shc-body">
                         <div class="shc-title">今日はここまででOK！</div>
-                        <div class="shc-sub">ノルマ達成✨ 確認力かなり伸びた！ここで終わるのも良い学習。</div>
+                        <div class="shc-sub">${isLowGrade(grade)?"ゴール ✨ たしかめる ちからが かなり のびた！ここで おわるのも いい がくしゅう。":"ノルマ達成✨ 確認力かなり伸びた！ここで終わるのも良い学習。"}</div>
                       </div>
                       <button class="shc-close" title="閉じる" onClick=${()=>setStopHereDismissed(true)}>×</button>
                     </div>`
@@ -4602,7 +4935,7 @@ function App(){
                 ${!trialMode&&(!quizPhase||quizPhase==="result")&&dailyGoalMet&&(
                   showSubjSel?(
                     html`<div class="card" style=${{padding:14,background:"#f8f7ff"}}>
-                      <div style=${{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>勉強したい科目を選んでね！</div>
+                      <div style=${{fontSize:13,fontWeight:800,color:"#5b3ff8",marginBottom:10,textAlign:"center"}}>${isLowGrade(grade)?"べんきょうしたい かもくを えらんでね！":"勉強したい科目を選んでね！"}</div>
                       <div style=${{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                         ${subjects.map(s=>(
                           html`<button key=${s} class="btn btn-primary" style=${{padding:"10px 8px",fontSize:14}} onClick=${()=>{setShowSubjSel(false);manualSubjectR.current=true;resetFetch(s);}} >${displaySubject(s,grade)}</button>`
@@ -4613,7 +4946,7 @@ function App(){
                   ):(
                     html`<${Fragment}>
                       <div class="row2" style=${{marginTop:4}}>
-                        <button class="btn btn-ghost" onClick=${()=>setShowSubjSel(true)} >科目選択</button>
+                        <button class="btn btn-ghost" onClick=${()=>setShowSubjSel(true)} >${isLowGrade(grade)?"かもく えらぶ":"科目選択"}</button>
                         <button class="btn btn-ghost" onClick=${()=>{
                           manualSubjectR.current=false; // AI自動選択（苦手科目はAIが判定）
                           const cur=logsR.current;const rates=calcSubjRates(cur.recentHistory);
@@ -4623,12 +4956,12 @@ function App(){
                           for(const s of subjects){const r=rates[s];if(r&&r.q>=3){const rt=r.c/r.q;if(rt<mr){mr=rt;ws=s;found=true;}}}
                           if(!found){const qc=subjects.map(s=>({s,q:rates[s]?.q||0})).sort((a,b)=>a.q-b.q);ws=qc[0].s;}
                           resetFetch(ws);
-                        }} >苦手科目</button>
+                        }} >${isLowGrade(grade)?"にがてな かもく":"苦手科目"}</button>
                       </div>
                       ${!comebackMode&&(
                         html`<button class="btn btn-ghost" style=${{marginTop:6,background:"linear-gradient(135deg,#fef3c7,#fde68a)",color:"#92400e",border:"1.5px solid #f59e0b"}}
                           onClick=${()=>{setComebackMode(true);setComebackTimer(180);}}>
-                          ⏱ 3分だけやる！
+                          ${isLowGrade(grade)?"⏱ 3ぷんだけ やる！":"⏱ 3分だけやる！"}
                         </button>`
                       )}
                     <//>`
@@ -4641,16 +4974,16 @@ function App(){
             ${tab==="log"&&(
               html`<${Fragment}>
                 <div class="login-streak">
-                  <div style=${{fontSize:28,fontWeight:900}}>${logs.loginStreak||0}日連続</div>
-                  <div style=${{fontSize:13,opacity:.85,marginTop:4}}>この調子で続けよう 🔥</div>
+                  <div style=${{fontSize:28,fontWeight:900}}>${logs.loginStreak||0}${isLowGrade(grade)?"にち れんぞく":"日連続"}</div>
+                  <div style=${{fontSize:13,opacity:.85,marginTop:4}}>${isLowGrade(grade)?"この ちょうしで つづけよう 🔥":"この調子で続けよう 🔥"}</div>
                 </div>
 
-                
+
                 ${overcomeMsg&&(
                   html`<div class="celebration-card overcome">
                     <span class="celebration-icon">🌟</span>
                     <div class="celebration-text">
-                      <div class="celebration-title">苦手克服！</div>
+                      <div class="celebration-title">${isLowGrade(grade)?"にがてを のりこえた！":"苦手克服！"}</div>
                       <div class="celebration-body">${overcomeMsg}</div>
                     </div>
                   </div>`
@@ -4659,7 +4992,7 @@ function App(){
                   html`<div class="celebration-card welcome-back">
                     <span class="celebration-icon">🤗</span>
                     <div class="celebration-text">
-                      <div class="celebration-title">おかえり！</div>
+                      <div class="celebration-title">${isLowGrade(grade)?"おかえり！":"おかえり！"}</div>
                       <div class="celebration-body">${welcomeBackMsg}</div>
                     </div>
                   </div>`
@@ -4668,7 +5001,7 @@ function App(){
                   html`<div class="celebration-card">
                     <span class="celebration-icon">⏳</span>
                     <div class="celebration-text">
-                      <div class="celebration-title">久々の成長！</div>
+                      <div class="celebration-title">${isLowGrade(grade)?"ひさしぶりの せいちょう！":"久々の成長！"}</div>
                       <div class="celebration-body">${longTimeMsg}</div>
                     </div>
                   </div>`
@@ -4677,7 +5010,7 @@ function App(){
                   html`<div class="celebration-card growth-type">
                     <span class="celebration-icon">🧬</span>
                     <div class="celebration-text">
-                      <div class="celebration-title">今日の成長タイプ</div>
+                      <div class="celebration-title">${isLowGrade(grade)?"きょうの せいちょう タイプ":"今日の成長タイプ"}</div>
                       <div class="celebration-body">${growthTypeMsg}</div>
                     </div>
                   </div>`
@@ -4686,14 +5019,14 @@ function App(){
                   html`<div class="celebration-card ai-review">
                     <span class="celebration-icon">🤖</span>
                     <div class="celebration-text">
-                      <div class="celebration-title">今日はここが良かった（AI総評）</div>
+                      <div class="celebration-title">${isLowGrade(grade)?"きょうの よかった ところ（AIから）":"今日はここが良かった（AI総評）"}</div>
                       <div class="celebration-body">${aiReviewMsg}</div>
                     </div>
                   </div>`
                 )}
                 ${/* 親向け一言: 正解以外の "褒められるポイント" を1つだけ自動生成。子供のやる気は「親が何を褒めるか」に強く影響される。 */ ""}
                 ${(()=>{
-                  const pp=calcParentPraise(logs);
+                  const pp=calcParentPraise(logs,grade);
                   if(!pp)return null;
                   return(
                     html`<div class="celebration-card parent-praise">
@@ -4724,29 +5057,30 @@ function App(){
                   return(
                     html`<div class="card" style=${{background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",border:"1.5px solid #86efac",padding:"14px 16px"}}>
                       <div style=${{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:8}}>
-                        <div style=${{fontSize:13,fontWeight:900,color:"#166534"}}>✨ 成長スコア（今日）</div>
+                        <div style=${{fontSize:13,fontWeight:900,color:"#166534"}}>${isLowGrade(grade)?"✨ きょう のびた ちから":"✨ 成長スコア（今日）"}</div>
                         <div class="tick-anim" key=${`gs-card-${total}`} style=${{fontSize:24,fontWeight:900,color:"#16a34a"}}>+${total}</div>
                       </div>
                       <div class="today-gains">
-                        ${gained.map((k,idx)=>(
-                          html`<span key=${k} class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{animationDelay:`${idx*0.4}s`}}>
-                            ${STAT_LABELS[k].icon} ${STAT_LABELS[k].name} <span style=${{opacity:.7}}>+${tg[k]}</span>
-                          </span>`
-                        ))}
+                        ${gained.map((k,idx)=>{
+                          const lbl=getStatLabel(k,grade);
+                          return html`<span key=${k} class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{animationDelay:`${idx*0.4}s`}}>
+                            ${lbl.icon} ${lbl.name} <span style=${{opacity:.7}}>+${tg[k]}</span>
+                          </span>`;
+                        })}
                         ${unitEntries.length>0?(
                           // 単元名別 pill (例: 🎯 分数力 +6)。最大6件まで表示。
                           unitEntries.slice(0,6).map(([name,v],idx)=>{
                             const shortName=name.length>8?name.slice(0,7)+"…":name;
                             return(
                               html`<span key=${`u-${name}`} class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",borderColor:"#fde68a",color:"#92400e",animationDelay:`${(gained.length+idx)*0.4}s`}} title=${name}>
-                                🎯 ${shortName}力 <span style=${{opacity:.7}}>+${v}</span>
+                                🎯 ${shortName}${isLowGrade(grade)?"":"力"} <span style=${{opacity:.7}}>+${v}</span>
                               </span>`
                             );
                           })
                         ):(ugLegacy>0&&(
                           // 旧データ（単元名なし）→ 従来の合算 pill
                           html`<span class=${`gain-pill${hopKey>0?" hop-anim":""}`} style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",borderColor:"#fde68a",color:"#92400e",animationDelay:`${gained.length*0.4}s`}}>
-                            🎯 単元力 <span style=${{opacity:.7}}>+${ugLegacy}</span>
+                            ${isLowGrade(grade)?"🎯 たんげんの ちから":"🎯 単元力"} <span style=${{opacity:.7}}>+${ugLegacy}</span>
                           </span>`
                         ))}
                       </div>
@@ -4764,19 +5098,19 @@ function App(){
                   if(!total)return(
                     html`<div class="card" style=${{textAlign:"center",padding:"22px 12px",color:"#9990cc"}}>
                       <div style=${{fontSize:32,marginBottom:6}}>⚔️</div>
-                      <div style=${{fontSize:13,fontWeight:800}}>累積ステータスはまだ0です</div>
-                      <div style=${{fontSize:11,marginTop:6}}>問題を解いて基本ステータスと単元力を育てよう</div>
+                      <div style=${{fontSize:13,fontWeight:800}}>${isLowGrade(grade)?"きほんの ちからは まだ 0だよ":"累積ステータスはまだ0です"}</div>
+                      <div style=${{fontSize:11,marginTop:6}}>${isLowGrade(grade)?"もんだいを といて ちからを そだてよう":"問題を解いて基本ステータスと単元力を育てよう"}</div>
                     </div>`
                   );
-                  const rank=total>=2000?"⭐ レジェンド":total>=1000?"💎 マスター":total>=500?"🏆 上級":total>=200?"📈 中級":total>=50?"🌱 駆け出し":"🆕 ルーキー";
-                  const baseTop=STAT_ORDER.map(k=>({k,v:cs[k]||0,label:STAT_LABELS[k].name,icon:STAT_LABELS[k].icon})).sort((a,b)=>b.v-a.v).slice(0,5);
+                  const rank=total>=2000?"⭐ レジェンド":total>=1000?"💎 マスター":total>=500?(isLowGrade(grade)?"🏆 じょうきゅう":"🏆 上級"):total>=200?(isLowGrade(grade)?"📈 ちゅうきゅう":"📈 中級"):total>=50?(isLowGrade(grade)?"🌱 はじめたて":"🌱 駆け出し"):"🆕 ルーキー";
+                  const baseTop=STAT_ORDER.map(k=>{const lbl=getStatLabel(k,grade);return{k,v:cs[k]||0,label:lbl.name,icon:lbl.icon};}).sort((a,b)=>b.v-a.v).slice(0,5);
                   const baseMax=Math.max(1,...baseTop.map(x=>x.v));
                   return(
                     html`<${Fragment}>
                       
                       <div class="card">
                         <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                          <div class="section-title" style=${{margin:0}}>⚔️ 基本ステータス</div>
+                          <div class="section-title" style=${{margin:0}}>${isLowGrade(grade)?"⚔️ きほんの ちから":"⚔️ 基本ステータス"}</div>
                           <div style=${{display:"flex",gap:6,alignItems:"center"}}>
                             <span style=${{fontSize:10,fontWeight:900,color:"#92400e",background:"#fef3c7",padding:"2px 8px",borderRadius:99,border:"1px solid #fde68a"}}>${rank}</span>
                             <div style=${{fontSize:11,fontWeight:900,color:"#5b3ff8"}}>TOTAL ${total}</div>
@@ -4808,7 +5142,7 @@ function App(){
                                 html`<div key=${name} class=${`stat-line${hopKey>0?" hop-anim":""}`} style=${{animationDelay:`${idx*0.4}s`}}>
                                   <span class=${`rank-no r${idx+1}`}>${idx+1}</span>
                                   <span class="stat-line-icon">📘</span>
-                                  <span class="stat-line-name" style=${{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:120}} title=${name}>${name}力</span>
+                                  <span class="stat-line-name" style=${{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:120}} title=${name}>${name}${isLowGrade(grade)?"":"力"}</span>
                                   <div class="stat-line-bar"><div style=${{width:`${Math.min(100,(v/max)*100)}%`}}/></div>
                                   <span class="stat-line-val">${v}</span>
                                 </div>`
@@ -4824,7 +5158,7 @@ function App(){
                 
                 <details class="card">
                   <summary style=${{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",listStyle:"none",userSelect:"none"}}>
-                    <div class="section-title" style=${{margin:0}}>🏆 実績バッジ ${(logs.earnedBadges?.length||0)} / ${BADGES.length}</div>
+                    <div class="section-title" style=${{margin:0}}>${isLowGrade(grade)?"🏆 もらった バッジ":"🏆 実績バッジ"} ${(logs.earnedBadges?.length||0)} / ${BADGES.length}</div>
                     <span style=${{fontSize:10,color:"#9990cc"}}>▼</span>
                   </summary>
                   <div style=${{marginTop:10}} class="badge-grid">
@@ -4859,17 +5193,17 @@ function App(){
                 <div style=${{background:rateBg,borderColor:rateBorder,borderRadius:16,padding:18,marginBottom:12,border:"2px solid"}}>
                   <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div>
-                      <div style=${{fontSize:12,fontWeight:800,color:"#9990cc",marginBottom:4}}>直近100問の正解率</div>
+                      <div style=${{fontSize:12,fontWeight:800,color:"#9990cc",marginBottom:4}}>${isLowGrade(grade)?"さいきん100もんの せいかいりつ":"直近100問の正解率"}</div>
                       ${recent100?(html`<${Fragment}>
                         <div style=${{fontSize:38,fontWeight:900,color:rateColor,lineHeight:1}}>${recent100.rate}%</div>
-                        <div style=${{fontSize:11,color:rateColor,opacity:.7,marginTop:4}}>${recent100.count<100?`まだ${recent100.count}問分のデータ`:"直近100問"}</div>
-                      <//>`):(html`<div style=${{fontSize:18,fontWeight:800,color:"#9990cc"}}>まだデータなし</div>`)}
+                        <div style=${{fontSize:11,color:rateColor,opacity:.7,marginTop:4}}>${recent100.count<100?(isLowGrade(grade)?`まだ${recent100.count}もん`:`まだ${recent100.count}問分のデータ`):(isLowGrade(grade)?"さいきん100もん":"直近100問")}</div>
+                      <//>`):(html`<div style=${{fontSize:18,fontWeight:800,color:"#9990cc"}}>${isLowGrade(grade)?"まだ データなし":"まだデータなし"}</div>`)}
                     </div>
                     <div style=${{textAlign:"right"}}>
-                      <div style=${{fontSize:11,color:"#9990cc"}}>累計</div>
-                      <div style=${{fontSize:18,fontWeight:900,color:"#5b3ff8"}}>${logs.totalQ}問</div>
-                      <div style=${{fontSize:11,color:"#9990cc",marginTop:4}}>最高連続</div>
-                      <div style=${{fontSize:18,fontWeight:900,color:"#f59e0b"}}>${logs.bestStreak}問</div>
+                      <div style=${{fontSize:11,color:"#9990cc"}}>${isLowGrade(grade)?"これまで":"累計"}</div>
+                      <div style=${{fontSize:18,fontWeight:900,color:"#5b3ff8"}}>${logs.totalQ}${isLowGrade(grade)?"もん":"問"}</div>
+                      <div style=${{fontSize:11,color:"#9990cc",marginTop:4}}>${isLowGrade(grade)?"さいこう れんぞく":"最高連続"}</div>
+                      <div style=${{fontSize:18,fontWeight:900,color:"#f59e0b"}}>${logs.bestStreak}${isLowGrade(grade)?"もん":"問"}</div>
                     </div>
                   </div>
                   ${recent100&&html`<div style=${{marginTop:12}}><div class="bar-wrap" style=${{height:12}}><div class="bar" style=${{width:`${recent100.rate}%`,background:rateColor}}></div></div></div>`}
@@ -4877,12 +5211,12 @@ function App(){
 
                 
                 <div class="card">
-                  <div class="section-title">科目別 正解率（直近100問）</div>
+                  <div class="section-title">${isLowGrade(grade)?"かもくべつ せいかいりつ（さいきん100もん）":"科目別 正解率（直近100問）"}</div>
                   ${subjectRates.map(({s,rate,q})=>(
                     html`<div key=${s} class="subj-row">
                       <span class="subj-name">${displaySubject(s,grade)}</span>
                       <div style=${{flex:1}}><div class="bar-wrap"><div class="bar" style=${{width:rate!==null?`${rate}%`:"0%",background:rate===null?"#e8e3ff":rate>=70?"#22c55e":rate>=50?"#f59e0b":"#ef4444"}}></div></div></div>
-                      <span style=${{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>${rate!==null?`${rate}%`:"未挑戦"}</span>
+                      <span style=${{fontSize:12,color:"#9990cc",minWidth:36,textAlign:"right"}}>${rate!==null?`${rate}%`:(isLowGrade(grade)?"まだ":"未挑戦")}</span>
                       <span style=${{fontSize:11,color:"#bbb",minWidth:30,textAlign:"right"}}>${q>0?`${q}問`:""}</span>
                     </div>`
                   ))}
@@ -4890,7 +5224,7 @@ function App(){
 
                 
                 <div class="card">
-                  <div class="section-title">28日間の学習カレンダー</div>
+                  <div class="section-title">${isLowGrade(grade)?"28にちの がくしゅう カレンダー":"28日間の学習カレンダー"}</div>
                   <div class="week-grid">
                     ${["日","月","火","水","木","金","土"].map(d=>html`<div key=${d} class="week-label">${d}</div>`)}
                   </div>
@@ -4927,10 +5261,11 @@ function App(){
                   const bg=isDown?"linear-gradient(135deg,#f0fdf4,#bbf7d0)":isFlat?"linear-gradient(135deg,#f3f4f6,#e5e7eb)":"linear-gradient(135deg,#fff7ed,#fed7aa)";
                   const fg=isDown?"#166534":isFlat?"#374151":"#7c2d12";
                   const border=isDown?"#22c55e":isFlat?"#9ca3af":"#f59e0b";
-                  const headline=imp.direction==="down"?(imp.deltaPct<=-50?"半分以下！":`${Math.abs(imp.deltaPct)}%減！`):imp.direction==="flat"?"先週と同じ":imp.direction==="new"?"今週の弱点":`${imp.deltaPct}%増`;
+                  const _low=isLowGrade(grade);
+                  const headline=imp.direction==="down"?(imp.deltaPct<=-50?(_low?"はんぶん いか！":"半分以下！"):(_low?`${Math.abs(imp.deltaPct)}% へった！`:`${Math.abs(imp.deltaPct)}%減！`)):imp.direction==="flat"?(_low?"せんしゅうと おなじ":"先週と同じ"):imp.direction==="new"?(_low?"こんしゅうの にがて":"今週の弱点"):(_low?`${imp.deltaPct}% ふえた`:`${imp.deltaPct}%増`);
                   return(
                     html`<div class="mistake-improve-card" style=${{background:bg,border:`2px solid ${border}`,color:fg}}>
-                      <div class="mic-tag">${isDown?"🎉 改善":isFlat?"📊 維持":"⚠️ 注意"}</div>
+                      <div class="mic-tag">${isDown?(_low?"🎉 のびた":"🎉 改善"):isFlat?(_low?"📊 キープ":"📊 維持"):(_low?"⚠️ ちゅうい":"⚠️ 注意")}</div>
                       <div class="mic-head">${headline}</div>
                       <div class="mic-msg">${imp.msg}</div>
                     </div>`
@@ -4940,28 +5275,34 @@ function App(){
                 ${/* 🅒 診断(マクロ・型・週次) — 今週のミスパターン */""}
                 ${weeklySummary&&(
                   html`<div class="weekly-summary">
-                    <div class="ws-head">📊 今週のミスパターン（直近7日）</div>
+                    <div class="ws-head">${isLowGrade(grade)?"📊 こんしゅうの まちがい（さいきん7にち）":"📊 今週のミスパターン（直近7日）"}</div>
                     <div class="ws-row">
-                      <span class="ws-rank">今週1位</span>
+                      <span class="ws-rank">${isLowGrade(grade)?"こんしゅう1い":"今週1位"}</span>
                       <span class="ws-type">${weeklySummary.type}</span>
                     </div>
                     <div class="ws-row">
-                      <span class="ws-cnt">${weeklySummary.thisCnt}回</span>
+                      <span class="ws-cnt">${weeklySummary.thisCnt}${isLowGrade(grade)?"かい":"回"}</span>
                       ${weeklySummary.diff>0?(
-                        html`<span class="ws-diff up">▲ 先週比 +${weeklySummary.diff}</span>`
+                        html`<span class="ws-diff up">▲ ${isLowGrade(grade)?"せんしゅうより":"先週比"} +${weeklySummary.diff}</span>`
                       ):weeklySummary.diff<0?(
-                        html`<span class="ws-diff down">▼ 先週比 ${weeklySummary.diff}</span>`
+                        html`<span class="ws-diff down">▼ ${isLowGrade(grade)?"せんしゅうより":"先週比"} ${weeklySummary.diff}</span>`
                       ):(
-                        html`<span class="ws-diff flat">→ 先週と同じ</span>`
+                        html`<span class="ws-diff flat">→ ${isLowGrade(grade)?"せんしゅうと おなじ":"先週と同じ"}</span>`
                       )}
-                      <span style=${{fontSize:11,color:"#92400e",fontWeight:700}}>（先週: ${weeklySummary.prevCnt}回）</span>
+                      <span style=${{fontSize:11,color:"#92400e",fontWeight:700}}>（${isLowGrade(grade)?"せんしゅう":"先週"}: ${weeklySummary.prevCnt}${isLowGrade(grade)?"かい":"回"}）</span>
                     </div>
                     <div class="ws-tip">
                       ${weeklySummary.diff>0
-                        ? `📈 増えている型です。次の生成問題ではこの型を狙い撃ち出題するよう設定済み。プライム表示で意識付けも自動で出ます。`
+                        ? (isLowGrade(grade)
+                            ?`📈 ふえてる かたちだよ。つぎの もんだいで この かたちを ねらって つくるね。`
+                            :`📈 増えている型です。次の生成問題ではこの型を狙い撃ち出題するよう設定済み。プライム表示で意識付けも自動で出ます。`)
                         : weeklySummary.diff<0
-                          ? `🎉 ${Math.abs(weeklySummary.diff)}回減少！この調子で重点単元の練習を続けよう。`
-                          : `🎯 今週の重点課題はこれ。次の${Math.max(3,weeklySummary.thisCnt)}問でこの型を集中攻略！`}
+                          ? (isLowGrade(grade)
+                              ?`🎉 ${Math.abs(weeklySummary.diff)}かい へったよ！この ちょうしで がんばろう。`
+                              :`🎉 ${Math.abs(weeklySummary.diff)}回減少！この調子で重点単元の練習を続けよう。`)
+                          : (isLowGrade(grade)
+                              ?`🎯 こんしゅう ちからを いれる ところは ここ。つぎの ${Math.max(3,weeklySummary.thisCnt)}もんで しゅうちゅう こうりゃく！`
+                              :`🎯 今週の重点課題はこれ。次の${Math.max(3,weeklySummary.thisCnt)}問でこの型を集中攻略！`)}
                     </div>
                   </div>`
                 )}
@@ -4973,7 +5314,7 @@ function App(){
                   const maxCnt=mistakeList[0][1];
                   return(
                     html`<div class="card">
-                      <div class="section-title">🔬 あなたのミスの型 TOP5</div>
+                      <div class="section-title">${isLowGrade(grade)?"🔬 きみの まちがいの かたち TOP5":"🔬 あなたのミスの型 TOP5"}</div>
                       ${mistakeList.map(([type,cnt])=>(
                         html`<div key=${type} class="dam-row">
                           <span class="dam-label" style=${{minWidth:120,fontSize:11,flex:"0 0 auto"}}>${type}</span>
@@ -4981,7 +5322,7 @@ function App(){
                           <span style=${{fontSize:11,fontWeight:900,color:"#ef4444",minWidth:36,textAlign:"right"}}>${cnt}回</span>
                         </div>`
                       ))}
-                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>直近200問の不正解から集計</div>
+                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>${isLowGrade(grade)?"さいきん200もんの まちがいから しゅうけい":"直近200問の不正解から集計"}</div>
                     </div>`
                   );
                 })()}
@@ -4990,7 +5331,7 @@ function App(){
                 ${weakestTopic&&(
                   html`<div class="card" style=${{background:"#fff7f7",border:"1.5px solid #fca5a5",padding:"14px 16px"}}>
                     <div style=${{fontWeight:900,color:"#991b1b",marginBottom:6,fontSize:12,letterSpacing:.5}}>
-                      🎯 今週の重点単元
+                      ${isLowGrade(grade)?"🎯 こんしゅうの たいせつな たんげん":"🎯 今週の重点単元"}
                     </div>
                     <div style=${{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
                       <div style=${{flex:1}}>
@@ -4998,8 +5339,8 @@ function App(){
                           ${weakestTopic[0]}
                         </div>
                         <div style=${{fontSize:12,color:"#991b1b",display:"flex",gap:12,flexWrap:"wrap"}}>
-                          <span>正解率 <b>${Math.round(weakestTopic[1].correct/weakestTopic[1].attempts*100)}%</b></span>
-                          <span>${weakestTopic[1].attempts}問挑戦中</span>
+                          <span>${isLowGrade(grade)?"せいかいりつ":"正解率"} <b>${Math.round(weakestTopic[1].correct/weakestTopic[1].attempts*100)}%</b></span>
+                          <span>${weakestTopic[1].attempts}${isLowGrade(grade)?"もん やってる":"問挑戦中"}</span>
                           ${weakestTopic[1].subj&&html`<span>${displaySubject(weakestTopic[1].subj,grade)}</span>`}
                         </div>
                       </div>
@@ -5013,7 +5354,7 @@ function App(){
                       </div>
                     </div>
                     <div style=${{fontSize:11,color:"#b91c1c",marginTop:6,lineHeight:1.5}}>
-                      この単元を集中的に練習すると、正解率アップが見込めます！
+                      ${isLowGrade(grade)?"この たんげんを たくさん れんしゅうすると せいかいりつが あがるよ！":"この単元を集中的に練習すると、正解率アップが見込めます！"}
                     </div>
                   </div>`
                 )}
@@ -5021,7 +5362,7 @@ function App(){
                 ${/* 🅒 診断(ミクロ・単元・全体俯瞰) — 単元習熟マップ */""}
                 ${Object.keys(logs.topicMastery||{}).length>0&&(
                   html`<div class="card">
-                    <div class="section-title">🗺️ 単元習熟マップ</div>
+                    <div class="section-title">${isLowGrade(grade)?"🗺️ たんげんの できかたマップ":"🗺️ 単元習熟マップ"}</div>
                     <div style=${{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
                       <button onClick=${()=>setTopicFilterSubj("")} style=${{flex:"1 0 auto",padding:"6px 8px",fontSize:11,fontWeight:800,border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",background:topicFilterSubj===""?"linear-gradient(135deg,#5b3ff8,#9b59f8)":"#f0edff",color:topicFilterSubj===""?"#fff":"#5b3ff8"}}>すべて</button>
                       ${subjects.map(s=>(
@@ -5053,7 +5394,7 @@ function App(){
                 ${/* 🅓 行動 — 復習キュー（診断を踏まえた次の一手）*/""}
                 ${reviewCount>0&&(
                   html`<div class="card" style=${{background:"#fffbeb",border:"1.5px solid #fde68a"}}>
-                    <div style=${{fontWeight:800,color:"#92400e",marginBottom:6}}>📝 復習キュー: ${reviewCount}件</div>
+                    <div style=${{fontWeight:800,color:"#92400e",marginBottom:6}}>${isLowGrade(grade)?"📝 もういちど リスト":"📝 復習キュー"}: ${reviewCount}${isLowGrade(grade)?"こ":"件"}</div>
                     <div style=${{fontSize:13,color:"#78350f"}}>次回の学習で自動出題。分析完了で自動削除！</div>
                   </div>`
                 )}
@@ -5061,7 +5402,7 @@ function App(){
                 
                 <details class="card" style=${{background:"#f8f7ff"}}>
                   <summary style=${{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",listStyle:"none",userSelect:"none"}}>
-                    <div class="section-title" style=${{margin:0}}>📦 問題ストック</div>
+                    <div class="section-title" style=${{margin:0}}>${isLowGrade(grade)?"📦 もんだいの ストック":"📦 問題ストック"}</div>
                     <div style=${{display:"flex",alignItems:"center",gap:5}}>
                       ${(isRefilling||isEmergencyGen)&&html`<span class="refill-dot"></span>`}
                       <span style=${{fontSize:12,fontWeight:900,color:damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.6)?"#22c55e":damTotal>(DAM_MAX*subjects.length*DIFFS.length*0.3)?"#f59e0b":"#ef4444"}}>${damTotal}/${DAM_MAX*subjects.length*DIFFS.length}問</span>
@@ -5101,7 +5442,7 @@ function App(){
             ${tab==="settings"&&(
               html`<${Fragment}>
                 <div class="card">
-                  <div class="section-title">プロフィール設定</div>
+                  <div class="section-title">${isLowGrade(grade)?"プロフィール":"プロフィール設定"}</div>
 
                   
                   <div class="setting-row">
@@ -5143,20 +5484,20 @@ function App(){
 
                   
                   <div class="setting-row" style=${{paddingTop:14}}>
-                    <span class="setting-label">🎂 生年月日（学年自動計算）</span>
+                    <span class="setting-label">${pickText(grade).birthdayLabel}</span>
                     <input type="date" value=${birthday} onChange=${e=>setBirthday(e.target.value)} min="2000-01-01" max=${today()} style=${{marginBottom:0}}/>
                     <div style=${{fontSize:12,color:"#5b3ff8",fontWeight:700,marginTop:4}}>→ ${calcGrade(birthday)}</div>
                   </div>
 
                   <div style=${{marginTop:16}}>
                     <button class="btn btn-primary" onClick=${saveSettings}>
-                      ${settingsSaved?"✓ 保存しました！":"設定を保存する"}
+                      ${settingsSaved?(isLowGrade(grade)?"✓ ほぞんしたよ！":"✓ 保存しました！"):(isLowGrade(grade)?"せっていを ほぞんする":"設定を保存する")}
                     </button>
                   </div>
                 </div>
 
                 <div class="card">
-                  <div class="section-title">🎨 表示モード</div>
+                  <div class="section-title">${isLowGrade(grade)?"🎨 みためのモード":"🎨 表示モード"}</div>
                   <div class="setting-row" style=${{borderBottom:"none",paddingBottom:0}}>
                     <span class="setting-label">ライト / ダーク</span>
                     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
@@ -5178,7 +5519,35 @@ function App(){
                 </div>
 
                 <div class="card">
-                  <div class="section-title">問題ストック設定</div>
+                  <div class="section-title">${isLowGrade(grade)?"📝 やさしい ひょうき":"📝 やさしい表記"}</div>
+                  <div class="setting-row" style=${{borderBottom:"none",paddingBottom:0}}>
+                    <span class="setting-label">${isLowGrade(grade)?"UIの ひらがな ちゅうしんモード":"UI を ひらがな中心の表記に切替"}</span>
+                    <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:6}}>
+                      ${[
+                        {key:"auto",icon:"🤖",label:isLowGrade(grade)?"じどう":"自動",bg:"#f0edff",bd:"#c4b5fd",col:"#5b3ff8"},
+                        {key:"on",  icon:"🌸",label:"ON",            bg:"#fff5f7",bd:"#fbcfe8",col:"#9d174d"},
+                        {key:"off", icon:"📘",label:"OFF",           bg:"#f0fdf4",bd:"#86efac",col:"#166534"},
+                      ].map(o=>{
+                        const on=easyTextMode===o.key;
+                        return(
+                          html`<button key=${o.key} onClick=${()=>setEasyTextMode(o.key)}
+                            style=${{background:on?o.bg:"transparent",border:`2px solid ${on?o.bd:"var(--input-border)"}`,borderRadius:12,padding:"10px 8px",cursor:"pointer",fontFamily:"inherit",color:on?o.col:"var(--text-soft)",fontWeight:900,textAlign:"center",transition:"all .2s"}}>
+                            <div style=${{fontSize:22}}>${o.icon}</div>
+                            <div style=${{fontSize:12,marginTop:2}}>${o.label}</div>
+                          </button>`
+                        );
+                      })}
+                    </div>
+                    <div style=${{marginTop:10,background:"#f8f7ff",border:"1px solid #e8e3ff",borderRadius:10,padding:"8px 12px",fontSize:11,color:"#7c6fb0",fontWeight:700,lineHeight:1.6}}>
+                      ${isLowGrade(grade)
+                        ?"じどう＝小1〜3で じどうON。ON＝いつも やさしい ひょうき。OFF＝つねに ふつう。"
+                        :"自動＝小1〜3で自動ON。ON＝常にやさしい表記。OFF＝常に通常表記。"}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="section-title">${isLowGrade(grade)?"もんだいの ストック":"問題ストック設定"}</div>
                   <div class="setting-row" style=${{borderBottom:"none",paddingBottom:0}}>
                     <span class="setting-label">📦 問題最新化設定</span>
                     <div style=${{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
@@ -5204,7 +5573,7 @@ function App(){
                  </div>
 
                 <div class="card">
-                  <div class="section-title">🎚️ 難易度（自動調整）</div>
+                  <div class="section-title">${isLowGrade(grade)?"🎚️ むずかしさ（じどう）":"🎚️ 難易度（自動調整）"}</div>
                   <div class="setting-row" style=${{borderBottom:"none",paddingBottom:0}}>
                     <span class="setting-label">直近10問の正解率に応じて科目ごとに自動切替</span>
                     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
@@ -5228,7 +5597,7 @@ function App(){
                 </div>
 
                 <div class="card">
-                  <div class="section-title">エクスポート / インポート</div>
+                  <div class="section-title">${isLowGrade(grade)?"データの ほぞん／よみこみ":"エクスポート / インポート"}</div>
                   <button class="btn btn-ghost" style=${{marginBottom:8}} onClick=${exportData}>
                     📤 学習データをエクスポート
                   </button>
@@ -5247,7 +5616,7 @@ function App(){
                 </div>
 
                 <div class="card">
-                  <div class="section-title">データ管理</div>
+                  <div class="section-title">${isLowGrade(grade)?"データの かんり":"データ管理"}</div>
                   <div class="danger-zone">
                     <div style=${{fontSize:12,fontWeight:800,color:"#991b1b",marginBottom:10}}>⚠️ 削除操作は取り消せません</div>
                     <button class="danger-btn" onClick=${clearLogs}>
@@ -5263,7 +5632,7 @@ function App(){
                 </div>
 
                 <div class="card">
-                  <div class="section-title">アプリについて</div>
+                  <div class="section-title">${isLowGrade(grade)?"アプリの じょうほう":"アプリについて"}</div>
                   <div style=${{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
                     <div>📚 まちがいラボ v23 — Conviction Edition</div>
                     <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
@@ -5317,7 +5686,13 @@ function App(){
       ${welcomeMsg&&!showLoginBonus&&html`<div role="status" aria-live="polite" class=${`toast-base toast-safe${newBadges.length>0?" toast-shift":""}`} style=${{background:"linear-gradient(135deg,#5b3ff8,#9b59f8)",color:"#fff"}}>${welcomeMsg}</div>`}
 
       ${subjectImprovedMsg&&html`<div role="status" aria-live="polite" class=${`toast-base toast-safe${newBadges.length>0?" toast-shift":""}`} style=${{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff"}}>${subjectImprovedMsg}</div>`}
-      ${retryWinMsg&&html`<div role="status" aria-live="polite" class=${`toast-base toast-safe${newBadges.length>0?" toast-shift":""}`} style=${{background:"linear-gradient(135deg,#5b3ff8,#9b59f8)",color:"#fff"}}>${retryWinMsg}</div>`}
+      ${revivalBurst&&html`<${RevivalBurst}
+        show=${!!revivalBurst}
+        big=${revivalBurst.big}
+        sub=${revivalBurst.sub}
+        phrase=${revivalBurst.phrase}
+        onDone=${()=>setRevivalBurst(null)}
+      />`}
 
       ${streakBrokenMsg&&html`<div role="status" aria-live="polite" class="toast-base toast-safe" style=${{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff"}}>${streakBrokenMsg}</div>`}
 
@@ -5331,8 +5706,8 @@ function App(){
 
       ${rankInToast&&(
         html`<div class="rankin-toast">
-          <span class="rankin-big"><span class="rankin-spark">✨</span> ${rankInToast.label} TOP5入り！</span>
-          <span style=${{fontSize:11,fontWeight:700,opacity:.8}}>第${rankInToast.rank}位にランクイン</span>
+          <span class="rankin-big"><span class="rankin-spark">✨</span> ${rankInToast.label} ${isLowGrade(grade)?"TOP5に はいった！":"TOP5入り！"}</span>
+          <span style=${{fontSize:11,fontWeight:700,opacity:.8}}>${isLowGrade(grade)?`${rankInToast.rank}いに ランクイン`:`第${rankInToast.rank}位にランクイン`}</span>
         </div>`
       )}
 
