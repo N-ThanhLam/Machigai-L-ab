@@ -1791,16 +1791,21 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   useEffect(()=>{
     const prev=prevPhaseR.current;
     prevPhaseR.current=quizPhase;
-    if(quizPhase!=="question")return;
-    if(prev==="question")return; // 既に質問フェーズ中の再render（自信度クリック等）ではスクロールしない
+    // question / result フェーズ切り替え時にスクロール
+    // （同一フェーズ内の再render＝自信度クリック等ではスクロールしない）
+    if(quizPhase!=="question"&&quizPhase!=="result")return;
+    if(prev===quizPhase)return;
     let outer,inner;
     outer=requestAnimationFrame(()=>{
       inner=requestAnimationFrame(()=>{
         const el=quizCardRef.current;
         if(!el)return;
-        const top=el.getBoundingClientRect().top;
-        // 既に上端が画面上部（上から40%以内）にあるなら何もしない
-        if(top>=-8&&top<window.innerHeight*0.4)return;
+        // question フェーズ: 既に上端が画面上部にあるなら何もしない
+        // result フェーズ: カードが同位置でもコンテンツ入れ替わりがあるので必ずスクロール
+        if(quizPhase==="question"){
+          const top=el.getBoundingClientRect().top;
+          if(top>=-8&&top<window.innerHeight*0.4)return;
+        }
         el.scrollIntoView({behavior:"auto",block:"start"});
       });
     });
@@ -3975,8 +3980,8 @@ function App(){
   const todaySessions=logs.dailyLog?.[today()]?.sessions||0;
   const dailyGoalMet=todaySessions>=3;
   const reviewCount=logs.reviewQueue?.length||0;
-  // 当日スコア = gs に蓄積（_rolloverGs で毎日リセット。best/wrong と同じ仕組み）
-  const todayScore = gs.todayScore||0;
+  // 当日スコア = logs から直接計算（gs.todayScore はユーザー切替・リロード時にズレるため使わない）
+  const todayScore = calcTodayScore(logs).score;
 
   const cal28=Array.from({length:28},(_,i)=>{
     // JST基準で日付キーを生成（端末タイムゾーンに依存しない）
@@ -5211,7 +5216,7 @@ function App(){
                 <div class="card">
                   <div class="section-title">アプリについて</div>
                   <div style=${{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v21 — Conviction Edition</div>
+                    <div>📚 まちがいラボ v23 — Conviction Edition</div>
                     <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
                     <div>🌱 やさしい / 📝 ふつう / 🔥 むずかしい の自動難易度</div>
                     <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
