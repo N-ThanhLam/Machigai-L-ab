@@ -499,8 +499,8 @@ const _ensureBucket=(dam,subj,diff)=>{
   if(!Array.isArray(dam[subj][diff]))dam[subj][diff]=[];
   return dam[subj][diff];
 };
-const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));dam[subj][diff]=[...ex,...qs.filter(q=>!keys.has(dupKey(q)))].slice(-DAM_MAX);saveDam(dam);};
-const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=qs.filter(q=>!keys.has(dupKey(q)));if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
+const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const deduped=[];for(const q of qs){const k=dupKey(q);if(!keys.has(k)){keys.add(k);deduped.push(q);}}dam[subj][diff]=[...ex,...deduped].slice(-DAM_MAX);saveDam(dam);};
+const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=[];for(const q of qs){const k=dupKey(q);if(!keys.has(k)){keys.add(k);fresh.push(q);}}if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 // 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
 // 第4引数 preferMistakeType: 同 mistake_type の問題があれば優先 pop。
 // 無ければ通常の先頭から pop（フォールバック）。「理解した気」を即潰すための即出題用。
@@ -516,6 +516,7 @@ const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
     const b=bRaw.filter(isValid);
     if(b.length!==bRaw.length){
       dam[subj][d]=b;
+      saveDam(dam);
     }
     if(!b.length){
       saveDam(dam);
@@ -580,9 +581,9 @@ const safeUUID=()=>{
   const r=()=>Math.random().toString(16).slice(2,10);
   return `${r()}${r().slice(0,4)}-4${r().slice(0,3)}-${(8+Math.floor(Math.random()*4)).toString(16)}${r().slice(0,3)}-${r()}${r().slice(0,4)}`;
 };
-const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth+"T00:00:00"),now=new Date();let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3)ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
-const jstYesterday=()=>{const d=new Date(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}));d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE');};
+const calcGrade=birth=>{if(!birth)return"一般";const b=new Date(birth+"T00:00:00"),now=new Date(today()+"T00:00:00");let sy=now.getFullYear();if(now.getMonth()<3)sy--;let ent=b.getFullYear()+7;if(b.getMonth()<3||(b.getMonth()===3&&b.getDate()===1))ent--;const y=sy-ent+1;if(y>=1&&y<=6)return`小学${y}年生`;if(y>=7&&y<=9)return`中学${y-6}年生`;if(y>=10&&y<=12)return`高校${y-9}年生`;return"一般";};
+const jstYesterday=()=>{const d=new Date(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'})+"T00:00:00");d.setDate(d.getDate()-1);return d.toLocaleDateString('sv-SE');};
 // JST基準で n 日前の YYYY-MM-DD を返す（cal28 など UTC ズレ対策）
 const jstDaysAgo=(n)=>{const d=new Date(today()+"T00:00:00");d.setDate(d.getDate()-n);return d.toLocaleDateString('sv-SE');};
 // gs（ヘッダ表示用カウンタ）の永続化ルール:
@@ -799,7 +800,7 @@ const calcParentPraise=(logs)=>{
   for(let i=1;i<today24.length;i++){
     if(today24[i].correct&&!today24[i-1].correct)retryWins++;
   }
-  if(retryWins>=2){
+  if(retryWins>=1){
     return {title:"今日はここを褒めてあげて",body:`不正解の次に正解を取り戻した回数 ${retryWins} 回。「途中で投げずに考え直せた」が今日の主役です。`};
   }
   // 3. ノルマ完遂 or 開始力
@@ -905,10 +906,10 @@ const calcStatGainsForAnswer=(correct,mistakeType,opts={})=>{
   const stat=mistakeToStat(mistakeType);
   // 基本ゲイン
   if(correct){
-    g.focus+=2;
+    if(stat!=="focus")g.focus+=2;
     g[stat]+=2;
   }else{
-    g.attention+=1;
+    if(stat!=="attention")g.attention+=1;
     g[stat]+=1;
   }
   // 開始力ボーナス（今日初の1問だけ）
@@ -2111,7 +2112,8 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
 // ─── UserEditModal ───────────────────────────────────────────────
 const UserEditModal=({users,mode,initialUser,iconChoices,onSubmit,onDelete,onCancel})=>{
   const [name,setName]=useState(initialUser?.name||(mode==="add"?`ユーザー${users.length+1}`:""));
-  const [icon,setIcon]=useState(initialUser?.icon||iconChoices[users.length%iconChoices.length]);
+  const userIdx=initialUser?users.findIndex(u=>u.id===initialUser.id):users.length;
+  const [icon,setIcon]=useState(initialUser?.icon||iconChoices[(userIdx<0?users.length:userIdx)%iconChoices.length]);
   return(
     html`<div class="user-edit-modal" onClick=${onCancel}>
       <div class="user-edit-card" onClick=${e=>e.stopPropagation()}>
@@ -2199,7 +2201,7 @@ function App(){
   const [bonusPops,setBonusPops]=useState([]);
   const bonusIdR=useRef(0);
   const bonusTidsR=useRef(new Map());           // id → timeoutId
-  const bonusFiredR=useRef({recall:false,whyWrong:false,confidence:false,timeAttack:false});
+  const bonusFiredR=useRef({recall:false,whyWrong:false,confidence:false,timeAttack:false,hintShown:false});
   // 各種お祝いカード
   const [overcomeMsg,setOvercomeMsg]=useState("");     // 苦手克服
   const [welcomeBackMsg,setWelcomeBackMsg]=useState("");// 復帰歓迎
@@ -2592,6 +2594,15 @@ function App(){
       }
       out.dailyLog=dl;
     }
+    // subjectUnitStats: "数学" キーがあれば "算数" にマージして削除
+    if(out.subjectUnitStats?.["数学"]){
+      const m=out.subjectUnitStats["数学"];
+      const a=out.subjectUnitStats["算数"]||{};
+      const merged={...a};
+      for(const [unit,pts] of Object.entries(m)){merged[unit]=(merged[unit]||0)+pts;}
+      out.subjectUnitStats={...out.subjectUnitStats,"算数":merged};
+      delete out.subjectUnitStats["数学"];
+    }
     return out;
   };
 
@@ -2681,7 +2692,7 @@ function App(){
         const td=today();
         const yk2=jstYesterday();
         const isGap=p.lastLogin&&p.lastLogin!==td&&p.lastLogin!==yk2;
-        if(!isGap&&p.loginStreak>=2&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
+        if(!isGap&&p.loginStreak>=1&&p.lastLogin!==td){setShowLoginBonus(true);setTimeout(()=>setShowLoginBonus(false),3500);}
         // ⑪ 1日以上空いた場合の休み明けメッセージ（loginBonusと排他）
         if(isGap){
           setShowRestartMsg(true);setTimeout(()=>setShowRestartMsg(false),5000);
@@ -2804,7 +2815,7 @@ function App(){
       // リトライ回は recentHistory を書き換えない（初回の不正解とミス型を保持）
       if(next.recentHistory.length>200)next.recentHistory=next.recentHistory.slice(-200);
       // 初回の不正解のみ reviewQueue へ追加（リトライ wrong は wrongItem=null で来る）
-      if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<20)next.reviewQueue.push(wrongItem);}
+      if(!correct&&wrongItem){if(!next.reviewQueue)next.reviewQueue=[];if(next.reviewQueue.length<=19)next.reviewQueue.push(wrongItem);}
       // ── 継続力: 新しい日かチェック（loginStreak更新前に確認）──
       const isNewDay=(next.lastLogin!==td);
       if(next.lastLogin!==td){const ys=jstYesterday();next.loginStreak=(next.lastLogin===ys)?(next.loginStreak||0)+1:1;next.lastLogin=td;next.bestLoginStreak=Math.max(next.bestLoginStreak||0,next.loginStreak);}
@@ -2825,8 +2836,8 @@ function App(){
       // 直前が不正解だったかチェック（復帰力用）
       const prevRec=prev.recentHistory&&prev.recentHistory.length?prev.recentHistory[prev.recentHistory.length-1]:null;
       const prevWrong=!!(prevRec&&!prevRec.correct);
-      // 連続正解数（安定力用）
-      const newStreak=correct?(((prevRec&&prevRec.correct)?(prev._streak||1):0)+1):0;
+      // 連続正解数（安定力用）。リトライ回は streak を動かさない（前回の値を引き継ぐ）
+      const newStreak=wasRetry?(prev._streak||0):correct?(((prevRec&&prevRec.correct)?(prev._streak||0):0)+1):0;
       next._streak=newStreak;
       // 基本ゲイン: daily と cumulative の両方に加算（成長スコアの予測可能性を担保）
       // ・wasRetry+正解 → 直前に与えた wrong 分を差し引いて「ストレート正解と同等」に揃える
@@ -2976,7 +2987,7 @@ function App(){
       }
       if(!next.debugHistory)next.debugHistory=[];
       next.debugHistory.unshift({date:today(),subj,topic:topic||"—",results});
-      if(next.debugHistory.length>100)next.debugHistory=next.debugHistory.slice(0,100);
+      if(next.debugHistory.length>50)next.debugHistory=next.debugHistory.slice(0,50);
       checkBadges(next);saveLogs(next);return next;
     });
   },[quiz]);
@@ -2987,7 +2998,7 @@ function App(){
     const rates=calcSubjRates(cur.recentHistory);
     const ws=subs.map(s=>{if(s===subjR.current)return{s,w:0};const r=rates[s];if(!r||r.q===0)return{s,w:5};if(r.q<3)return{s,w:3};const rt=r.c/r.q;return{s,w:rt<.5?4:rt<.7?2:1};});
     const tot=ws.reduce((a,b)=>a+b.w,0);let r=Math.random()*tot;
-    for(const x of ws){r-=x.w;if(r<=0)return x.s;}return subs[0];
+    for(const x of ws){r-=x.w;if(r<0)return x.s;}return ws[ws.length-1].s;
   };
 
   const buildNormaQueue=cur=>{
@@ -3030,7 +3041,7 @@ function App(){
       setNormaReason(first.reason);
       // ノルマ1問目が復習由来かどうかチェック
       // reviewItemId は buildNormaQueue 時点で確定済み → logsR を再参照しない
-      if(first.reason==="復習タイム！"&&first.reviewItemId){
+      if((first.reason==="復習タイム！"||first.reason==="思い込み復習！")&&first.reviewItemId){
         setCurrentReviewItemId(first.reviewItemId);
         currentReviewItemIdR.current=first.reviewItemId;
         setIsReview(true);
@@ -3222,7 +3233,7 @@ function App(){
         const isWaiting=!!waitingForStockR.current;
         const curSubs=subjectsR.current;
         const total=getDamTotal(curSubs);
-        const cap=DAM_MAX*curSubs.length;
+        const cap=DAM_MAX*curSubs.length*DIFFS.length;
         const fillRate=cap>0?total/cap:1;
         if(isWaiting)         delay=15000;
         else if(fillRate<0.2) delay=20000;
@@ -3729,7 +3740,7 @@ function App(){
           ns=next.subj;reason=next.reason;
           // ノルマキューの次が復習由来なら reviewItemId をセット
           // buildNormaQueue 時点で確定した id を使う → logsR.reviewQueue[0] を再参照しない
-          if(reason==="復習タイム！"&&next.reviewItemId){
+          if((reason==="復習タイム！"||reason==="思い込み復習！")&&next.reviewItemId){
             setCurrentReviewItemId(next.reviewItemId);currentReviewItemIdR.current=next.reviewItemId;
             setIsReview(true);isReviewR.current=true;
           }
@@ -3766,14 +3777,14 @@ function App(){
         const fromDamReview=popFromDam(dueItem.subject,reviewDiff,1);
         if(fromDamReview.length){
           // 解消済みは分析完了後にIDで削除するため、ここでは削除しない
-          setCurrentReviewItemId(dueItem.id);  // normalize済みで必ずidあり
-          setSubject(dueItem.subject);setIsReview(true);setDamStats(getDamStats(subjectsR.current));
+          setCurrentReviewItemId(dueItem.id);currentReviewItemIdR.current=dueItem.id;
+          setSubject(dueItem.subject);setIsReview(true);isReviewR.current=true;setDamStats(getDamStats(subjectsR.current));
 
           setQuiz(fromDamReview[0]);return;
         }
         // 復習キューがあるのにストックが0 → 緊急生成（3問）
-        setCurrentReviewItemId(dueItem.id);
-        setSubject(dueItem.subject);setIsReview(true);
+        setCurrentReviewItemId(dueItem.id);currentReviewItemIdR.current=dueItem.id;
+        setSubject(dueItem.subject);setIsReview(true);isReviewR.current=true;
         {
           const generated=await generateEmergency(dueItem.subject,currentGrade);
           if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
@@ -3871,7 +3882,7 @@ function App(){
     if(!confirm("すべてのデータを削除しますか？\nこの操作は取り消せません。"))return;
     try{
       _safeLS.remove(STORE());_safeLS.remove(DAM_KEY());_safeLS.remove(SESS());
-      _safeLS.remove(REJ());_safeLS.remove(ARFL());_safeLS.remove(ADV());
+      _safeLS.remove(REJ());_safeLS.remove(ARFL());_safeLS.remove(ADV());_safeLS.remove(PROF());
       // legacyキー掃除
       _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
     }catch(e){}
@@ -3895,7 +3906,7 @@ function App(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     a.href=url;a.download=`まちがいラボ_${g}_${dateStr}.json`;
-    a.click();URL.revokeObjectURL(url);
+    a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
 
   const importData=e=>{
@@ -4429,9 +4440,23 @@ function App(){
                     choicesDisabled=${!!pendingChoice}
                     onReport=${async()=>{
                       const rid=currentReviewItemId;
+                      const reportedQ=quiz;
                       setLogs(p=>{const n=deepClone(p);
                         if(rid){n.reviewQueue=(n.reviewQueue||[]).filter(q=>q.id!==rid);}
                         saveLogs(n);logsR.current=n;return n;});
+                      // 報告された問題をDAMからも除去（重複キーで照合）
+                      if(reportedQ){
+                        try{
+                          const dam=getDam();let changed=false;
+                          const rk=dupKey(reportedQ);
+                          for(const s of Object.keys(dam)){for(const d of DIFFS){
+                            const arr=dam[s][d];if(!Array.isArray(arr))continue;
+                            const next=arr.filter(q=>dupKey(q)!==rk);
+                            if(next.length!==arr.length){dam[s][d]=next;changed=true;}
+                          }}
+                          if(changed)saveDam(dam);
+                        }catch(_){}
+                      }
                       setReportMsg("⚠️ 報告しました。復習リストから削除されます。");
                       setTimeout(()=>setReportMsg(""),3000);
                       await handleNext();
