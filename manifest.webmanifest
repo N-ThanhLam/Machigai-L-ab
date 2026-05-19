@@ -1,0 +1,20 @@
+{
+  "name": "まちがいラボ",
+  "short_name": "まちがいラボ",
+  "description": "AIが生成する4択問題で、子どもがやりがちな『思考のズレ』を見える化。ミスの再発防止に特化した学習アプリ。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f0f4ff",
+  "theme_color": "#5b3ff8",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
