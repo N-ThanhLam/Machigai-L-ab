@@ -81,18 +81,6 @@ const restoreFromIdbIfNeeded=async()=>{
   }catch(e){ return 0; }
 };
 
-// ─── 旧キー（manabi_*）クリーンアップ ───────────────────────────────
-(()=>{
-  try{
-    const toDelete=[];
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(k&&k.startsWith("manabi_")) toDelete.push(k);
-    }
-    toDelete.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  }catch(e){}
-})();
-
 // ─── マルチユーザー: 現在ユーザーの ID で localStorage キーをスコープ化 ─
 const USERS_KEY="machigai_lab_users_v1";       // ユーザー定義一覧
 const CUR_USER_KEY="machigai_lab_curUser_v1";  // 現在のユーザーID
@@ -1339,8 +1327,14 @@ const calcStatBonusesForAnswer=(correct,opts={})=>{
   const {wasRetry=false,prevWrong=false}=opts;
   const g={};STAT_ORDER.forEach(k=>g[k]=0);
   if(correct){
-    if(wasRetry)g.retryAgain+=6;   // 同問リトライ成功（cumul のみ）
-    if(prevWrong)g.retryPower+=4;  // 直前ミス後の復帰（cumul のみ）
+    // 同問リトライ正解は retryAgain（粘り型）を優先付与。
+    // 「直前ミス→次問正解」の retryPower（立ち直り型）は wasRetry でないときだけ付ける。
+    // これにより同じ正解イベントで両方が同時に加算されるのを防ぐ。
+    if(wasRetry){
+      g.retryAgain+=6;   // 同問リトライ成功（cumul のみ）
+    }else if(prevWrong){
+      g.retryPower+=4;   // 直前ミス後の復帰（cumul のみ）
+    }
   }
   return g;
 };
@@ -2694,6 +2688,9 @@ function App(){
   const bonusIdR=useRef(0);
   const bonusTidsR=useRef(new Map());           // id → timeoutId
   const bonusFiredR=useRef({recall:false,whyWrong:false,confidence:false,timeAttack:false,hintShown:false});
+  // 同一問題への handleChoice 二重発火ガード（クリック直後のタイマー満了など、
+  // setState が反映される前に走る同期的な再呼び出しを止める）。quiz 切替/retry で false に戻す。
+  const answeredR=useRef(false);
   // 各種お祝いカード
   const [overcomeMsg,setOvercomeMsg]=useState("");     // 苦手克服
   const [welcomeBackMsg,setWelcomeBackMsg]=useState("");// 復帰歓迎
@@ -3323,6 +3320,7 @@ function App(){
   // 問題切替時にボーナス発火ガードをリセット（&残存タイマー掃除はそのまま自然消滅で OK）
   useEffect(()=>{
     bonusFiredR.current={recall:false,whyWrong:false,confidence:false,timeAttack:false,hintShown:false};
+    answeredR.current=false; // 新しい問題に切り替わったら二重発火ガードも解除
   },[quiz]);
   // ⑦ hint 表示有無の追跡：ヒントを見ずに正解できたかを判定するため
   const hintUsedR=useRef(false);
@@ -3419,9 +3417,13 @@ function App(){
         next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stGains[k];
         next.dailyStatGains[td][k]=(next.dailyStatGains[td][k]||0)+stGains[k];
       }
-      // ボーナス: wasRetry 中はゼロ（retryAgain / retryPower を稼げない）。
-      // 累積のみに加算（dailyStatGains には載せない）。streak は daily 側へ移動済み。
-      const stBonus=wasRetry?_zeroStats():calcStatBonusesForAnswer(correct,{wasRetry,prevWrong});
+      // ボーナス: 累積ステータスにのみ加算（dailyStatGains には載せない）。streak は daily 側へ移動済み。
+      // ※ 旧実装は wasRetry のときに calcStatBonusesForAnswer 自体をスキップしていたため、
+      //   関数内の `if(wasRetry)g.retryAgain+=6` が事実上 dead code となり、
+      //   再挑戦力（retryAgain）が累積で 0 のまま伸びない不具合があった。
+      //   calcStatBonusesForAnswer 側で retryAgain と retryPower を排他にしているため、
+      //   wasRetry 時も呼び出して問題ない（二重加算は発生しない）。
+      const stBonus=calcStatBonusesForAnswer(correct,{wasRetry,prevWrong});
       for(const k of Object.keys(stBonus)){
         if(stBonus[k]>0)next.cumulativeStats[k]=(next.cumulativeStats[k]||0)+stBonus[k];
       }
@@ -3645,6 +3647,7 @@ function App(){
     setStepResults([null,null,null]);
     setConfidenceRating(null);
     wasRetryR.current=false;
+    answeredR.current=false;
     setTimeLimit(null);setLifelineUsed(false);setHiddenChoice(null);
     setHintPanelOpen(false);
   };
@@ -4000,6 +4003,15 @@ function App(){
     // タイムアウト(idx===-1)は不正解扱い
     const timedOut=idx===-1;
     const correct=!timedOut&&idx===quiz.correct;
+    // 同一問題に対する二重発火ガード：ここから先はスコア確定処理に入るため、
+    // 同期的に answeredR を立てる。setSelectedChoice / setQuizPhase の反映を待たずに
+    // 後続の handleChoice 呼び出し（timeAttack のタイマー満了など）を確実に弾く。
+    if(answeredR.current)return;
+    answeredR.current=true;
+    // ⑱ リトライ判定は関数の入口で一度だけスナップショットし、以降は currentWasRetry のみ参照。
+    //    途中で ref が他所から書き換えられても整合が崩れないようにする。
+    //    クリア（wasRetryR.current=false）は本関数の最後（全スコア確定後）で行う。
+    const currentWasRetry=wasRetryR.current;
     setSelectedChoice(timedOut?null:idx);setAnswerCorrect(correct);
     setQuizPhase("result");
     setTimeLimit(null); // ⑦ タイマー停止
@@ -4013,7 +4025,7 @@ function App(){
     }
     // ⑦ ヒントを見ずに正解 → 単元力 +1（望ましい困難で記憶定着）
     //    hint がそもそも無い問題は対象外。リトライ時は再カウントしない。
-    if(correct && !timedOut && !wasRetryR.current && !hintUsedR.current && quiz?.hint){
+    if(correct && !timedOut && !currentWasRetry && !hintUsedR.current && quiz?.hint){
       const _un=quiz?.topic_tag||quiz?.question?.slice(0,12)||"";
       const _sn=_un.length>8?_un.slice(0,7)+"…":_un;
       addBonusPop({icon:"🧠",name:`${_sn}力`,statKey:"__unit_hint",amount:1,anchor:clickAnchor});
@@ -4038,8 +4050,6 @@ function App(){
       setStreakBrokenMsg(`🔥 ${gs.streak}連続まで行ったね！惜しい！`);
       setTimeout(()=>setStreakBrokenMsg(""),3500);
     }
-    const currentWasRetry=wasRetryR.current;
-    wasRetryR.current=false;
     // ⑮ リトライ正解 → 復活バーストで派手に祝う（紙吹雪＋3連リング＋大型ヒーロー）
     // 学年に応じた文言。アプリ常駐負荷は無し（show=true の間だけ DOM が生え、終わると消える）
     if(correct&&currentWasRetry){
@@ -4115,7 +4125,11 @@ function App(){
         todayScore: (r.todayScore||0)+gainForGsRef.current,
       };
     });
-  },[selectedChoice,quizPhase,quiz,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
+    // 全ての確定処理（ボーナス pop / updateLogs / updateAnalysisStats / setGs）の発火が終わったので
+    // ここで初めてリトライフラグを下ろす。これより前に下ろすと、再レンダー由来の二重評価や
+    // 後続フックから ref を参照したケースで「初回回答」と誤判定されうる。
+    wasRetryR.current=false;
+  },[selectedChoice,quizPhase,quiz,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,advancedMode.threeSecCheck,addBonusPop]);
   useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
 
   // ⑧ 見直しカードが表示されたら（画面外のときだけ）瞬時スナップ＋プライマリにフォーカス
@@ -4237,6 +4251,7 @@ function App(){
     setAnswerGains(null);
     setQuizPhase("question");
     wasRetryR.current=true; // ⑱ リトライ追跡
+    answeredR.current=false; // リトライ時は同一問題でも再回答可にするため二重発火ガードを解除
     setConfidenceRating(null);
     setHintPanelOpen(false); // 不正解→ヒント展開状態はリトライでクリア
   },[]);
