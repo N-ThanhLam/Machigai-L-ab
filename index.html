@@ -552,9 +552,12 @@ const QUIZ_RESPONSE_SCHEMA={
 // 無料枠の 1日上限（429 / RESOURCE_EXHAUSTED）に当たったら次モデルへ自動切替。
 // 503/500/network/404 等の一時障害・モデル未提供時も次候補へリトライ。
 // 4xx クライアントエラー（400 など本体不正）は即座に失敗を返す（リトライしても無意味）。
-const GEMINI_MODELS=["gemini-3-flash-preview","gemini-2.5-flash","gemini-2.5-flash-lite"];
+// 3.1 系は GA / preview の両 ID を保険として並べる（404 ならスキップされる）。
+// 末尾の gemini-2.5-flash は提供確実な最終フォールバック。
+const GEMINI_MODELS=["gemini-3.1-flash","gemini-3.1-flash-preview","gemini-3.1-flash-lite","gemini-3.1-flash-lite-preview","gemini-2.5-flash"];
 // プロセス内メモリ：直近の 429 を受けたモデルを一定時間スキップする（無駄打ち削減）
-const _geminiCooldown={}; // {modelName: cooldownUntilEpochMs}
+const _geminiCooldown={}; // {modelName: cooldownUntilEpochMs}  ※ 429 用
+const _geminiUnavailable={}; // {modelName: true}  ※ 404 を受けたモデルはセッション内で恒久スキップ
 const GEMINI_COOLDOWN_MS=60*1000; // 1分はそのモデルへの再試行を抑制
 const _isFallbackStatus=s=>s===429||s===500||s===502||s===503||s===504||s===404;
 const _isFallbackError=err=>{
@@ -567,6 +570,8 @@ const callGeminiAPI=async(key,body)=>{
   let lastFail=null;
   for(let i=0;i<GEMINI_MODELS.length;i++){
     const model=GEMINI_MODELS[i];
+    // 404 を一度でも受けたモデル ID はそもそも存在しないので常にスキップ
+    if(_geminiUnavailable[model])continue;
     // クールダウン中のモデルはスキップ（ただし最後の候補だけは必ず試す）
     if(i<GEMINI_MODELS.length-1 && _geminiCooldown[model] && _geminiCooldown[model]>now)continue;
     try{
@@ -576,6 +581,7 @@ const callGeminiAPI=async(key,body)=>{
       if(!res.ok){
         if(_isFallbackStatus(res.status)){
           if(res.status===429)_geminiCooldown[model]=Date.now()+GEMINI_COOLDOWN_MS;
+          else if(res.status===404)_geminiUnavailable[model]=true;
           lastFail={status:res.status,model};
           try{console.warn(`[gemini] ${model} HTTP ${res.status} → fallback`);}catch(e){}
           continue;
@@ -3757,6 +3763,11 @@ function App(){
   // 選択肢を選んだとき
   const handleChoice=useCallback((idx,e)=>{
     if(selectedChoice!==null||quizPhase!=="question")return;
+    // gs は依存配列から外し、最新値を ref から取得する。
+    // 旧実装は deps に `gs` を入れていたため、1問解答ごとに setGs → handleChoice 再生成が起き、
+    // 子の QuizPanel(memo) の参照等価が崩れて不要な再レンダーを誘発していた。
+    // gsR.current は useEffect で常に最新化されており、ここで参照する値は closure 由来の gs と一致する。
+    const gs=gsR.current;
     // クリック位置を保存（後段の timeAttack pop / 結果ポップのアンカーに使用）
     const clickAnchor=popAnchorFromEvent(e);
     if(idx===4){
@@ -3888,7 +3899,7 @@ function App(){
         todayScore: (r.todayScore||0)+gainForGsRef.current,
       };
     });
-  },[selectedChoice,quizPhase,quiz,gs,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
+  },[selectedChoice,quizPhase,quiz,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,addBonusPop]);
   useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
 
   // ⑧ 見直しカードが表示されたら（画面外のときだけ）瞬時スナップ＋プライマリにフォーカス
@@ -4541,7 +4552,7 @@ function App(){
                   ["⚡","複数のAPIキーを登録すると1日の生成限界を分散でき、安定して動作します。Googleアカウントの数だけ取得可能であり、同じアカウント内での複数キーでは効果はありません。"],
                   ["⚠️","AI自動生成問題は内容に誤りが含まれる場合があります。「問題を報告」ボタンで復習リストから除外できます。"],
                   ["💾","学習データはお使いの端末（ブラウザ）にのみ保存され、クラウド同期は行いません。機種変更・ブラウザのデータ削除・プライベートモードの長期未使用などで失われる可能性があるため、設定画面の『データをエクスポート』で定期的なバックアップを推奨します。"],
-                  ["☁️","本アプリは Google が提供する Gemini API を利用しています。Google 側の仕様変更・料金体系の改定・サービス提供条件の変更により、将来にわたって同じ動作・無料での利用継続が出来なくなる可能性があります。"],
+                  ["☁️","本アプリは Google が提供する Gemini API を利用しています。Google 側の仕様変更・料金体系の改定・サービス提供条件の変更により、将来にわたって同じ動作・無料キーでは利用継続が出来なくなる可能性があります。"],
                 ].map(([icon,text])=>(
                   html`<div key=${icon} style=${{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#5b3ff8",lineHeight:1.6}}>
                     <span style=${{flexShrink:0}}>${icon}</span>
@@ -5640,7 +5651,7 @@ function App(){
                     <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
                     <div>📱 PWA対応 · ホーム画面追加可能</div>
                     <div>🛡 Safari ITP対策 · IndexedDBミラー</div>
-                    <div>⚡ Gemini 3 Flash → 2.5 Flash → 2.5 Flash-Lite 自動フォールバック</div>
+                    <div>⚡ Gemini 3.1 Flash → 3.1 Flash-Lite → 2.5 Flash 自動フォールバック</div>
                   </div>
                   <div style=${{marginTop:14,paddingTop:12,borderTop:"1px solid var(--input-border)",fontSize:11,color:"var(--text-soft)",lineHeight:1.7}}>
                     <div style=${{fontWeight:800,marginBottom:6,color:"#7a6fa8"}}>ご利用にあたって</div>
