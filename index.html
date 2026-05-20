@@ -548,68 +548,276 @@ const QUIZ_RESPONSE_SCHEMA={
   },
 };
 
-// ─── Gemini API 呼び出し（モデル自動フォールバック） ────────────────
-// 無料枠の 1日上限（429 / RESOURCE_EXHAUSTED）に当たったら次モデルへ自動切替。
-// 503/500/network/404 等の一時障害・モデル未提供時も次候補へリトライ。
-// 4xx クライアントエラー（400 など本体不正）は即座に失敗を返す（リトライしても無意味）。
-// 3.1 系は GA / preview の両 ID を保険として並べる（404 ならスキップされる）。
-// 末尾の gemini-2.5-flash は提供確実な最終フォールバック。
-const GEMINI_MODELS=["gemini-3.1-flash","gemini-3.1-flash-preview","gemini-3.1-flash-lite","gemini-3.1-flash-lite-preview","gemini-2.5-flash"];
-// プロセス内メモリ：直近の 429 を受けたモデルを一定時間スキップする（無駄打ち削減）
-const _geminiCooldown={}; // {modelName: cooldownUntilEpochMs}  ※ 429 用
-const _geminiUnavailable={}; // {modelName: true}  ※ 404 を受けたモデルはセッション内で恒久スキップ
-const GEMINI_COOLDOWN_MS=60*1000; // 1分はそのモデルへの再試行を抑制
-const _isFallbackStatus=s=>s===429||s===500||s===502||s===503||s===504||s===404;
-const _isFallbackError=err=>{
-  if(!err)return false;
-  const code=err.code;const status=(err.status||"").toString();
-  return code===429||code===503||code===500||status==="RESOURCE_EXHAUSTED"||status==="UNAVAILABLE"||status==="INTERNAL";
-};
-const callGeminiAPI=async(key,body)=>{
-  const now=Date.now();
-  let lastFail=null;
-  for(let i=0;i<GEMINI_MODELS.length;i++){
-    const model=GEMINI_MODELS[i];
-    // 404 を一度でも受けたモデル ID はそもそも存在しないので常にスキップ
-    if(_geminiUnavailable[model])continue;
-    // クールダウン中のモデルはスキップ（ただし最後の候補だけは必ず試す）
-    if(i<GEMINI_MODELS.length-1 && _geminiCooldown[model] && _geminiCooldown[model]>now)continue;
-    try{
-      // APIキーは x-goog-api-key ヘッダーで送る。URLクエリだとブラウザ履歴・Referer・
-      // プロキシログ・拡張機能に漏洩しうるため。Gemini API は両方式を公式サポート。
-      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify(body)});
-      if(!res.ok){
-        if(_isFallbackStatus(res.status)){
-          if(res.status===429)_geminiCooldown[model]=Date.now()+GEMINI_COOLDOWN_MS;
-          else if(res.status===404)_geminiUnavailable[model]=true;
-          lastFail={status:res.status,model};
-          try{console.warn(`[gemini] ${model} HTTP ${res.status} → fallback`);}catch(e){}
-          continue;
-        }
-        return{ok:false,status:res.status,data:null,model};
-      }
-      const data=await res.json();
-      if(data.error){
-        if(_isFallbackError(data.error)){
-          if(data.error.code===429||data.error.status==="RESOURCE_EXHAUSTED")_geminiCooldown[model]=Date.now()+GEMINI_COOLDOWN_MS;
-          lastFail={status:data.error.code||500,model,error:data.error};
-          try{console.warn(`[gemini] ${model} ${data.error.status||data.error.code} → fallback`);}catch(e){}
-          continue;
-        }
-        return{ok:false,status:data.error.code||500,data,model,error:data.error};
-      }
-      return{ok:true,status:200,data,model};
-    }catch(e){
-      // ネットワーク障害は次候補へ
-      lastFail={status:0,model,error:e};
-      try{console.warn(`[gemini] ${model} network error → fallback`,e);}catch(_){}
-      continue;
+// ─── AIAdapter: 外部AIへの通信を一手に引き受ける抽象化レイヤー ─────────────
+// アプリ側のコアロジックは「条件 → 共通JSオブジェクト」というインターフェイスだけを
+// 利用し、エンドポイントURL・モデル一覧・wire-format（contents 等）・認証ヘッダーは
+// 全てこの中だけに閉じる。
+//
+// モデルリストはハードコードしない。Gemini の ListModels API
+// （https://generativelanguage.googleapis.com/v1beta/models）を実行時に叩いて
+// 利用可能なモデルを取得し、「強い順」スコアで降順ソートして使う。Google 側が
+// 新モデルを追加・廃止してもこちらのコードを書き換えずに最新ラインナップへ追従する。
+//
+// 強さスコアは「バージョン番号最優先、同バージョン内ではティア（Pro > Flash > Lite）」で
+// 算出するため、3.1-flash-lite が 2.5-pro より上位に並ぶ。
+//
+// 並列・連続実行時の二度叩きを防ぐため、モデル単位の cooldown と in-flight Promise を
+// プロセス内で共有する。バックグラウンド補充と緊急生成が同じモデルに同時突入しても、
+// 先行が踏んだ 429/5xx/404 を後発が即座に拾い、無駄な空振りを未然に潰す。
+const AIAdapter=(()=>{
+  const LIST_MODELS_ENDPOINT="https://generativelanguage.googleapis.com/v1beta/models";
+  const GENERATE_ENDPOINT=m=>`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
+  const AUTH_HEADER="x-goog-api-key";
+  const MODEL_CACHE_TTL=30*60*1000; // モデル一覧のキャッシュ寿命（30分）
+  const COOLDOWN_MS=60*1000;        // 429/5xx を受けたモデルへの再試行抑制時間
+
+  // ── プロセス内共有状態 ─────────────────────────────────────
+  let _models=null;        // 強い順ソート済みモデルメタデータ配列
+  let _modelsAt=0;         // 最後に取得した時刻
+  let _modelsPromise=null; // 進行中の取得 Promise（並列重複防止）
+  const _cooldown={};      // model -> 再試行可能になる epoch ms
+  const _unavailable={};   // model -> true（404 / ListModels に存在しないモデルはセッション中スキップ）
+  const _inflight={};      // model -> Promise<void>（同一モデルへの並列攻撃を直列化）
+  // モデル固有のクセを自己学習して保持する。401本文の error message から検出し、
+  // 以降の同モデル呼び出しでは body を自動補正することで初回以外の空振りを撲滅する。
+  // 具体ベンダー名（gemini/gemma 等）をコードに書かないため、Google が新モデルを
+  // 出しても・Gemini ブランドが変わっても、同じ仕組みで吸収できる。
+  const _modelQuirks={};   // model -> { thinkingUnsupported?: true, ... }
+
+  // ── 強さスコア計算（バージョン > ティア） ───────────────────
+  // 「gemini-3.1-flash-lite」「gemini-2.5-pro」のような命名を想定。
+  // バージョンを 100 倍するので「新世代の最弱 > 旧世代の最強」になる並び。
+  // ユーザー要望（2.5-flash より 3.1-flash-lite を上に置きたい）に合致する。
+  const _scoreModel=name=>{
+    const n=(name||"").toLowerCase();
+    const vm=n.match(/(\d+)[.\-_](\d+)/);
+    if(!vm)return -1;
+    const version=parseInt(vm[1],10)*10+parseInt(vm[2],10);
+    let tier;
+    if(n.includes("ultra"))tier=5;
+    else if(n.includes("pro"))tier=4;
+    else if(n.includes("flash-lite")||n.includes("flashlite")||n.includes("flash-8b"))tier=2;
+    else if(n.includes("flash"))tier=3;
+    else if(n.includes("nano"))tier=1;
+    else tier=3;
+    return version*100+tier;
+  };
+
+  // ── 安定版 generateContent モデルだけを残すフィルタ ──────────
+  // preview / experimental / 専用用途モデル（embedding / imagen / tts / aqa / learnlm 等）を除外する。
+  const _isStableModel=m=>{
+    const n=(m.name||"").toLowerCase();
+    if(n.includes("preview"))return false;
+    if(n.includes("experimental")||n.includes("exp-")||n.endsWith("-exp"))return false;
+    if(n.includes("embedding")||n.includes("imagen")||n.includes("tts")||n.includes("aqa")||n.includes("learnlm"))return false;
+    const methods=m.supportedGenerationMethods||[];
+    if(methods.length&&!methods.includes("generateContent"))return false;
+    return true;
+  };
+
+  // ── ListModels を叩いて利用可能モデルを強い順に並べる ────────
+  const _fetchModelList=async apiKey=>{
+    const res=await fetch(LIST_MODELS_ENDPOINT,{headers:{[AUTH_HEADER]:apiKey}});
+    if(!res.ok){
+      const err=new Error(`AIAdapter: ListModels failed (status=${res.status})`);
+      err.status=res.status;err.recoverable=res.status===429||(res.status>=500&&res.status<600);
+      throw err;
     }
-  }
-  // 全モデルがクールダウン中 = すべて 429/RESOURCE_EXHAUSTED で弾かれた状態
-  const quotaExhausted=GEMINI_MODELS.every(m=>_geminiCooldown[m]&&_geminiCooldown[m]>Date.now());
-  return{ok:false,status:lastFail?.status||0,data:null,model:lastFail?.model,error:lastFail?.error,exhausted:true,quotaExhausted};
-};
+    const data=await res.json();
+    const raw=Array.isArray(data.models)?data.models:[];
+    const items=raw.filter(_isStableModel).map(m=>({
+      name:(m.name||"").replace(/^models\//,""),
+      score:_scoreModel(m.name||"")
+    })).filter(m=>m.name&&m.score>0);
+    items.sort((a,b)=>b.score-a.score);
+    return items.map(m=>({name:m.name,endpoint:GENERATE_ENDPOINT,authHeader:AUTH_HEADER,score:m.score}));
+  };
+
+  // ── キャッシュ + 並列初期化重複防止 ─────────────────────────
+  const _ensureModels=async apiKey=>{
+    const now=Date.now();
+    if(_models&&now-_modelsAt<MODEL_CACHE_TTL)return _models;
+    if(_modelsPromise)return _modelsPromise;
+    _modelsPromise=(async()=>{
+      try{
+        const list=await _fetchModelList(apiKey);
+        if(list.length){_models=list;_modelsAt=Date.now();try{console.info(`[AIAdapter] models=${list.map(x=>x.name).join(", ")}`);}catch(_){}}
+        return _models||[];
+      }finally{_modelsPromise=null;}
+    })();
+    return _modelsPromise;
+  };
+
+  // 429/5xx/404 は文字通りの一時/不在エラーとして次モデルへ。
+  // 400 はモデル別パラメータ不整合の可能性が高いため「次モデルへフォールバック」扱いとしつつ
+  // クールダウンは入れない（パラメータ調整で復活し得るため）。
+  // 401/403 は認証エラーで回復不能、即 throw。
+  const _isRecoverableStatus=s=>s===400||s===429||s===404||(s>=500&&s<600);
+  const _isRecoverableError=err=>{
+    if(!err)return false;
+    const code=err.code;const status=(err.status||"").toString();
+    if(code===400||status==="INVALID_ARGUMENT"||status==="FAILED_PRECONDITION")return true;
+    return code===429||code===500||code===503||status==="RESOURCE_EXHAUSTED"||status==="UNAVAILABLE"||status==="INTERNAL";
+  };
+  const _coolingDown=(m,now)=>_cooldown[m]&&_cooldown[m]>now;
+
+  // Gemini固有の wire-format 組み立てはここに閉じる。コア側からは見えない。
+  const _buildBody=({systemInstruction,userText,schema,generationConfig})=>{
+    const body={contents:[{role:"user",parts:[{text:userText}]}],generationConfig:Object.assign({responseMimeType:"application/json",responseSchema:schema,temperature:.4,topP:.9,topK:20,maxOutputTokens:32768,thinkingConfig:{thinkingBudget:0}},generationConfig||{})};
+    if(systemInstruction)body.systemInstruction={parts:[{text:systemInstruction}]};
+    return body;
+  };
+
+  // 学習済みクセに基づく body 補正。具体ブランド名（pro/gemini/gemma 等）には触れない。
+  // 知っているクセが増えたらここに分岐を追加する。
+  const _adjustBodyForModel=(body,modelName)=>{
+    const q=_modelQuirks[modelName]||{};
+    let adjusted=body;
+    if(q.thinkingUnsupported&&adjusted.generationConfig?.thinkingConfig){
+      const gc=Object.assign({},adjusted.generationConfig);delete gc.thinkingConfig;
+      adjusted=Object.assign({},adjusted,{generationConfig:gc});
+    }
+    return adjusted;
+  };
+
+  // 400 エラー本文からモデル固有の制約を抽出して保存する。返り値は学習に成功したか。
+  // 「Thinking budget is not supported for this model.」等の文言から、
+  // 「このモデルは thinkingConfig を受け付けない」というクセを永続化する。
+  // 文言だけを根拠にしているので、ベンダー名やモデル名のハードコードは一切ない。
+  const _learnQuirkFromError=(model,status,errMsg)=>{
+    if(status!==400)return false;
+    const msg=(errMsg||"").toLowerCase();
+    let learned=false;
+    // Thinking 系の不対応：「thinking」と「not supported / not allowed / invalid」の同時出現で判定。
+    // 弱点：将来文言が大きく変わると検知漏れする。その場合はここに別パターンを追加する。
+    if(msg.includes("thinking")&&(msg.includes("not supported")||msg.includes("not allowed")||msg.includes("invalid")||msg.includes("unsupported"))){
+      if(!_modelQuirks[model])_modelQuirks[model]={};
+      if(!_modelQuirks[model].thinkingUnsupported){_modelQuirks[model].thinkingUnsupported=true;learned=true;}
+    }
+    return learned;
+  };
+
+  // 1モデル分の試行。エラー種別を判定し、cooldown 等の共有状態を更新したうえで
+  // 結果に recoverable フラグを乗せて返す。
+  // 400 で「学習可能なクセ」が見つかった場合は、その場で body を補正して同モデルを
+  // 1 度だけ即時再試行する。これにより初回のクセ発見時に「次モデルへフォールバック」を
+  // 強いることなく、現モデルでそのまま成功を取り戻せる。
+  // 補正後もまだ 400 を返すモデルは構造的に不整合なので _unavailable に落として
+  // セッション内では以降スキップする（無限の無駄打ち防止）。
+  const _tryModel=async(def,apiKey,body)=>{
+    const model=def.name;
+    for(let attempt=0;attempt<2;attempt++){
+      const adjusted=_adjustBodyForModel(body,model);
+      try{
+        // APIキーは x-goog-api-key ヘッダーで送る（URLクエリは履歴/Referer/プロキシ経由で漏洩しうる）。
+        const res=await fetch(def.endpoint(model),{method:"POST",headers:{"Content-Type":"application/json",[def.authHeader]:apiKey},body:JSON.stringify(adjusted)});
+        if(!res.ok){
+          let errMsg=null;try{const eb=await res.json();errMsg=eb?.error?.message||JSON.stringify(eb).slice(0,300);}catch(_){}
+          try{console.warn(`[AIAdapter] ${model} HTTP ${res.status}: ${errMsg||"<no body>"}`);}catch(_){}
+          // クセを学習できたなら、同モデルを補正版 body で即座にもう一度試す
+          if(attempt===0&&res.status===400&&_learnQuirkFromError(model,res.status,errMsg)){
+            try{console.info(`[AIAdapter] ${model} quirk learned (${Object.keys(_modelQuirks[model]||{}).join(",")}) — immediate retry`);}catch(_){}
+            continue;
+          }
+          if(res.status===429)_cooldown[model]=Date.now()+COOLDOWN_MS;
+          else if(res.status===404)_unavailable[model]=true;
+          else if(res.status>=500&&res.status<600)_cooldown[model]=Date.now()+COOLDOWN_MS;
+          else if(res.status===400&&attempt>0){
+            // 補正済み body でなお 400：このセッションでは諦める
+            _unavailable[model]=true;
+            try{console.warn(`[AIAdapter] ${model} 400 persisted after quirk → session unavailable`);}catch(_){}
+          }
+          return{ok:false,status:res.status,data:null,model,errorMessage:errMsg,recoverable:_isRecoverableStatus(res.status)};
+        }
+        const data=await res.json();
+        if(data.error){
+          try{console.warn(`[AIAdapter] ${model} body.error ${data.error.status||data.error.code}: ${data.error.message||""}`);}catch(_){}
+          // body.error 経由の 400 / INVALID_ARGUMENT にも同じ自己学習を適用
+          if(attempt===0&&(data.error.code===400||data.error.status==="INVALID_ARGUMENT")&&_learnQuirkFromError(model,400,data.error.message)){
+            try{console.info(`[AIAdapter] ${model} quirk learned via body.error — immediate retry`);}catch(_){}
+            continue;
+          }
+          if(_isRecoverableError(data.error)){
+            if(data.error.code===429||data.error.status==="RESOURCE_EXHAUSTED")_cooldown[model]=Date.now()+COOLDOWN_MS;
+            return{ok:false,status:data.error.code||500,data,model,error:data.error,recoverable:true};
+          }
+          return{ok:false,status:data.error.code||500,data,model,error:data.error,recoverable:false};
+        }
+        return{ok:true,status:200,data,model};
+      }catch(e){
+        _cooldown[model]=Date.now()+COOLDOWN_MS;
+        return{ok:false,status:0,model,error:e,recoverable:true};
+      }
+    }
+    // 防御コード：ループが想定外に抜けた場合
+    return{ok:false,status:0,model,recoverable:true};
+  };
+
+  // 低レベル呼び出し：強い順モデル配列を先頭から順番に試す。並列で同じモデルに突入しないよう
+  // in-flight Promise を共有し、先行呼び出しの結果（特に cooldown）を後発が即座に拾う。
+  const requestRaw=async(apiKey,body)=>{
+    let models;
+    try{models=await _ensureModels(apiKey);}
+    catch(e){
+      // ListModels が回復可能な障害（429/5xx）で失敗した場合は exhausted 扱いで戻す。
+      // 認証エラー等の回復不能な失敗はそのまま throw して呼び出し側の例外ハンドラに渡す。
+      if(e&&e.recoverable)return{ok:false,status:e.status||0,data:null,model:null,error:e,exhausted:true,quotaExhausted:e.status===429};
+      throw e;
+    }
+    if(!models.length){
+      return{ok:false,status:0,data:null,model:null,error:null,exhausted:true,quotaExhausted:false,noModels:true};
+    }
+    let lastFail=null;
+    for(let i=0;i<models.length;i++){
+      const def=models[i];const model=def.name;
+      if(_unavailable[model])continue;
+      const isLast=i===models.length-1;
+      if(!isLast&&_coolingDown(model,Date.now()))continue;
+      // 既に別呼び出しが同モデルを試行中なら、その完了を待ってから判定し直す。
+      // 先行が 429/404/5xx を踏んでいれば cooldown/unavailable が立っているので
+      // 後発はその場でスキップして次モデルへ進める（＝二度叩き防止）。
+      if(_inflight[model]){
+        try{await _inflight[model];}catch(_){/* noop */}
+        if(_unavailable[model])continue;
+        if(!isLast&&_coolingDown(model,Date.now()))continue;
+      }
+      let release;const pending=new Promise(r=>{release=r;});
+      _inflight[model]=pending;
+      let result;
+      try{result=await _tryModel(def,apiKey,body);}
+      finally{
+        if(_inflight[model]===pending)delete _inflight[model];
+        release();
+      }
+      if(result.ok)return result;
+      lastFail=result;
+      try{console.warn(`[AIAdapter] ${model} status=${result.status} recoverable=${!!result.recoverable}`);}catch(_){}
+      if(result.recoverable)continue;
+      // 認証エラー・本体不正等の回復不能エラーは即座に throw（リトライしても無意味）
+      const err=new Error(`AIAdapter: unrecoverable failure (model=${model}, status=${result.status})`);
+      err.detail=result;
+      throw err;
+    }
+    // すべて 429/404/5xx で弾かれた状態
+    const quotaExhausted=models.every(m=>_unavailable[m.name]||(_cooldown[m.name]&&_cooldown[m.name]>Date.now()));
+    return{ok:false,status:lastFail?.status||0,data:null,model:lastFail?.model,error:lastFail?.error,exhausted:true,quotaExhausted};
+  };
+
+  // 高レベルAPI：問題生成・解説生成等のコアロジックはこの関数だけを利用する。
+  // 入力は抽象化された条件オブジェクト、出力は外部仕様非依存の共通JSオブジェクト。
+  const generateQuiz=async({apiKey,systemInstruction,userText,schema,generationConfig})=>{
+    const body=_buildBody({systemInstruction,userText,schema,generationConfig});
+    const res=await requestRaw(apiKey,body);
+    if(!res.ok)return res;
+    const cand=res.data?.candidates?.[0];
+    return{ok:true,status:200,model:res.model,text:cand?.content?.parts?.[0]?.text||"",finishReason:cand?.finishReason,raw:res.data};
+  };
+
+  // 手動でモデルキャッシュを破棄したい場合のフック（基本は TTL 任せでよい）
+  const invalidateModels=()=>{_models=null;_modelsAt=0;};
+
+  return{generateQuiz,requestRaw,invalidateModels};
+})();
 
 
 
@@ -3506,19 +3714,19 @@ function App(){
           const _curMonth=new Date().getMonth()+1;
           // 学習者の直近ミス型 TOP3 を狙い撃ちさせる
           const _topMistakes=calcMistakeTypes(logsR.current.recentHistory||[]).slice(0,3);
-          const body={systemInstruction:{parts:[{text:buildSystemPrompt(target.diff,{grade:g,month:_curMonth,topMistakes:_topMistakes})}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の4択問題を${DAM_BATCH}問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",responseSchema:QUIZ_RESPONSE_SCHEMA,temperature:.4,topP:.9,topK:20,maxOutputTokens:32768,thinkingConfig:{thinkingBudget:0}}};
+          const _systemPrompt=buildSystemPrompt(target.diff,{grade:g,month:_curMonth,topMistakes:_topMistakes});
+          const _userText=`【科目固定】「${promptSubj}」の4択問題を${DAM_BATCH}問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`;
           try{
             const _tag=`[refill ${target.subj}/${target.diff}]`;
-            const apiRes=await callGeminiAPI(key,body);
+            const apiRes=await AIAdapter.generateQuiz({apiKey:key,systemInstruction:_systemPrompt,userText:_userText,schema:QUIZ_RESPONSE_SCHEMA});
             if(!apiRes.ok){
               if(apiRes.quotaExhausted)setQuotaExhausted(true);
               try{console.warn(`${_tag} API fail status=${apiRes.status} quota=${!!apiRes.quotaExhausted}`);}catch(e){}
               continue;
             }
             setQuotaExhausted(false);
-            const data=apiRes.data;
-            const fr=data.candidates?.[0]?.finishReason;
-            const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
+            const fr=apiRes.finishReason;
+            const text=apiRes.text;
             if(!text){try{console.warn(`${_tag} empty text finishReason=${fr}`);}catch(e){}continue;}
             let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){try{console.warn(`${_tag} JSON parse failed finishReason=${fr} head=${text.slice(0,200)}`);}catch(_){}continue;}
             if(!Array.isArray(parsed))parsed=[parsed];
@@ -3659,18 +3867,18 @@ function App(){
       const _curMonth=new Date().getMonth()+1;
       // 学習者の直近ミス型 TOP3 を狙い撃ちさせる
       const _topMistakes=calcMistakeTypes(logsR.current.recentHistory||[]).slice(0,3);
-      const body={systemInstruction:{parts:[{text:buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth,topMistakes:_topMistakes})}]},contents:[{role:"user",parts:[{text:`【科目固定】「${promptSubj}」の4択問題を3問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`}]}],generationConfig:{responseMimeType:"application/json",responseSchema:QUIZ_RESPONSE_SCHEMA,temperature:.4,topP:.9,topK:20,maxOutputTokens:32768,thinkingConfig:{thinkingBudget:0}}};
+      const _systemPrompt=buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth,topMistakes:_topMistakes});
+      const _userText=`【科目固定】「${promptSubj}」の4択問題を3問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`;
       const _tag=`[emergency ${subj}/${emergencyDiff}]`;
-      const apiRes=await callGeminiAPI(key,body);
+      const apiRes=await AIAdapter.generateQuiz({apiKey:key,systemInstruction:_systemPrompt,userText:_userText,schema:QUIZ_RESPONSE_SCHEMA});
       if(!apiRes.ok){
         if(apiRes.quotaExhausted)setQuotaExhausted(true);
         try{console.warn(`${_tag} API fail status=${apiRes.status} quota=${!!apiRes.quotaExhausted}`);}catch(e){}
         return null;
       }
       setQuotaExhausted(false);
-      const data=apiRes.data;
-      const fr=data.candidates?.[0]?.finishReason;
-      const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const fr=apiRes.finishReason;
+      const text=apiRes.text;
       if(!text){try{console.warn(`${_tag} empty text finishReason=${fr}`);}catch(e){}return null;}
       let parsed;try{parsed=JSON.parse(text.replace(/```json/g,"").replace(/```/g,"").trim());}catch(e){try{console.warn(`${_tag} JSON parse failed finishReason=${fr} head=${text.slice(0,200)}`);}catch(_){}return null;}
       if(!Array.isArray(parsed))parsed=[parsed];
