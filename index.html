@@ -38,9 +38,9 @@ const _safeLS = {
     try{ localStorage.setItem(k,v); }catch(e){}
     if(_memStore) _memStore.set(k,v);
     // 重要キーは IndexedDB にも複製（非同期・失敗無視）
-    // manabi_logs_v4 / manabi_dam_v4 / manabi_profile_v2 などのバージョン番号末尾、
+    // machigai_lab_logs_v4 / machigai_lab_dam_v4 / machigai_lab_profile_v2 などのバージョン番号末尾、
     // および __u{id} のユーザー接尾辞付きも対象にする。
-    if(/^manabi_/.test(k) && /(_v\d+|profile|session|dam|logs|users|curUser|theme|autorefill|reject_count|advanced|easy_text_mode)(?:__u[a-z0-9]+)?$/.test(k)){
+    if(/^machigai_lab_/.test(k) && /(_v\d+|profile|session|dam|logs|users|curUser|theme|autorefill|reject_count|advanced|easy_text_mode)(?:__u[a-z0-9]+)?$/.test(k)){
       try{ _idbSet(k,v); }catch(e){}
     }
   },
@@ -57,7 +57,7 @@ const _idbOpen=()=>{
   if(_idbP) return _idbP;
   _idbP = new Promise((resolve,reject)=>{
     try{
-      const r=indexedDB.open("manabi_mirror",1);
+      const r=indexedDB.open("machigai_lab_mirror",1);
       r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("kv")) db.createObjectStore("kv"); };
       r.onsuccess=()=>resolve(r.result);
       r.onerror=()=>reject(r.error);
@@ -81,9 +81,21 @@ const restoreFromIdbIfNeeded=async()=>{
   }catch(e){ return 0; }
 };
 
+// ─── 旧キー（manabi_*）クリーンアップ ───────────────────────────────
+(()=>{
+  try{
+    const toDelete=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith("manabi_")) toDelete.push(k);
+    }
+    toDelete.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  }catch(e){}
+})();
+
 // ─── マルチユーザー: 現在ユーザーの ID で localStorage キーをスコープ化 ─
-const USERS_KEY="manabi_users_v1";       // ユーザー定義一覧
-const CUR_USER_KEY="manabi_curUser_v1";  // 現在のユーザーID
+const USERS_KEY="machigai_lab_users_v1";       // ユーザー定義一覧
+const CUR_USER_KEY="machigai_lab_curUser_v1";  // 現在のユーザーID
 const DEFAULT_USER={id:"u1",name:"わたし",icon:"😀"};
 const getUsers=()=>{
   try{ const r=_safeLS.get(USERS_KEY); if(r){ const a=JSON.parse(r); if(Array.isArray(a)&&a.length) return a; } }catch(e){}
@@ -824,7 +836,7 @@ const AIAdapter=(()=>{
 // ─── DAM ─────────────────────────────────────────────────────────
 // 構造: { 科目: { easy:[...], standard:[...], hard:[...] } }
 // 各科目×3難易度=15バケット。1バケット最大40問。Safari の 5MB localStorage を意識して全体600問上限。
-const DAM_KEY_BASE="manabi_dam_v4";
+const DAM_KEY_BASE="machigai_lab_dam_v4";
 const DAM_MAX=40;            // 1バケット(科目×難易度)最大問題数
 const DAM_BATCH=10;           // 1回のAPI呼び出しで生成する問題数
 const DIFFS=["easy","standard","hard"];
@@ -834,13 +846,13 @@ const saveDam=d=>{ _safeLS.set(DAM_KEY(),JSON.stringify(d)); };
 // 旧 v3 構造（科目→配列）から v4 構造（科目→難易度→配列）へのマイグレーション
 (function migrateDam(){
   try{
-    const oldRaw=_safeLS.get("manabi_dam_v3");
+    const oldRaw=_safeLS.get("machigai_lab_dam_v3");
     if(!oldRaw)return;
     if(_safeLS.get(DAM_KEY()))return; // すでにv4ある
     const old=JSON.parse(oldRaw);const nu={};
     for(const s of Object.keys(old)){nu[s]={easy:[],standard:old[s].slice(0,DAM_MAX),hard:[]};}
     _safeLS.set(DAM_KEY(),JSON.stringify(nu));
-    _safeLS.remove("manabi_dam_v3");
+    _safeLS.remove("machigai_lab_dam_v3");
   }catch(e){}
 })();
 // 重複判定キー
@@ -1209,7 +1221,7 @@ const detectiveBadgeFor=(mistakeType)=>{
 };
 
 const calcRecent100=h=>{if(!h||!h.length)return null;const last=h.slice(-100),c=last.filter(r=>r.correct).length;return{rate:Math.round(c/last.length*100),count:last.length};};
-const calcSubjRates=h=>{if(!h||!h.length)return{};const m={};for(const r of h.slice(-100)){if(!m[r.subject])m[r.subject]={q:0,c:0};m[r.subject].q++;if(r.correct)m[r.subject].c++;}return m;};
+const calcSubjRates=h=>{if(!h||!h.length)return{};const bySubj={};for(const r of h){if(!bySubj[r.subject])bySubj[r.subject]=[];bySubj[r.subject].push(r);}const m={};for(const [subj,arr] of Object.entries(bySubj)){const last=arr.slice(-100);m[subj]={q:last.length,c:last.filter(r=>r.correct).length};}return m;};
 
 // ─── 自動難易度判定 ───────────────────────────────────────────────
 // 直近10問（指定科目）の正解率で easy / standard / hard を切り替える。
@@ -2642,14 +2654,14 @@ const BadgeGrid=memo(({earnedBadges,totalBadges})=>(
 // ─── MAIN ────────────────────────────────────────────────────────
 function App(){
   // ユーザーごとに別キーで保存。"u1" のみ後方互換のためサフィックスなし。
-  const STORE=()=>userKey("manabi_logs_v4");
-  const PROF =()=>userKey("manabi_profile_v2");
-  const SESS =()=>userKey("manabi_session_v2");
+  const STORE=()=>userKey("machigai_lab_logs_v4");
+  const PROF =()=>userKey("machigai_lab_profile_v2");
+  const SESS =()=>userKey("machigai_lab_session_v2");
   // ユーザー個別の設定・統計キー（テーマだけは端末共有なので除外）
-  const REJ  =()=>userKey("manabi_reject_count");
-  const ARFL =()=>userKey("manabi_autorefill");
-  const ADV  =()=>userKey("manabi_advanced_v1");
-  const ETXT =()=>userKey("manabi_easy_text_mode");
+  const REJ  =()=>userKey("machigai_lab_reject_count");
+  const ARFL =()=>userKey("machigai_lab_autorefill");
+  const ADV  =()=>userKey("machigai_lab_advanced_v1");
+  const ETXT =()=>userKey("machigai_lab_easy_text_mode");
 
   const [users,setUsers]=useState(()=>getUsers());
   const [currentUid,setCurrentUid]=useState(()=>getCurrentUserId());
@@ -2665,7 +2677,7 @@ function App(){
   const [grade,setGrade]=useState("");
   // 上位者用モード: タイムアタック / 消去法ライフライン
   const [advancedMode,setAdvancedMode]=useState(()=>{
-    try{ const v=_safeLS.get(userKey("manabi_advanced_v1")); return v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false}; }catch(e){ return{timeAttack:false,lifeline:false,threeSecCheck:false}; }
+    try{ const v=_safeLS.get(userKey("machigai_lab_advanced_v1")); return v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false}; }catch(e){ return{timeAttack:false,lifeline:false,threeSecCheck:false}; }
   });
   useEffect(()=>{ _safeLS.set(ADV(),JSON.stringify(advancedMode)); },[advancedMode]);
   // ヒント表示モード（不正解後の挙動）
@@ -2776,15 +2788,15 @@ function App(){
   const welcomeShownRef=useRef(false);
   // 初期値は -1。loadLogs 後の初回 useEffect ではバナーを出さず、その回で current を確定する。
   const prevSessionsRef=useRef(-1);
-  const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(_safeLS.get(userKey("manabi_autorefill"))??'true');}catch(e){return true;}});
+  const [autoRefill,setAutoRefill]=useState(()=>{try{return JSON.parse(_safeLS.get(userKey("machigai_lab_autorefill"))??'true');}catch(e){return true;}});
   // ── やさしい表記モード（auto/on/off）── 設定タブのトグルで切替
-  const [easyTextMode,setEasyTextMode]=useState(()=>{try{const v=_safeLS.get(userKey("manabi_easy_text_mode"));return v==="on"||v==="off"?v:"auto";}catch(e){return"auto";}});
+  const [easyTextMode,setEasyTextMode]=useState(()=>{try{const v=_safeLS.get(userKey("machigai_lab_easy_text_mode"));return v==="on"||v==="off"?v:"auto";}catch(e){return"auto";}});
   // ── テーマ（light / dark）──
-  const [theme,setTheme]=useState(()=>{try{return _safeLS.get("manabi_theme")||"light";}catch(e){return"light";}});
+  const [theme,setTheme]=useState(()=>{try{return _safeLS.get("machigai_lab_theme")||"light";}catch(e){return"light";}});
   useEffect(()=>{
     try{
       document.documentElement.setAttribute("data-theme",theme);
-      _safeLS.set("manabi_theme",theme);
+      _safeLS.set("machigai_lab_theme",theme);
     }catch(e){}
   },[theme]);
   const [importMsg,setImportMsg]=useState("");
@@ -2792,7 +2804,7 @@ function App(){
   const [retryCooldown,setRetryCooldown]=useState(0);
   const retryCooldownRef=useRef(0);
   const retryTimerRef=useRef(null);
-  const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(_safeLS.get(userKey("manabi_reject_count"))||"0",10);}catch(e){return 0;}});
+  const [rejectCount,setRejectCount]=useState(()=>{try{return parseInt(_safeLS.get(userKey("machigai_lab_reject_count"))||"0",10);}catch(e){return 0;}});
   // ── 復帰モード ──
   const [comebackMode,setComebackMode]=useState(false);
   const [comebackTimer,setComebackTimer]=useState(0);
@@ -3381,16 +3393,11 @@ function App(){
       // 直前が不正解だったかチェック（復帰力用）
       const prevRec=prev.recentHistory&&prev.recentHistory.length?prev.recentHistory[prev.recentHistory.length-1]:null;
       const prevWrong=!!(prevRec&&!prevRec.correct);
-      // 連続正解数（安定力用）。リトライ回は streak を動かさない（前回の値を引き継ぐ）
-      // ※ wasRetry 時に `prev._streak||0` を返すのはバグではない。
-      //   リトライは「同じ問題の再挑戦」なので連続カウントを変動させず前回値を維持する設計。
-      //   correct=true のとき `(prevRec.correct ? prev._streak : 0) + 1` で
-      //   「直前が正解ならストリーク継続、不正解なら1にリセット」を正しく実装している。
-      // [要調査→バグではない #3] wasRetry 正解時にも streak を加算しないのは「水増し防止」の設計。
-      //   初回不正解 → リトライ正解の流れで streak が+1されると、不正解があったのに
-      //   連続正解が伸び続ける不整合が生じる。wasRetry 時は prev._streak をそのまま
-      //   持ち越すことで「不正解で一度 0 に戻った事実を保持」している。バグではない。
-      const newStreak=wasRetry?(prev._streak||0):correct?(((prevRec&&prevRec.correct)?(prev._streak||0):0)+1):0;
+      // 連続正解数（安定力用）。
+      // リトライ正解はストリークを継続しない（初回不正解があった事実を保持して0リセット）。
+      // リトライ不正解も同様に0。wasRetry 時は常に 0 を返すことで
+      // 「不正解→リトライ正解」の抜け道によるストリーク水増しを防ぐ。
+      const newStreak=wasRetry?0:correct?(((prevRec&&prevRec.correct)?(prev._streak||0):0)+1):0;
       next._streak=newStreak;
       // 基本ゲイン: daily と cumulative の両方に加算（成長スコアの予測可能性を担保）
       // ・wasRetry+正解 → 直前に与えた wrong 分を差し引いて「ストレート正解と同等」に揃える
@@ -3711,7 +3718,7 @@ function App(){
           const damTopics=[...new Set(allDamQs.map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
           // 中学・高校の場合「算数」キーでも「数学」としてGeminiに要求する
           const promptSubj=(target.subj==="算数"&&(g.startsWith("中")||g.startsWith("高")))?"数学":target.subj;
-          const _curMonth=new Date().getMonth()+1;
+          const _curMonth=+new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}).slice(5,7);
           // 学習者の直近ミス型 TOP3 を狙い撃ちさせる
           const _topMistakes=calcMistakeTypes(logsR.current.recentHistory||[]).slice(0,3);
           const _systemPrompt=buildSystemPrompt(target.diff,{grade:g,month:_curMonth,topMistakes:_topMistakes});
@@ -3864,7 +3871,7 @@ function App(){
       const damSubj=getDam()[subj]||{};
       const allDamQs=[...(damSubj.easy||[]),...(damSubj.standard||[]),...(damSubj.hard||[])];
       const damTopics=[...new Set(allDamQs.map(q=>q.topic_tag).filter(Boolean))].join("、")||"なし";
-      const _curMonth=new Date().getMonth()+1;
+      const _curMonth=+new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}).slice(5,7);
       // 学習者の直近ミス型 TOP3 を狙い撃ちさせる
       const _topMistakes=calcMistakeTypes(logsR.current.recentHistory||[]).slice(0,3);
       const _systemPrompt=buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth,topMistakes:_topMistakes});
@@ -4063,7 +4070,8 @@ function App(){
     }:null;
     // 日跨ぎ（23:59→00:00で連続プレイ中など）に best/wrong をローテーション
     const gsRolled=_rolloverGs(gs);
-    const nextStr=correct?gsRolled.streak+1:0;
+    // リトライ正解はストリーク継続しない（初回不正解があったので0リセット）
+    const nextStr=(correct&&!currentWasRetry)?gsRolled.streak+1:0;
     const newBest=Math.max(gsRolled.best,nextStr);
     // 直前の回答情報を記録（handleNext で confidence との照合に使う）
     prevAnswerR.current={correct,subject,quiz:{...quiz}};
@@ -4473,7 +4481,7 @@ function App(){
     // ユーザーキーを掃除
     try{
       const suff=id==="u1"?"":`__${id}`;
-      ["manabi_logs_v4","manabi_profile_v2","manabi_session_v2","manabi_dam_v4","manabi_reject_count","manabi_autorefill","manabi_advanced_v1"].forEach(b=>_safeLS.remove(b+suff));
+      ["machigai_lab_logs_v4","machigai_lab_profile_v2","machigai_lab_session_v2","machigai_lab_dam_v4","machigai_lab_reject_count","machigai_lab_autorefill","machigai_lab_advanced_v1"].forEach(b=>_safeLS.remove(b+suff));
     }catch(e){}
     const remain=users.filter(u=>u.id!==id);
     saveUsers(remain);setUsers(remain);
@@ -4507,7 +4515,7 @@ function App(){
       _safeLS.remove(STORE());_safeLS.remove(DAM_KEY());_safeLS.remove(SESS());
       _safeLS.remove(REJ());_safeLS.remove(ARFL());_safeLS.remove(ADV());_safeLS.remove(PROF());_safeLS.remove(ETXT());
       // legacyキー掃除
-      _safeLS.remove("manabi_rankone");_safeLS.remove("manabi_difficulty");_safeLS.remove("manabi_hardmode");_safeLS.remove("manabi_dam_v3");
+      _safeLS.remove("machigai_lab_rankone");_safeLS.remove("machigai_lab_difficulty");_safeLS.remove("machigai_lab_hardmode");_safeLS.remove("machigai_lab_dam_v3");
     }catch(e){}
     setLogs(initLogs());setDamStats(getDamStats(subjectsR.current));setGs(_initGsDefaults());setRejectCount(0);setAutoRefill(true);setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});setEasyTextMode("auto");
     alert("データを削除しました。");
@@ -4516,14 +4524,19 @@ function App(){
   // ─── エクスポート / インポート ─────────────
   const exportData=()=>{
     const now=new Date();
-    const ts=now.toISOString().replace("T"," ").slice(0,19);
+    const ts=now.toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}).replace('T',' ');
     const g=grade||calcGrade(birthday)||"不明";
-    const dateStr=now.toISOString().slice(0,10).replace(/-/g,"");
+    const dateStr=now.toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}).replace(/-/g,"");
     const payload={
       app:"まちがいラボ",
       exportedAt:ts,grade:g,birthday,
       logs,
       dam:getDam(),
+      advancedMode,
+      autoRefill,
+      easyTextMode,
+      theme,
+      rejectCount,
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
@@ -4591,6 +4604,28 @@ function App(){
           setBirthday(d.birthday);
           const g=calcGrade(d.birthday);setGrade(g);
           try{_safeLS.set(PROF(),JSON.stringify({birthday:d.birthday,apiKeys}));}catch(ex){}
+        }
+        // 設定・統計の復元
+        if(d.advancedMode&&typeof d.advancedMode==="object"){
+          const am={timeAttack:!!d.advancedMode.timeAttack,lifeline:!!d.advancedMode.lifeline,threeSecCheck:!!d.advancedMode.threeSecCheck};
+          setAdvancedMode(am);
+          try{_safeLS.set(ADV(),JSON.stringify(am));}catch(_){}
+        }
+        if(typeof d.autoRefill==="boolean"){
+          setAutoRefill(d.autoRefill);
+          try{_safeLS.set(ARFL(),JSON.stringify(d.autoRefill));}catch(_){}
+        }
+        if(d.easyTextMode==="on"||d.easyTextMode==="off"||d.easyTextMode==="auto"){
+          setEasyTextMode(d.easyTextMode);
+          try{_safeLS.set(ETXT(),d.easyTextMode);}catch(_){}
+        }
+        if(d.theme==="light"||d.theme==="dark"){
+          setTheme(d.theme);
+          try{_safeLS.set("machigai_lab_theme",d.theme);}catch(_){}
+        }
+        if(typeof d.rejectCount==="number"&&d.rejectCount>=0){
+          setRejectCount(d.rejectCount);
+          try{_safeLS.set(REJ(),String(d.rejectCount));}catch(_){}
         }
         setImportMsg(`✓ インポート完了！ ${d.grade||"不明"} ／ ${d.exportedAt||"日時不明"}`);
         setTimeout(()=>setImportMsg(""),5000);
@@ -5430,7 +5465,7 @@ function App(){
 
                 
                 <div class="card">
-                  <div class="section-title">${isLowGrade(grade)?"かもくべつ せいかいりつ（さいきん100もん）":"科目別 正解率（直近100問）"}</div>
+                  <div class="section-title">${isLowGrade(grade)?"かもくべつ せいかいりつ（かもくごと さいきん100もん）":"科目別 正解率（各科目 直近100問）"}</div>
                   ${subjectRates.map(({s,rate,q})=>(
                     html`<div key=${s} class="subj-row">
                       <span class="subj-name">${displaySubject(s,grade)}</span>
