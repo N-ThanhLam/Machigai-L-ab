@@ -575,14 +575,28 @@ const AIAdapter=(()=>{
   let _models=null;        // 強い順ソート済みモデルメタデータ配列
   let _modelsAt=0;         // 最後に取得した時刻
   let _modelsPromise=null; // 進行中の取得 Promise（並列重複防止）
-  const _cooldown={};      // model -> 再試行可能になる epoch ms
-  const _unavailable={};   // model -> true（404 / ListModels に存在しないモデルはセッション中スキップ）
-  const _inflight={};      // model -> Promise<void>（同一モデルへの並列攻撃を直列化）
+  // 429/5xx の cooldown は **モデル × キー** の2次元で管理する。Google のクォータは
+  // API キー単位で課されるため、key1 で 3.5-Flash が 429 になっても key2 ではまだ
+  // 3.5-Flash 枠が生きている。モデル単位 cooldown だと「強いモデルの残りキー枠」を
+  // 自動で取りこぼすので、「強いモデル × 全キー → 次のモデル × 全キー」の探索順を
+  // 実現するためにキー次元を分ける。
+  const _cooldown={};      // model -> { [keyId]: 再試行可能になる epoch ms }
+  const _unavailable={};   // model -> true（404 / ListModels に存在しないモデルはセッション中スキップ。モデル存在判定はキー非依存なのでモデル単位のまま）
+  const _inflight={};      // model -> { [keyId]: Promise<void> }（同一モデル同一キーへの並列攻撃を直列化。別キーへの並列は許可）
   // モデル固有のクセを自己学習して保持する。401本文の error message から検出し、
   // 以降の同モデル呼び出しでは body を自動補正することで初回以外の空振りを撲滅する。
   // 具体ベンダー名（gemini/gemma 等）をコードに書かないため、Google が新モデルを
   // 出しても・Gemini ブランドが変わっても、同じ仕組みで吸収できる。
+  // クセはモデル仕様の話でキー非依存なのでモデル単位のまま。
   const _modelQuirks={};   // model -> { thinkingUnsupported?: true, ... }
+
+  // キー識別子：APIキー末尾6文字。プロセス内 Map のキーにのみ使い、ログ・永続化には出さない。
+  // 末尾6文字が偶然一致する別キーは実用上ありえない（Google API キーは英数字39文字程度）。
+  const _keyId=apiKey=>(apiKey||"").slice(-6)||"_default";
+  const _setCooldown=(model,kid)=>{
+    if(!_cooldown[model])_cooldown[model]={};
+    _cooldown[model][kid]=Date.now()+COOLDOWN_MS;
+  };
 
   // ── 強さスコア計算（バージョン > ティア） ───────────────────
   // 「gemini-3.1-flash-lite」「gemini-2.5-pro」のような命名を想定。
@@ -663,7 +677,10 @@ const AIAdapter=(()=>{
     if(code===400||status==="INVALID_ARGUMENT"||status==="FAILED_PRECONDITION")return true;
     return code===429||code===500||code===503||status==="RESOURCE_EXHAUSTED"||status==="UNAVAILABLE"||status==="INTERNAL";
   };
-  const _coolingDown=(m,now)=>_cooldown[m]&&_cooldown[m]>now;
+  const _coolingDown=(m,kid,now)=>{
+    const slot=_cooldown[m];
+    return !!(slot&&slot[kid]&&slot[kid]>now);
+  };
 
   // Gemini固有の wire-format 組み立てはここに閉じる。コア側からは見えない。
   const _buildBody=({systemInstruction,userText,schema,generationConfig})=>{
@@ -710,6 +727,7 @@ const AIAdapter=(()=>{
   // セッション内では以降スキップする（無限の無駄打ち防止）。
   const _tryModel=async(def,apiKey,body)=>{
     const model=def.name;
+    const kid=_keyId(apiKey);
     for(let attempt=0;attempt<2;attempt++){
       const adjusted=_adjustBodyForModel(body,model);
       try{
@@ -723,9 +741,9 @@ const AIAdapter=(()=>{
             try{console.info(`[AIAdapter] ${model} quirk learned (${Object.keys(_modelQuirks[model]||{}).join(",")}) — immediate retry`);}catch(_){}
             continue;
           }
-          if(res.status===429)_cooldown[model]=Date.now()+COOLDOWN_MS;
+          if(res.status===429)_setCooldown(model,kid);
           else if(res.status===404)_unavailable[model]=true;
-          else if(res.status>=500&&res.status<600)_cooldown[model]=Date.now()+COOLDOWN_MS;
+          else if(res.status>=500&&res.status<600)_setCooldown(model,kid);
           else if(res.status===400&&attempt>0){
             // 補正済み body でなお 400：このセッションでは諦める
             _unavailable[model]=true;
@@ -742,14 +760,14 @@ const AIAdapter=(()=>{
             continue;
           }
           if(_isRecoverableError(data.error)){
-            if(data.error.code===429||data.error.status==="RESOURCE_EXHAUSTED")_cooldown[model]=Date.now()+COOLDOWN_MS;
+            if(data.error.code===429||data.error.status==="RESOURCE_EXHAUSTED")_setCooldown(model,kid);
             return{ok:false,status:data.error.code||500,data,model,error:data.error,recoverable:true};
           }
           return{ok:false,status:data.error.code||500,data,model,error:data.error,recoverable:false};
         }
         return{ok:true,status:200,data,model};
       }catch(e){
-        _cooldown[model]=Date.now()+COOLDOWN_MS;
+        _setCooldown(model,kid);
         return{ok:false,status:0,model,error:e,recoverable:true};
       }
     }
@@ -771,26 +789,29 @@ const AIAdapter=(()=>{
     if(!models.length){
       return{ok:false,status:0,data:null,model:null,error:null,exhausted:true,quotaExhausted:false,noModels:true};
     }
+    const kid=_keyId(apiKey);
     let lastFail=null;
     for(let i=0;i<models.length;i++){
       const def=models[i];const model=def.name;
       if(_unavailable[model])continue;
       const isLast=i===models.length-1;
-      if(!isLast&&_coolingDown(model,Date.now()))continue;
-      // 既に別呼び出しが同モデルを試行中なら、その完了を待ってから判定し直す。
-      // 先行が 429/404/5xx を踏んでいれば cooldown/unavailable が立っているので
-      // 後発はその場でスキップして次モデルへ進める（＝二度叩き防止）。
-      if(_inflight[model]){
-        try{await _inflight[model];}catch(_){/* noop */}
+      // cooldown はこのキーに対してだけ判定する。同じモデルでも別キーなら新鮮に叩ける。
+      if(!isLast&&_coolingDown(model,kid,Date.now()))continue;
+      // 同一モデル × 同一キーへの並列攻撃だけを直列化する。別キーへの並列呼び出しは許可
+      // （Google のクォータがキー単位なので、別キーは独立して叩いて構わない）。
+      const slot=_inflight[model];
+      if(slot&&slot[kid]){
+        try{await slot[kid];}catch(_){/* noop */}
         if(_unavailable[model])continue;
-        if(!isLast&&_coolingDown(model,Date.now()))continue;
+        if(!isLast&&_coolingDown(model,kid,Date.now()))continue;
       }
       let release;const pending=new Promise(r=>{release=r;});
-      _inflight[model]=pending;
+      if(!_inflight[model])_inflight[model]={};
+      _inflight[model][kid]=pending;
       let result;
       try{result=await _tryModel(def,apiKey,body);}
       finally{
-        if(_inflight[model]===pending)delete _inflight[model];
+        if(_inflight[model]&&_inflight[model][kid]===pending)delete _inflight[model][kid];
         release();
       }
       if(result.ok)return result;
@@ -802,8 +823,10 @@ const AIAdapter=(()=>{
       err.detail=result;
       throw err;
     }
-    // すべて 429/404/5xx で弾かれた状態
-    const quotaExhausted=models.every(m=>_unavailable[m.name]||(_cooldown[m.name]&&_cooldown[m.name]>Date.now()));
+    // このキーでは全モデルが 429/404/5xx で弾かれた状態（別キーならまだ通り得る点に注意：
+    // quotaExhausted の意味は「現キーで全モデル使えない」であり、呼び出し側のキーローテーション
+    // 次第で次の呼び出しは別キーで通り得る）。
+    const quotaExhausted=models.every(m=>_unavailable[m.name]||_coolingDown(m.name,kid,Date.now()));
     return{ok:false,status:lastFail?.status||0,data:null,model:lastFail?.model,error:lastFail?.error,exhausted:true,quotaExhausted};
   };
 
