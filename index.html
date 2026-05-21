@@ -605,11 +605,15 @@ const AIAdapter=(()=>{
 
   // ── 安定版 generateContent モデルだけを残すフィルタ ──────────
   // preview / experimental / 専用用途モデル（embedding / imagen / tts / aqa / learnlm 等）を除外する。
+  // gemma は systemInstruction も responseSchema も黙って無視して 200 OK で雑談を返すため、
+  // HTTPステータス/error本体ベースのフォールバック判定では検知できず強い順に居座る。
+  // 構造的に本アプリの構造化出力要求と相容れないので、ここで明示除外する。
   const _isStableModel=m=>{
     const n=(m.name||"").toLowerCase();
     if(n.includes("preview"))return false;
     if(n.includes("experimental")||n.includes("exp-")||n.endsWith("-exp"))return false;
     if(n.includes("embedding")||n.includes("imagen")||n.includes("tts")||n.includes("aqa")||n.includes("learnlm"))return false;
+    if(n.includes("gemma"))return false;
     const methods=m.supportedGenerationMethods||[];
     if(methods.length&&!methods.includes("generateContent"))return false;
     return true;
