@@ -495,7 +495,17 @@ const buildSystemPrompt = (difficulty, opts={}) => {
       +"→ 該当問題の mistake_type には上記のいずれかを正確に設定する。\n"
       +"→ 残りの問題は通常通り A/B/C 3類型でバランスを取る。";
   }
-  return SYSTEM_PROMPT_BASE + (DIFFICULTY_HINTS[difficulty] || "") + scope + weakness;
+  // 復習由来の出題: 間違えた単元/ミス型に焦点を当てる（同じ概念の "別問題" を作る）。
+  // 復習問題のストックが無く緊急生成で補う場面で使う。weakness（全体傾向）より具体的＝最優先。
+  let focus="";
+  if(opts.focusTopic||opts.focusMistakeType){
+    focus="\n━━━ 復習モード（最優先）━━━\n"
+      +"これは『前回まちがえた内容』の復習出題です。\n"
+      +(opts.focusTopic?`→ 全問、単元「${opts.focusTopic}」から出題する（他単元は使わない）。\n`:"")
+      +(opts.focusMistakeType?`→ 少なくとも1問は mistake_type を「${opts.focusMistakeType}」にし、その思考のズレを誤答選択肢に必ず仕込む。\n`:"")
+      +"→ ただし前回と同一の問題文を丸写しせず、同じ単元・同じ落とし穴の『別の問題』にすること。";
+  }
+  return SYSTEM_PROMPT_BASE + (DIFFICULTY_HINTS[difficulty] || "") + scope + weakness + focus;
 };
 
 // ─── Gemini responseSchema ────────────────────────────────────────
@@ -886,9 +896,11 @@ const addToDam=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,su
 const addToDamFront=(subj,diff,qs)=>{const dam=getDam();const ex=_ensureBucket(dam,subj,diff);const keys=new Set(ex.map(dupKey));const fresh=[];for(const q of qs){const k=dupKey(q);if(!keys.has(k)){keys.add(k);fresh.push(q);}}if(!fresh.length)return;dam[subj][diff]=[...fresh,...ex].slice(0,DAM_MAX);saveDam(dam);};
 // 指定難易度から取り出し。空なら隣接難易度（standard→easy→hard の順）にフォールバック
 // 第4引数 preferMistakeType: 同 mistake_type の問題があれば優先 pop。
+// 第5引数 preferTopic   : 同 topic_tag（＝間違えたのと同じ単元）があれば最優先 pop。
+//   優先順位は topic_tag > mistake_type > 先頭。復習を「同じ概念の別問題」で当てるための要。
 // 無ければ通常の先頭から pop（フォールバック）。「理解した気」を即潰すための即出題用。
 // 旧バージョンで生成された構造不備の問題（hasValidQuiz==false）は pop 時に破棄する。
-const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
+const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null,preferTopic=null)=>{
   const dam=getDam();
   const order=diff==="easy"?["easy","standard","hard"]:diff==="hard"?["hard","standard","easy"]:["standard","easy","hard"];
   const isValid=(typeof hasValidQuiz==="function")?hasValidQuiz:(()=>true);
@@ -912,7 +924,16 @@ const popFromDam=(subj,diff="standard",n=1,preferMistakeType=null)=>{
       saveDam(dam);
       continue;
     }
-    // 優先 mistake_type 指定があれば先に試す
+    // 優先0: 同 topic_tag（＝間違えたのと同じ単元）。復習を「同じ概念の別問題」にするため最優先。
+    if(preferTopic){
+      const idx=b.findIndex(q=>q&&q.topic_tag&&q.topic_tag===preferTopic);
+      if(idx>=0){
+        const r=[b[idx]];
+        dam[subj][d]=[...b.slice(0,idx),...b.slice(idx+1)];
+        saveDam(dam);return r;
+      }
+    }
+    // 優先 mistake_type 指定があれば次に試す
     if(preferMistakeType){
       const idx=b.findIndex(q=>q&&q.mistake_type===preferMistakeType);
       if(idx>=0){
@@ -1059,6 +1080,40 @@ const calcMistakeTypes=(history)=>{
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
 };
 
+// ─── メタ認知キャリブレーション（手応えと正解のズレ）────────────────────
+// [CLO v25] メタ認知キャリブレーション: 回答前の自信度(confidence 1/2/3)と
+//   実際の正解率のズレを可視化する。本アプリの主題「わかったつもり=過信の検出」を
+//   学習者自身にフィードバックする核心介入。
+//   confidence は recentHistory に記録済み（聖域 confidenceRating には触れず読むだけ）。
+//   - level3(✅わかる)の正解率が低い → 過信(思い込み)。見直し習慣を促す。
+//   - level1(🎲カン) の正解率が高い → 過小評価。知識が育っている証拠として自信付け。
+//   - level3 が高精度 → 自分の「わかった」を信じてよいと肯定。
+//   自信入力が乏しい(<6件)ときは null（ノイズ回避）。pure function。
+const calcCalibration=(history)=>{
+  const rated=(history||[]).filter(r=>r&&(r.confidence===1||r.confidence===2||r.confidence===3)).slice(-100);
+  if(rated.length<6)return null;
+  const lv={1:{c:0,q:0},2:{c:0,q:0},3:{c:0,q:0}};
+  for(const r of rated){const b=lv[r.confidence];b.q++;if(r.correct)b.c++;}
+  const rate=l=>lv[l].q?Math.round(lv[l].c/lv[l].q*100):null;
+  const r3=rate(3),r1=rate(1);
+  // verdict は 過信 > 過小評価 > 良好 の優先で 1 つだけ返す（メッセージ過多を防ぐ）
+  let verdict=null;
+  if(lv[3].q>=3&&r3!==null&&r3<65){
+    verdict={kind:"over",icon:"⚠️",
+      msg:`「✅わかる！」と思った問題、当たりは ${r3}%。『わかったつもり』のことがあるみたい。✅でも一度見直すと一気に伸びるよ。`,
+      msgLow:`「✅わかる！」と おもった もんだい、あたりは ${r3}%。『わかった つもり』の ことが あるみたい。✅でも もういちど みなおすと ぐっと のびるよ。`};
+  }else if(lv[1].q>=3&&r1!==null&&r1>=55){
+    verdict={kind:"under",icon:"🌱",
+      msg:`「🎲カン」で答えた問題も ${r1}% 当たってる！実はもう知識が育ってる証拠。もっと自信を持っていいよ。`,
+      msgLow:`「🎲カン」で こたえた もんだいも ${r1}% あたってる！じつは ちからが ついてる しょうこ。もっと じしんを もって いいよ。`};
+  }else if(lv[3].q>=3&&r3!==null&&r3>=85){
+    verdict={kind:"good",icon:"🎯",
+      msg:`「✅わかる！」の手応えがとても正確（当たり ${r3}%）。自分の『わかった』を信じて大丈夫。`,
+      msgLow:`「✅わかる！」の てごたえが とても せいかく（あたり ${r3}%）。じぶんの『わかった』を しんじて だいじょうぶ。`};
+  }
+  return {total:rated.length,levels:lv,rate3:r3,rate2:rate(2),rate1:r1,verdict};
+};
+
 // ─── 復習スケジューリング（SM-2 簡易版） ──────────────────────────────
 // reps=0→1日後、reps=1→3日後、reps=2→7日後、reps=3→14日後、reps=4以降で卒業（削除）
 const SM2_INTERVALS=[1,3,7,14];
@@ -1078,6 +1133,19 @@ const sortReviewQueue=(queue)=>[...(queue||[])].sort((a,b)=>{
   return (a.dueDate||"").localeCompare(b.dueDate||"");
 });
 const firstDueReview=(queue)=>sortReviewQueue(queue).find(isReviewDue)||null;
+// ─── 復習ターゲット解決 ──────────────────────────────────────────────
+// reviewQueue のアイテムは「間違えた単元(topic) と ミス型(mistakeType)」を保持している。
+// 復習を出題するとき、この単元/ミス型に一致する在庫を popFromDam で狙い撃ちするための
+// {topic, mistakeType} を返す。一致無し（id不在・"不明"のみ・topic欠落）は null を返し、
+// 呼び出し側は通常出題へ自然降格する（＝従来挙動）。
+const resolveReviewTarget=(reviewItemId,reviewQueue)=>{
+  if(!reviewItemId)return null;
+  const it=(reviewQueue||[]).find(q=>q&&q.id===reviewItemId);
+  if(!it)return null;
+  const mistakeType=(it.mistakeType&&it.mistakeType!=="不明")?it.mistakeType:null;
+  const topic=(typeof it.topic==="string"&&it.topic)?it.topic:null;
+  return (topic||mistakeType)?{topic,mistakeType}:null;
+};
 
 // ─── 週次ミスパターン（今週 vs 先週）─────────────────────────────────
 const calcWeeklyMistakeSummary=(history)=>{
@@ -2939,6 +3007,8 @@ function App(){
 
   const logsR=useRef(logs);const gsR=useRef(gs);const subjR=useRef(subject);
   const manualSubjectR=useRef(false); // true=ユーザーが手動で科目選択、false=AI自動選択
+  // 苦手TOP3カードのタップ等で「特定単元を1問だけ狙い撃ち」したいときに topic_tag を入れる（ワンショット）
+  const manualTopicFocusR=useRef(null);
   const keysR=useRef(apiKeys);const gradeR=useRef(grade);const bdR=useRef(birthday);
   const refillLk=useRef(false);const fetchLk=useRef(false);const nextLk=useRef(false);const reqId=useRef(null);
 
@@ -3651,6 +3721,10 @@ function App(){
 
   const startWithNorma=(cur,g)=>{
     manualSubjectR.current=false; // ノルマ開始はAI自動選択
+    // ベースラインを復習OFFに。復習由来のときだけ下で true/ID設定する。
+    // （fetchQ が currentReviewItemIdR を見て狙い撃ち判定するため、非復習開始でIDを残さない）
+    setCurrentReviewItemId(null);currentReviewItemIdR.current=null;
+    setIsReview(false);isReviewR.current=false;
     const nq=buildNormaQueue(cur);
     if(nq.length){
       const[first,...rest]=nq;
@@ -3899,7 +3973,7 @@ function App(){
   },[comebackMode]);
 
   // ─── 緊急生成: ストックが空のとき即座に3問生成してDAMに積む ──────────
-  const generateEmergency=useCallback(async(subj,g)=>{
+  const generateEmergency=useCallback(async(subj,g,reviewTarget=null)=>{
     if(emergencyGenLk.current)return null;
     // バックグラウンド補充が走っている間は重複API呼び出しを避ける
     // → null を返すと waiting 状態へ移行し、補充完了後にポーリングで拾う
@@ -3920,8 +3994,13 @@ function App(){
       const _curMonth=+new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}).slice(5,7);
       // 学習者の直近ミス型 TOP3 を狙い撃ちさせる
       const _topMistakes=calcMistakeTypes(logsR.current.recentHistory||[]).slice(0,3);
-      const _systemPrompt=buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth,topMistakes:_topMistakes});
-      const _userText=`【科目固定】「${promptSubj}」の4択問題を3問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`;
+      // 復習由来の緊急生成は「間違えた単元/ミス型」を狙って作る（禁止テーマで弾かず、その単元を要求）
+      const _focusTopic=(reviewTarget&&typeof reviewTarget.topic==="string"&&reviewTarget.topic)?reviewTarget.topic:null;
+      const _focusMT=(reviewTarget&&reviewTarget.mistakeType)?reviewTarget.mistakeType:null;
+      const _systemPrompt=buildSystemPrompt(emergencyDiff,{grade:currentGrade,month:_curMonth,topMistakes:_topMistakes,focusTopic:_focusTopic,focusMistakeType:_focusMT});
+      const _userText=_focusTopic
+        ? `【科目固定】「${promptSubj}」の4択問題を3問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【復習指定】全問、単元「${_focusTopic}」から出題すること（前回まちがえた単元の復習）。`
+        : `【科目固定】「${promptSubj}」の4択問題を3問。\n出力JSONの"subject"フィールドには必ず「${promptSubj}」をそのまま書くこと（他の科目名・略称・英語表記は禁止）。\n【禁止テーマ】以下はストックに存在するため別のテーマで出題すること:${damTopics}`;
       const _tag=`[emergency ${subj}/${emergencyDiff}]`;
       const apiRes=await AIAdapter.generateQuiz({apiKey:key,systemInstruction:_systemPrompt,userText:_userText,schema:QUIZ_RESPONSE_SCHEMA});
       if(!apiRes.ok){
@@ -3966,7 +4045,7 @@ function App(){
       const isReviewSubj=(logsR.current.reviewQueue||[]).some(q=>q.subject===subj);
       const curDiff=getAutoDifficulty(subj,logsR.current);
       if(isReviewSubj)addToDamFront(subj,curDiff,toStore);else addToDam(subj,curDiff,toStore);
-      const pop=popFromDam(subj,curDiff,1);
+      const pop=popFromDam(subj,curDiff,1,_focusMT,_focusTopic);
       return pop.length?pop[0]:null;
     }catch(e){return null;}
     finally{emergencyGenLk.current=false;setIsEmergencyGen(false);}
@@ -3983,14 +4062,18 @@ function App(){
       // ストック優先。指定科目を優先、0なら他科目へズレる、全科目0なら緊急生成→失敗時のみ待機。
       const subs=subjectsR.current;
       const curDiff=getAutoDifficulty(subj,logsR.current);
-      const st=popFromDam(subj,curDiff,1);
+      // 復習問題なら間違えた単元/ミス型を、苦手TOP3タップなら指定単元を狙い撃ち（一致無しは通常出題に降格）
+      const _mtf=manualTopicFocusR.current;manualTopicFocusR.current=null; // ワンショット消費
+      const _rt=resolveReviewTarget(currentReviewItemIdR.current,(logsR.current||{}).reviewQueue)||{};
+      const _focusTopic=_rt.topic||_mtf||null;
+      const st=popFromDam(subj,curDiff,1,_rt.mistakeType||null,_focusTopic);
       if(st.length){
         if(!stale()){setQuiz(st[0]);setDamStats(getDamStats(subs));}
         return;
       }
-      // ストックなし → 緊急生成（3問）。他科目へはズレない
+      // ストックなし → 緊急生成（3問）。他科目へはズレない。復習/単元指定があれば狙って生成。
       if(!stale()){
-        const generated=await generateEmergency(subj,currentGrade);
+        const generated=await generateEmergency(subj,currentGrade,(_focusTopic||_rt.mistakeType)?{topic:_focusTopic,mistakeType:_rt.mistakeType||null}:null);
         if(!stale()){
           if(generated){setQuiz(generated);setDamStats(getDamStats(subs));}
           else{pollingCancelRef.current++;setWaitingForStock(subj);}
@@ -4444,13 +4527,15 @@ function App(){
           // ⑪ 連続3ミスで easy を強制挿入（詰み感の防止）
           const _ws=(gsR.current&&gsR.current.wrongStreak)||0;
           const diff=_ws>=3?"easy":getAutoDifficulty(ns,logsR.current);
-          // ⑥ 直前がミスなら同 mistake_type を優先（同科目に限る）
-          const _pmt=preferMT&&prevAns&&prevAns.subject===ns?preferMT:null;
-          const fromDam=popFromDam(ns,diff,1,_pmt);setDamStats(getDamStats(subs));
+          // 復習問題なら復習アイテムの単元/ミス型を最優先で狙い撃ち。
+          // 通常問題は ⑥ 直前ミスの mistake_type を優先（同科目に限る）。
+          const _rt=resolveReviewTarget(currentReviewItemIdR.current,cur.reviewQueue)||{};
+          const _pmt=_rt.mistakeType||(preferMT&&prevAns&&prevAns.subject===ns?preferMT:null);
+          const fromDam=popFromDam(ns,diff,1,_pmt,_rt.topic||null);setDamStats(getDamStats(subs));
           if(fromDam.length){setQuiz(fromDam[0]);return;}
-          // ストックなし → 緊急生成（3問）
+          // ストックなし → 緊急生成（3問）。復習なら単元を狙って生成。
           {
-            const generated=await generateEmergency(ns,currentGrade);
+            const generated=await generateEmergency(ns,currentGrade,(_rt.topic||_rt.mistakeType)?{topic:_rt.topic||null,mistakeType:_rt.mistakeType||null}:null);
             if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
             else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);}
             return;
@@ -4463,7 +4548,10 @@ function App(){
       const dueItem=firstDueReview(cur.reviewQueue);
       if(dueItem){
         const reviewDiff=getAutoDifficulty(dueItem.subject,logsR.current);
-        const fromDamReview=popFromDam(dueItem.subject,reviewDiff,1);
+        // 復習: 間違えた単元(topic)→ミス型(mistakeType)に一致する在庫を狙い撃ち
+        const _rmt=(dueItem.mistakeType&&dueItem.mistakeType!=="不明")?dueItem.mistakeType:null;
+        const _rtp=(typeof dueItem.topic==="string"&&dueItem.topic)?dueItem.topic:null;
+        const fromDamReview=popFromDam(dueItem.subject,reviewDiff,1,_rmt,_rtp);
         if(fromDamReview.length){
           // 解消済みは分析完了後にIDで削除するため、ここでは削除しない
           setCurrentReviewItemId(dueItem.id);currentReviewItemIdR.current=dueItem.id;
@@ -4475,7 +4563,7 @@ function App(){
         setCurrentReviewItemId(dueItem.id);currentReviewItemIdR.current=dueItem.id;
         setSubject(dueItem.subject);setIsReview(true);isReviewR.current=true;
         {
-          const generated=await generateEmergency(dueItem.subject,currentGrade);
+          const generated=await generateEmergency(dueItem.subject,currentGrade,(_rtp||_rmt)?{topic:_rtp,mistakeType:_rmt}:null);
           if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
           else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(dueItem.subject);}
         }
@@ -4982,8 +5070,9 @@ function App(){
                       <div class="wtc-list">
                         ${items.map((it)=>(
                           html`<button key=${it.topic} class="wtc-row" title=${`${it.topic}（正解率${Math.round(it.rate*100)}%）`} onClick=${()=>{
-                            // タップで該当科目へ即移動（既存 resetFetch を活用）
+                            // タップで該当「単元」を狙い撃ち出題（在庫に一致が無ければ通常出題に降格）
                             manualSubjectR.current=true;
+                            manualTopicFocusR.current=it.topic;
                             resetFetch(it.subj);
                           }}>
                             <span class="wtc-rate">${Math.round(it.rate*100)}%</span>
@@ -5639,6 +5728,43 @@ function App(){
                   );
                 })()}
 
+                ${/* 🅒 診断(メタ認知) — 手応え(自信度)と正解のズレ。本アプリの主題=過信の検出。[CLO v25] */""}
+                ${(()=>{
+                  const cal=calcCalibration(logs.recentHistory);
+                  if(!cal)return null;
+                  const _low=isLowGrade(grade);
+                  const rows=[
+                    {lv:3,icon:"✅",name:_low?"わかる！":"わかる！",rate:cal.rate3,q:cal.levels[3].q},
+                    {lv:2,icon:"🤔",name:_low?"はんはん":"半々",rate:cal.rate2,q:cal.levels[2].q},
+                    {lv:1,icon:"🎲",name:_low?"カン":"カン",rate:cal.rate1,q:cal.levels[1].q},
+                  ].filter(x=>x.q>0);
+                  // 自信3=高いほど緑(正確)、低いほど赤(過信)。自信1=高いほど緑(過小評価の伸びしろ)。
+                  const barColor=(lv,r)=>r===null?"#e8e3ff":lv===3?(r>=85?"#22c55e":r>=65?"#f59e0b":"#ef4444"):lv===1?(r>=55?"#22c55e":"#a78bfa"):"#a78bfa";
+                  return(
+                    html`<div class="card">
+                      <div class="section-title">${_low?"🎯 てごたえメーター（あたってるかな？）":"🎯 手応えメーターの精度（メタ認知）"}</div>
+                      <div style=${{fontSize:10,color:"#bbb",marginBottom:8}}>${_low?"こたえる まえに えらんだ てごたえ べつの せいかいりつ":"回答前に選んだ手応え別の正解率"}</div>
+                      ${rows.map(x=>(
+                        html`<div key=${x.lv} class="subj-row">
+                          <span class="subj-name" style=${{minWidth:84,flex:"0 0 auto"}}>${x.icon} ${x.name}</span>
+                          <div style=${{flex:1}}><div class="bar-wrap"><div class="bar" style=${{width:x.rate!==null?`${x.rate}%`:"0%",background:barColor(x.lv,x.rate)}}></div></div></div>
+                          <span style=${{fontSize:12,fontWeight:900,color:barColor(x.lv,x.rate),minWidth:40,textAlign:"right"}}>${x.rate!==null?`${x.rate}%`:"—"}</span>
+                          <span style=${{fontSize:11,color:"#bbb",minWidth:34,textAlign:"right"}}>${x.q}${_low?"もん":"問"}</span>
+                        </div>`
+                      ))}
+                      ${cal.verdict&&(
+                        html`<div style=${{marginTop:10,padding:"10px 12px",borderRadius:12,fontSize:12,lineHeight:1.6,fontWeight:700,
+                          background:cal.verdict.kind==="over"?"#fff7ed":cal.verdict.kind==="under"?"#f0fdf4":"#eff6ff",
+                          color:cal.verdict.kind==="over"?"#7c2d12":cal.verdict.kind==="under"?"#166534":"#1e40af",
+                          border:`1.5px solid ${cal.verdict.kind==="over"?"#fed7aa":cal.verdict.kind==="under"?"#86efac":"#bfdbfe"}`}}>
+                          ${cal.verdict.icon} ${_low?cal.verdict.msgLow:cal.verdict.msg}
+                        </div>`
+                      )}
+                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>${_low?`さいきん ${cal.total}もんの てごたえから`:`直近 ${cal.total}問の手応え入力から集計`}</div>
+                    </div>`
+                  );
+                })()}
+
                 ${/* 🅒 診断(ミクロ・単元・最重点1件) — 今週の重点単元 */""}
                 ${weakestTopic&&(
                   html`<div class="card" style=${{background:"#fff7f7",border:"1.5px solid #fca5a5",padding:"14px 16px"}}>
@@ -6063,4 +6189,13 @@ if ('serviceWorker' in navigator &&
 }
 </script>
 </body>
+<!--
+CLO_LOG
+v25: メタ認知キャリブレーション可視化（記録タブに「手応えメーターの精度」カード）| 理論: メタ認知キャリブレーション | ROIスコア: 5×3÷2=7.5
+  - calcCalibration(history): recentHistory の confidence(1/2/3)別正解率を集計。<6件は null。
+  - verdict 優先: 過信(自信3が65%未満) > 過小評価(自信1が55%以上) > 良好(自信3が85%以上)。
+  - 聖域(confidenceRating/RecallQuiz/getAutoDifficulty/IndexedDBミラー/localStorageキー)は不変。読むだけ。
+チェック済み項目: 間隔反復(SM-2), 検索練習(RecallQuiz), 望ましい困難(getAutoDifficulty), メタ認知キャリブレーション(v25), 有能感の証拠(成長スコア/バッジ), 自律性支援(科目選択/やさしいモード/設定), フロー状態(適応難易度+連続演出+タイムアタック)
+未実装項目: インターリーブ(現状=復習混在のみ・科目/型の意図的混在は未), 精緻化想起(自分の言葉での説明=自由記述は未/RecallQuizで部分代替), 変動報酬(予測不能タイミングの報酬), ナラティブ継続(物語性), 社会的比較(ローカル単独構成のため要サーバ/P2P=構造的に高コスト)
+-->
 </html>
