@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>まちがいラボ — ミスを直して、解ける状態へ</title>
+  <title>まちがいラボ v31 — ミスを直して、解ける状態へ</title>
   <meta name="description" content="AIが生成する4択問題で、子どもがやりがちな『思考のズレ』を見える化。ミスの再発防止に特化した学習アプリ。">
   <meta name="theme-color" content="#5b3ff8">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -202,13 +202,13 @@ const NORMAL_TEXT = {
   correct:"正解！",
   correctSub:"その調子！🌟",
   learnTime:"💡 学びどき",
-  confidenceBefore:"答える前に：自分の手応えは？",
-  confidenceAfter:"この問題、どれくらいわかった？",
+  confInCard:"この答え、どれくらい自信ある？（タップで決定）",
   confKan:"勘",
   confHalf:"半分わかった",
   confCan:"説明できる",
-  whyWrongOpen:"👁️ なぜ他は違うか分析する",
-  whyWrongClose:"▲ 他の選択肢の理由を閉じる",
+  whyWrongOpen:"他の選択肢、なぜ違う？1つずつ暴く",
+  whyWrongHook:"👆 ここを見た人は同じワナに二度ハマらない",
+  whyWrongClose:"▲ 閉じる",
   notLearned:"まだ習ってない",
   showHintBtn:"💭 前提ヒントを見る（覚えていなくてOK）",
   lifeline:"💡 ライフライン：間違いを1つ消す",
@@ -270,12 +270,12 @@ const EASY_TEXT = {
   correct:"せいかい！",
   correctSub:"その ちょうし！🌟",
   learnTime:"💡 まなびのとき",
-  confidenceBefore:"こたえるまえに：どんな かんじ？",
-  confidenceAfter:"この もんだい、どれくらい わかった？",
+  confInCard:"この こたえ、じしんは ある？（タップで けってい）",
   confKan:"あてずっぽう",
   confHalf:"なんとなく",
   confCan:"ばっちり！",
-  whyWrongOpen:"👁️ ほかは どうして ダメか みる",
+  whyWrongOpen:"ほかの こたえ、なんで ダメ？",
+  whyWrongHook:"👆 みると おなじ ミスが きえる",
   whyWrongClose:"▲ とじる",
   notLearned:"まだ ならってない",
   showHintBtn:"💭 ヒントを見る（おぼえてなくてOK）",
@@ -1080,40 +1080,6 @@ const calcMistakeTypes=(history)=>{
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
 };
 
-// ─── メタ認知キャリブレーション（手応えと正解のズレ）────────────────────
-// [CLO v25] メタ認知キャリブレーション: 回答前の自信度(confidence 1/2/3)と
-//   実際の正解率のズレを可視化する。本アプリの主題「わかったつもり=過信の検出」を
-//   学習者自身にフィードバックする核心介入。
-//   confidence は recentHistory に記録済み（聖域 confidenceRating には触れず読むだけ）。
-//   - level3(✅わかる)の正解率が低い → 過信(思い込み)。見直し習慣を促す。
-//   - level1(🎲カン) の正解率が高い → 過小評価。知識が育っている証拠として自信付け。
-//   - level3 が高精度 → 自分の「わかった」を信じてよいと肯定。
-//   自信入力が乏しい(<6件)ときは null（ノイズ回避）。pure function。
-const calcCalibration=(history)=>{
-  const rated=(history||[]).filter(r=>r&&(r.confidence===1||r.confidence===2||r.confidence===3)).slice(-100);
-  if(rated.length<6)return null;
-  const lv={1:{c:0,q:0},2:{c:0,q:0},3:{c:0,q:0}};
-  for(const r of rated){const b=lv[r.confidence];b.q++;if(r.correct)b.c++;}
-  const rate=l=>lv[l].q?Math.round(lv[l].c/lv[l].q*100):null;
-  const r3=rate(3),r1=rate(1);
-  // verdict は 過信 > 過小評価 > 良好 の優先で 1 つだけ返す（メッセージ過多を防ぐ）
-  let verdict=null;
-  if(lv[3].q>=3&&r3!==null&&r3<65){
-    verdict={kind:"over",icon:"⚠️",
-      msg:`「✅わかる！」と思った問題、当たりは ${r3}%。『わかったつもり』のことがあるみたい。✅でも一度見直すと一気に伸びるよ。`,
-      msgLow:`「✅わかる！」と おもった もんだい、あたりは ${r3}%。『わかった つもり』の ことが あるみたい。✅でも もういちど みなおすと ぐっと のびるよ。`};
-  }else if(lv[1].q>=3&&r1!==null&&r1>=55){
-    verdict={kind:"under",icon:"🌱",
-      msg:`「🎲カン」で答えた問題も ${r1}% 当たってる！実はもう知識が育ってる証拠。もっと自信を持っていいよ。`,
-      msgLow:`「🎲カン」で こたえた もんだいも ${r1}% あたってる！じつは ちからが ついてる しょうこ。もっと じしんを もって いいよ。`};
-  }else if(lv[3].q>=3&&r3!==null&&r3>=85){
-    verdict={kind:"good",icon:"🎯",
-      msg:`「✅わかる！」の手応えがとても正確（当たり ${r3}%）。自分の『わかった』を信じて大丈夫。`,
-      msgLow:`「✅わかる！」の てごたえが とても せいかく（あたり ${r3}%）。じぶんの『わかった』を しんじて だいじょうぶ。`};
-  }
-  return {total:rated.length,levels:lv,rate3:r3,rate2:rate(2),rate1:r1,verdict};
-};
-
 // ─── 復習スケジューリング（SM-2 簡易版） ──────────────────────────────
 // reps=0→1日後、reps=1→3日後、reps=2→7日後、reps=3→14日後、reps=4以降で卒業（削除）
 const SM2_INTERVALS=[1,3,7,14];
@@ -1225,20 +1191,17 @@ const calcMistakeImprovement=(history)=>{
 //   - 加えて自信度入力・復習挑戦・再挑戦の事実を拾う
 // pure function, 状態を持たない。表示直前に呼ぶだけ。
 const calcPartialSuccesses=(quiz,opts={})=>{
+  // [v30] スキル系の称賛(条件は読めてた/計算はしっかり/知識は引き出せた)を撤去。
+  //   これらは mistake_type の正規表現からの「推測」で、実際には外したのに「できてた」と
+  //   誤った安心を与え、v29で強化した自信度キャリブレ(原則4=わかったつもりの矯正)と矛盾していた。
+  //   実際の行動に基づく「誠実な努力称賛」だけを残す（継続クッションは維持しつつ嘘をつかない）。
   const out=[];
-  const mt=(quiz&&quiz.mistake_type)||"";
-  const isReadMiss=/条件|助詞|前置詞|読み落と/.test(mt);
-  const isCalcMiss=/符号|桁|単位/.test(mt);
-  const isKnowMiss=/公式|用語|混同|逆転/.test(mt);
-  if(!isReadMiss)out.push({icon:"📖",label:"条件は読めてた"});
-  if(!isCalcMiss)out.push({icon:"🧮",label:"計算はしっかり"});
-  if(!isKnowMiss)out.push({icon:"📚",label:"知識は引き出せた"});
-  // 「答えを選びきれた」は "まだ習ってない" を選んでない場合に常に true
+  // 「最後まで考えた」は "まだ習ってない" を選ばず回答しきった場合に常に true（誠実）
   if(opts.selectedChoice!==null&&opts.selectedChoice!==undefined)out.push({icon:"🎯",label:"最後まで考えた"});
   if(opts.wasRetry)out.push({icon:"🔄",label:"もう一回挑んだ"});
   if(opts.isReview)out.push({icon:"💪",label:"復習に挑戦中"});
   if(opts.confidenceRating)out.push({icon:"🤔",label:"手応えを言語化"});
-  // 多すぎても主張過多なので 3 件まで。3 軸のうち失敗してない方を優先。
+  // 多すぎても主張過多なので 3 件まで。
   return out.slice(0,3);
 };
 
@@ -1640,12 +1603,27 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .result-ok-box{background:#f0fdf4;border:2px solid #86efac;border-radius:14px;padding:16px;margin-bottom:12px;text-align:center}
 .result-ok-icon{font-size:36px;margin-bottom:4px;animation:bounce .5s cubic-bezier(.34,1.56,.64,1) both}
 .result-ok-fb{font-size:13px;color:#166534;font-weight:600;line-height:1.65;margin-top:8px;text-align:left}
-.why-wrong-btn{background:#ede9ff;color:#5b3ff8;border:none;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s;text-align:left}
-.why-wrong-btn:hover{background:#ddd6fe}
 .why-wrong-panel{background:#f8f7ff;border:1.5px solid #ddd6fe;border-radius:14px;padding:12px;margin-bottom:10px}
 .why-wrong-item{border-bottom:1px solid #ede9ff;padding:10px 0;font-size:12px;color:#4c1d95;line-height:1.7}
 .why-wrong-item:last-child{border-bottom:none;padding-bottom:0}
 .why-wrong-choice{font-size:13px;font-weight:800;color:#1e1e3a;margin-bottom:4px}
+/* なぜ他は違うか — 「無視して当然」だった導線を好奇心フックに作り替え（探偵テーマ・効能サブコピー・未読パルス） */
+.why-wrong-cta{display:block;width:100%;text-align:left;background:linear-gradient(135deg,#f3effe,#e6defb);color:#5b3ff8;border:1.5px solid #c4b5fd;border-radius:13px;padding:11px 14px;font-family:inherit;cursor:pointer;margin-bottom:9px;transition:transform .12s,background .18s,border-color .18s;position:relative}
+.why-wrong-cta:hover{background:#e3d9fb;border-color:#a78bfa}
+.why-wrong-cta:active{transform:scale(.985)}
+.why-wrong-cta:not(.open){animation:wwc-pulse 2.1s ease-in-out infinite}
+.why-wrong-cta.open{background:#f6f3ff;color:#7c3aed;border-color:#ddd6fe;font-weight:900;font-size:13px;text-align:center}
+.why-wrong-cta .wwc-row{display:flex;align-items:center;gap:11px}
+.why-wrong-cta .wwc-badge{font-size:22px;flex-shrink:0;line-height:1}
+.why-wrong-cta .wwc-texts{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.why-wrong-cta .wwc-main{font-size:13px;font-weight:900;line-height:1.3}
+.why-wrong-cta .wwc-sub{font-size:10.5px;font-weight:700;color:#7c6fb0;line-height:1.35}
+.why-wrong-cta .wwc-chev{font-size:15px;flex-shrink:0;color:#8b5cf6;animation:wwc-bounce 1.5s ease-in-out infinite}
+@keyframes wwc-pulse{0%,100%{box-shadow:0 0 0 0 rgba(124,58,237,0)}50%{box-shadow:0 0 0 4px rgba(124,58,237,.10)}}
+@keyframes wwc-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
+[data-theme="dark"] .why-wrong-cta{background:#2a2550;border-color:#6d28d9;color:#c4b5fd}
+[data-theme="dark"] .why-wrong-cta.open{background:#241f45;color:#c4b5fd}
+[data-theme="dark"] .why-wrong-cta .wwc-sub{color:#a78bfa}
 .rank-one-badge{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;color:#92400e;cursor:pointer;transition:all .18s}
 .rank-one-badge.on{background:linear-gradient(135deg,#5b3ff8,#9b59f8);border-color:#5b3ff8;color:#fff}
 .btn-retry{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:14px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;margin-bottom:8px;transition:all .18s}
@@ -1944,15 +1922,17 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
 .threesec-card .threesec-icon{font-size:22px}
 .threesec-card .threesec-q{font-size:12.5px;font-weight:700;color:#7c2d12;background:rgba(255,255,255,.55);border-radius:10px;padding:8px 10px;line-height:1.55;margin-bottom:6px}
 .threesec-card .threesec-pick{font-size:12px;font-weight:800;color:#92400e;margin-bottom:10px;line-height:1.4}
-.threesec-card .threesec-row{display:flex;gap:8px}
-.threesec-card .threesec-row button{flex:1;border:none;border-radius:12px;padding:11px 8px;font-size:12.5px;font-weight:900;cursor:pointer;font-family:inherit;transition:transform .12s}
-.threesec-card .threesec-row button:active{transform:scale(.96)}
-.threesec-cancel{background:#fff;color:#92400e;border:1.5px solid #f59e0b !important}
-.threesec-go{background:linear-gradient(135deg,#5b3ff8,#9b59f8);color:#fff}
+/* 確認カード内の自信度（ボタン＝決定）— 「選択→本当にいい？→自信度で確定」を1ステップに統合 */
+.threesec-card .threesec-conf-label{font-size:11.5px;font-weight:900;color:#7c2d12;margin:2px 0 7px;letter-spacing:.02em}
+.threesec-card .threesec-conf-row{display:flex;gap:6px;margin-bottom:9px}
+.threesec-card .threesec-conf-row .confidence-btn{padding:9px 4px;font-size:11.5px}
+.threesec-cancel-full{display:block;width:100%;background:#fff;color:#92400e;border:1.5px solid #f59e0b;border-radius:12px;padding:9px 8px;font-size:12px;font-weight:900;cursor:pointer;font-family:inherit;transition:transform .12s}
+.threesec-cancel-full:active{transform:scale(.97)}
 [data-theme="dark"] .threesec-card{background:#3a2f1a;border-color:#f59e0b;color:#fde68a}
 [data-theme="dark"] .threesec-card .threesec-head,[data-theme="dark"] .threesec-card .threesec-q,[data-theme="dark"] .threesec-card .threesec-pick{color:#fde68a}
 [data-theme="dark"] .threesec-card .threesec-q{background:rgba(0,0,0,.25)}
-[data-theme="dark"] .threesec-cancel{background:#1f1f35;color:#fde68a}
+[data-theme="dark"] .threesec-card .threesec-conf-label{color:#fde68a}
+[data-theme="dark"] .threesec-cancel-full{background:#1f1f35;color:#fde68a}
 /* ミス改善率カード（記録タブ最上部）— 点数より改善幅で動機付け */
 .mistake-improve-card{border-radius:16px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 14px rgba(0,0,0,.06)}
 .mistake-improve-card .mic-tag{display:inline-block;font-size:10px;font-weight:900;letter-spacing:.06em;background:rgba(255,255,255,.7);border-radius:99px;padding:3px 10px;margin-bottom:8px}
@@ -2095,6 +2075,37 @@ input[type=date]:focus,input[type=password]:focus,input[type=text]:focus{border-
    ユーザー設定や OS 設定 (prefers-reduced-motion) に関わらず常に有効にする。
    "できてる感" を演出することがコア体験なので、抑制系の分岐は意図的に外している。
    prefers-reduced-motion を尊重するブロックを再追加しないこと。 */
+
+/* ─── DailyMissionCard (v25追加) ───────────────────────────── */
+/* 設計: 同じ5問に「今日の目的意識」を与えるカード。
+   データは全て logs から派生。新APIコール不要。
+   quizPhase==="question" 時は非表示で回答集中を守る。 */
+.mc{border-radius:20px;padding:16px 18px;margin-bottom:12px;border:2px solid transparent;transition:border-color .3s,background .3s}
+.mc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.mc-hunter{display:flex;align-items:center;gap:5px}
+.mc-hicon{font-size:18px;line-height:1}
+.mc-hname{font-size:13px;font-weight:900;letter-spacing:-.01em}
+.mc-mlabel{font-size:10px;font-weight:800;color:var(--text-soft);background:rgba(0,0,0,.07);padding:2px 9px;border-radius:8px;white-space:nowrap}
+[data-theme="dark"] .mc-mlabel{background:rgba(255,255,255,.12)}
+.mc-body{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.mc-micon{font-size:24px;flex-shrink:0;margin-top:1px;line-height:1}
+.mc-title{font-size:15px;font-weight:900;line-height:1.3;margin-bottom:3px}
+.mc-desc{font-size:12px;color:var(--text-soft);line-height:1.6;font-weight:700}
+.mc-foot{display:flex;align-items:center;gap:10px}
+.mc-dots{display:flex;gap:6px}
+.mc-dot{width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.1);transition:background .35s,transform .35s,box-shadow .35s}
+[data-theme="dark"] .mc-dot{background:rgba(255,255,255,.15)}
+.mc-dot.done{background:#22c55e;transform:scale(1.12);box-shadow:0 2px 8px rgba(34,197,94,.38)}
+.mc-prog-lbl{font-size:12px;font-weight:900}
+/* 達成カード */
+.mc.mc-done{background:linear-gradient(135deg,#f0fdf4,#dcfce7)!important;border-color:#22c55e!important}
+[data-theme="dark"] .mc.mc-done{background:linear-gradient(135deg,#1a3a24,#1f4a2e)!important}
+.mc-done-top{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.mc-done-star{font-size:26px;line-height:1}
+.mc-done-ttl{font-size:16px;font-weight:900;color:#166534}
+[data-theme="dark"] .mc-done-ttl{color:#86efac}
+.mc-done-sub{font-size:12px;font-weight:700;color:#22c55e}
+.mc-done-more{font-size:11px;font-weight:700;color:#4ade80;margin-top:6px}
 `;
 
 // ─── initLogs ────────────────────────────────────────────────────
@@ -2307,6 +2318,131 @@ const BonusPopStack=memo(({items})=>{
   );
 });
 
+// ─── DailyMissionCard (v25追加) ──────────────────────────────────
+// 学習タブ最上部に表示する「今日のミッション」カード。
+//
+// 設計思想:
+//   同じ5問でも「今日の目的意識」を持って解くかどうかで定着率が変わる。
+//   「ノルマ5問」という義務フレームを外し、「ハンターとして今日のミスを狩る」
+//   という主体的フレームへ書き換えるのがこのカードの役割。
+//
+// ハンター称号:
+//   累積ステータスの最高値キーから自動決定。
+//   初日はデフォルト称号「見習いハンター」から始まり、問題を解くほど
+//   「読解ハンター」「注意スナイパー」等の固有称号に昇格する。
+//
+// ミッション優先度:
+//   1. 復習問題あり  → 「前回ミスを撃退せよ」
+//   2. 弱点単元あり  → 「正解率XX%の単元を攻略せよ」
+//   3. ストリーク3日以上 → 「N日連続を守り抜け」
+//   4. デフォルト    → 「今日のミスを狩り尽くせ」
+//
+// 全データは logs から派生。新APIコールなし。外部状態変更なし（表示専用）。
+const DailyMissionCard=memo(({logs,grade,todaySessions,dailyGoalMet,reviewCount})=>{
+  const low=isLowGrade(grade);
+  // ─ ハンタータイトル ─
+  const cs=logs.cumulativeStats||{};
+  const hasStats=STAT_ORDER.some(k=>(cs[k]||0)>0);
+  const bestKey=hasStats?STAT_ORDER.reduce((b,k)=>(cs[k]||0)>(cs[b]||0)?k:b,STAT_ORDER[0]):null;
+  const HUNTER={
+    readingAccuracy:  {ja:"読解ハンター",      easy:"よみとりハンター",       icon:"📖",c:"#0ea5e9"},
+    attention:        {ja:"注意スナイパー",    easy:"よくみるハンター",       icon:"🎯",c:"#f97316"},
+    logicalReasoning: {ja:"論理探偵",          easy:"りくつ探偵",            icon:"🧩",c:"#8b5cf6"},
+    focus:            {ja:"集中マスター",      easy:"しゅうちゅうマスター",   icon:"🧠",c:"#06b6d4"},
+    stability:        {ja:"安定の王",          easy:"あんていの王",          icon:"⚖️",c:"#10b981"},
+    retryPower:       {ja:"復活の勇者",        easy:"ふっかつの勇者",        icon:"💪",c:"#ef4444"},
+    retryAgain:       {ja:"粘りのランナー",    easy:"ねばりのランナー",      icon:"🔁",c:"#f59e0b"},
+    consistency:      {ja:"継続の鬼",          easy:"つづけるチャンピオン",  icon:"📅",c:"#6366f1"},
+    startingPower:    {ja:"即起動タイプ",      easy:"はじめるのはやい",      icon:"🚀",c:"#ec4899"},
+    verificationPower:{ja:"完璧チェッカー",    easy:"かんぺきチェッカー",    icon:"🔍",c:"#14b8a6"},
+  };
+  const h=(bestKey&&HUNTER[bestKey])||{ja:"見習いハンター",easy:"みならいハンター",icon:"🔍",c:"#5b3ff8"};
+  const hunterName=low?h.easy:h.ja;
+  const hunterColor=h.c;
+  // ─ 今日のミッション ─
+  const getMission=()=>{
+    if(reviewCount>0)return{
+      icon:"🔄",
+      title:low?"もういちど ちょうせん！":"復習ミッション発令！",
+      desc:low?`まえに まちがえた もんだいが ${reviewCount} もん まってるよ！`:`前回ミスした問題 ${reviewCount} 件が待機中。今日こそ撃退しよう！`,
+      accent:"#22c55e",bg:"#f0fdf4",
+    };
+    const wt=Object.entries(logs.topicMastery||{})
+      .filter(([,v])=>!v.mastered&&v.attempts>=3)
+      .map(([topic,v])=>({topic,rate:v.correct/v.attempts,score:v.attempts*(1-v.correct/v.attempts)}))
+      .sort((a,b)=>b.score-a.score);
+    if(wt.length){
+      const top=wt[0];const pct=Math.round(top.rate*100);
+      return{
+        icon:"🎯",
+        title:low?`「${top.topic}」を やっつけよう！`:`「${top.topic}」攻略ミッション！`,
+        desc:low?`せいかいりつ ${pct}%。こんかいで かならず のばそう！`:`正解率 ${pct}%。今日の集中ターゲットはここだ！`,
+        accent:"#f97316",bg:"#fff7ed",
+      };
+    }
+    const streak=logs.loginStreak||0;
+    if(streak>=3)return{
+      icon:"🔥",
+      title:low?`${streak}にち れんぞく まもれ！`:`${streak}日連続を守り抜け！`,
+      desc:low?"きょうも 5もん クリアして ストリークを つなごう！":"今日も完走してストリークを継続。この積み重ねが本物になる。",
+      accent:"#ef4444",bg:"#fff7f0",
+    };
+    return{
+      icon:"⚔️",
+      title:low?"きょうも ミスを やっつけよう！":"今日のミスを狩り尽くせ！",
+      desc:low?"5もん こたえて きょうの ゴールを クリアしよう！":"5問クリアしてノルマ達成。ミスを直すのが最速の成長。",
+      accent:"#5b3ff8",bg:"#f0edff",
+    };
+  };
+  const m=getMission();
+  const progress=Math.min(todaySessions,5);
+  // ─ ノルマ達成カード ─
+  if(dailyGoalMet)return(
+    html`<div class="mc mc-done">
+      <div class="mc-done-top">
+        <span class="mc-done-star">🏆</span>
+        <div>
+          <div class="mc-done-ttl">${low?"ミッション かんりょう！":"ミッション完了！"}</div>
+          <div class="mc-done-sub">${low?"きょうの 5もん ぜんぶ クリア！すごい！":"今日の5問を全てクリアした！"}</div>
+        </div>
+      </div>
+      <div class="mc-dots">
+        ${Array.from({length:5},(_,i)=>html`<div key=${i} class="mc-dot done"/>`)}
+      </div>
+      <div class="mc-done-more">${low?"ひきつづき といてもいいよ 🌟":"引き続き問題を解くこともできます 🌟"}</div>
+    </div>`
+  );
+  // ─ 通常表示 ─
+  return(
+    html`<div class="mc" style=${{background:m.bg,borderColor:m.accent}}>
+      <div class="mc-head">
+        <div class="mc-hunter">
+          <span class="mc-hicon" style=${{color:hunterColor}}>${h.icon}</span>
+          <span class="mc-hname" style=${{color:hunterColor}}>${hunterName}</span>
+        </div>
+        <div class="mc-mlabel">${low?"きょうの ミッション":"今日のミッション"}</div>
+      </div>
+      <div class="mc-body">
+        <div class="mc-micon">${m.icon}</div>
+        <div>
+          <div class="mc-title" style=${{color:m.accent}}>${m.title}</div>
+          <div class="mc-desc">${m.desc}</div>
+        </div>
+      </div>
+      <div class="mc-foot">
+        <div class="mc-dots">
+          ${Array.from({length:5},(_,i)=>html`<div key=${i} class=${"mc-dot"+(i<progress?" done":"")}/>`)}
+        </div>
+        <div class="mc-prog-lbl" style=${{color:m.accent}}>
+          ${progress===0
+            ?(low?"さあ はじめよう！":"さあ、狩りに出よう！")
+            :(low?`あと ${5-progress} もん！`:`あと ${5-progress} 問でクリア！`)}
+        </div>
+      </div>
+    </div>`
+  );
+});
+
 // クリックイベント / 要素から「pop を出す中心座標」を抽出。
 // 触ったボタンの位置に pop を出したいので、まず currentTarget の rect を最優先で
 // 取得する。Preact のイベントは原則ネイティブ DOM Event をそのまま転送するので
@@ -2354,11 +2490,31 @@ const popAnchorFromEvent=(e)=>{
 
 // ─── QuizPanel ───────────────────────────────────────────────────
 const CHOICE_LABELS=["A","B","C","D"];
-const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,isNorma,todaySess,onReport,confidenceRating,onConfidenceRate,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered,choicesDisabled,grade})=>{
+const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSource,showWhyWrong,onChoice,onNotLearnedYet,onRetry,onNext,onToggleWhyWrong,onShowHint,isReview,onReport,confidenceRating,timeLimit,timeLimitMax,hiddenChoice,lifelineUsed,onLifeline,isTrial,timeAttackEnabled,lifelineEnabled,hintPanelOpen,onToggleHintPanel,primeMistakeType,isPriorityReview,answerGains,onActiveRecallAnswered,choicesDisabled,grade})=>{
   if(!quiz||!quizPhase)return null;
   // 学年に応じた UI 文言（低学年=ひらがな中心）。calcSubjects と同じ「学年で分岐」の系譜。
   const TXT=pickText(grade);
   const isCorrect=selectedChoice!==null&&selectedChoice===quiz.correct;
+  // [v29] 自信度キャリブレーション（原則4＝わかったつもりの矯正）。
+  //   既に取得済みの confidenceRating(1=勘/2=半々/3=できる) × 正誤を、結果画面に
+  //   1行の受動フィードバックとして返す（追加タップ0）。未選択時は捏造せず非表示。
+  //   "できる(3)で不正解"＝思い込みミスをその瞬間に自覚させる（priority復習と整合）。
+  const _calibNode=(()=>{
+    const c=confidenceRating;
+    if(!c)return null;
+    const low=isLowGrade(grade);
+    let icon,text,bg,bd,col;
+    if(isCorrect){
+      if(c===3){icon="✅";col="#166534";bg="#f0fdf4";bd="#86efac";text=low?"「できる」と おもって せいかい！じこひょうかと バッチリ あってる。":"「できる」と思って正解！自己評価がバッチリ合ってる。";}
+      else if(c===1){icon="🎲";col="#1e40af";bg="#f0f9ff";bd="#93c5fd";text=low?"かんで せいかい！“なんで あってたか”を いえるか たしかめよう。":"勘で正解！“なぜ合っていたか”を言えるか確かめよう。";}
+      else{icon="🤔";col="#1e40af";bg="#f0f9ff";bd="#93c5fd";text=low?"はんはんで せいかい！てごたえの かんかくが あたってきた。":"半々で正解！手応えの感覚が当たってきた。";}
+    }else{
+      if(c===3){icon="⚠️";col="#92400e";bg="#fffbeb";bd="#fde68a";text=low?"「できる」と おもったのに ちがった＝これが“おもいこみミス”。つぎは いちど みなおすと ふせげる。":"「できる」と思ったのに違った＝これが“思い込みミス”。次は一度だけ見直すと防げる。";}
+      else if(c===1){icon="🎲";col="#1e40af";bg="#f0f9ff";bd="#93c5fd";text=low?"かんで ちょうせん、えらい。ここで“ときかた”を おぼえれば つぎは かんじゃ なくなる。":"勘で挑戦、えらい。ここで“解き方”を覚えれば次は勘じゃなくなる。";}
+      else{icon="🤔";col="#1e40af";bg="#f0f9ff";bd="#93c5fd";text=low?"まよってたのは ただしい サイン。どこで まよったかが わかれば のびる。":"迷ってたのは正しいサイン。どこで迷ったかが分かれば伸びる。";}
+    }
+    return html`<div class="calib-box" style=${{background:bg,border:`1.5px solid ${bd}`,borderRadius:12,padding:"9px 13px",marginBottom:10,fontSize:12.5,color:col,fontWeight:800,lineHeight:1.6,display:"flex",gap:8,alignItems:"flex-start"}}><span style=${{fontSize:15,flexShrink:0}}>${icon}</span><span>${text}</span></div>`;
+  })();
   // ─ スクロール制御 ─
   const quizCardRef=useRef(null);
   // 「問題文へのフォーカス（スクロール）」は "他フェーズ → question" の遷移時のみ。
@@ -2393,45 +2549,19 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
     });
     return()=>{ cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
   },[quizPhase]);
-  // ⑯ 自信度セレクター
-  // 回答前 (question フェーズ) → メタ認知を促す問いかけに切り替え（ガイナー効果）
-  const ConfidenceSelector=()=>{
-    const isBeforeAnswer=quizPhase==="question";
-    const label=isBeforeAnswer?TXT.confidenceBefore:TXT.confidenceAfter;
-    return(
-      html`<div class="confidence-wrap">
-        <div class="confidence-label-txt">${label}</div>
-        <div class="confidence-row">
-          <button class=${`confidence-btn c1${confidenceRating===1?" selected":""}`} onClick=${(e)=>onConfidenceRate(1,e)}>🎲<br/>${TXT.confKan}</button>
-          <button class=${`confidence-btn c2${confidenceRating===2?" selected":""}`} onClick=${(e)=>onConfidenceRate(2,e)}>🤔<br/>${TXT.confHalf}</button>
-          <button class=${`confidence-btn c3${confidenceRating===3?" selected":""}`} onClick=${(e)=>onConfidenceRate(3,e)}>✅<br/>${TXT.confCan}</button>
-        </div>
-      </div>`
-    );
-  };
+  // ⑯ 自信度は「回答前」ではなく「選択後の確認カード」で取得する方式へ移設。
+  //   選択→『本当にそれでいい？』→自信度を選んで確定、という1ステップに統合したため、
+  //   question フェーズ内の事前セレクタ(ConfidenceSelector)は撤去。
+  //   結果画面の _calibNode は confidenceRating(確認カードで確定済み)をそのまま使う。
   const ModeBanner=()=>{
-    if(isReview&&isNorma)return(
-      html`<${Fragment}>
-        <div style=${{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
-          <span style=${{fontSize:16}}>🎯</span>
-          <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>${TXT.normaTitle} ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>${TXT.normaGoal}</div></div>
-        </div>
-        <div style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
-          <span style=${{fontSize:16}}>📝</span>
-          <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>${TXT.reviewTitle}</div><div style=${{fontSize:11,color:"#78350f"}}>${TXT.reviewSub}</div></div>
-        </div>
-      <//>`
-    );
-    if(isReview)return(
+    // [v30] ノルマ進捗バッジを撤去：結果画面は下部の norma-dots カードと重複し、
+    //   問題回答中(想起の瞬間)は注意を分散させていた（進捗はドットでカバー）。
+    //   復習(=自分のミスのやり直し)バッジのみ残す（原則5の枠組み付けとして有効）が、
+    //   思い込みアラート(priority)表示中は専用バナーに一本化して二重表示を避ける。
+    if(isReview&&!isPriorityReview)return(
       html`<div style=${{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1.5px solid #f59e0b",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
         <span style=${{fontSize:16}}>📝</span>
         <div><div style=${{fontSize:12,fontWeight:900,color:"#92400e"}}>${TXT.reviewTitle}</div><div style=${{fontSize:11,color:"#78350f"}}>${TXT.reviewSub}</div></div>
-      </div>`
-    );
-    if(isNorma)return(
-      html`<div style=${{background:"linear-gradient(135deg,#ede9ff,#ddd6fe)",border:"1.5px solid #a78bfa",borderRadius:12,padding:"8px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
-        <span style=${{fontSize:16}}>🎯</span>
-        <div><div style=${{fontSize:12,fontWeight:900,color:"#5b3ff8"}}>${TXT.normaTitle} ${todaySess+1} / 5</div><div style=${{fontSize:11,color:"#4c1d95"}}>${TXT.normaGoal}</div></div>
       </div>`
     );
     return null;
@@ -2489,8 +2619,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
         ):(
           html`<${Fragment}>
             <div class="q-text">${quiz.question}</div>
-            ${/* ⑩ 自信度セレクタを回答前に表示（ガイナー効果）— メタ認知をオンにする */ ""}
-            ${ConfidenceSelector()}
+            ${/* 自信度は選択後の確認カードへ移設（事前セレクタは廃止） */ ""}
             ${quiz.choices.map((c,i)=>{
               const isHidden=hiddenChoice===i;
               const isLocked=!!choicesDisabled&&!isHidden;
@@ -2527,7 +2656,7 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
   }
 
   // ─ 結果フェーズ：不正解 ─
-  // 並び方針: ①ミスタイプ大見出し → ②「ここまでは合ってた」途中成功 → ③選んだ選択肢の分析 → ④問題と答え合わせ → ⑤行動ボタン
+  // 並び方針: 振り返りは任意展開パネル（折りたたみ式）→ 解説を直接表示
   if(quizPhase==="result"&&!isCorrect){
     // 選んだ選択肢のwrong_analysisエントリを取得
     const chosenAnalysis=(quiz.wrong_analysis||[]).find(wa=>wa.index===selectedChoice);
@@ -2535,6 +2664,11 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
     const detective=detectiveBadgeFor(quiz.mistake_type);
     // 「ここまでは合ってた」途中成功（不正解時のやる気維持）
     const partials=calcPartialSuccesses(quiz,{selectedChoice,isReview,confidenceRating});
+
+    // [v29] 重複していた「なぜ思ったか振り返る（任意）」折りたたみパネルを撤去。
+    //   中身(=why_chosen)は直下の thought-quote で再掲され内容が重複しており、
+    //   既定折りたたみで関与率も低く、最重要の診断(ミス型)を画面下へ押し下げていた。
+    //   削除により診断＋自信度キャリブレが結果画面の主役になる。
     return(
       html`<div ref=${quizCardRef} class=${`quiz-card${easyMode?" diff-easy-soft":""}`}>
         ${ModeBanner()}
@@ -2555,6 +2689,9 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           </div>
           <${StatGainsPop} answerGains=${answerGains}/>
         </div>
+
+        ${/* [v29] 自信度キャリブレーション：手応えと結果のズレをその場で自覚（原則4） */ ""}
+        ${_calibNode}
 
         ${partials.length>0&&(
           html`<div class="partial-success-box">
@@ -2600,8 +2737,15 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           ✅ ${quiz.correct_feedback}
         </div>
         
-        <button class="why-wrong-btn" onClick=${onToggleWhyWrong}>
-          ${showWhyWrong?TXT.whyWrongClose:TXT.whyWrongOpen}
+        <button class=${`why-wrong-cta${showWhyWrong?" open":""}`} onClick=${onToggleWhyWrong}>
+          ${showWhyWrong?TXT.whyWrongClose:html`<span class="wwc-row">
+            <span class="wwc-badge">🕵️</span>
+            <span class="wwc-texts">
+              <span class="wwc-main">${TXT.whyWrongOpen}</span>
+              <span class="wwc-sub">${TXT.whyWrongHook}</span>
+            </span>
+            <span class="wwc-chev">▾</span>
+          </span>`}
         </button>
         ${showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
           html`<div class="why-wrong-panel">
@@ -2658,10 +2802,20 @@ const QuizPanel=memo(({quiz,quizPhase,selectedChoice,rankOneMode,easyMode,hintSo
           ${quiz.correct_feedback}
         </div>
         
+        ${/* [v29] 自信度キャリブレーション：勘で当てた等のズレをその場で自覚（原則4） */ ""}
+        ${_calibNode}
+
         <${RecallQuiz} quiz=${quiz} onAnswered=${onActiveRecallAnswered}/>
         
-        <button class="why-wrong-btn" onClick=${onToggleWhyWrong}>
-          ${showWhyWrong?TXT.whyWrongClose:TXT.whyWrongOpen}
+        <button class=${`why-wrong-cta${showWhyWrong?" open":""}`} onClick=${onToggleWhyWrong}>
+          ${showWhyWrong?TXT.whyWrongClose:html`<span class="wwc-row">
+            <span class="wwc-badge">🕵️</span>
+            <span class="wwc-texts">
+              <span class="wwc-main">${TXT.whyWrongOpen}</span>
+              <span class="wwc-sub">${TXT.whyWrongHook}</span>
+            </span>
+            <span class="wwc-chev">▾</span>
+          </span>`}
         </button>
         ${showWhyWrong&&Array.isArray(quiz.wrong_analysis)&&(
           html`<div class="why-wrong-panel">
@@ -2764,10 +2918,10 @@ function App(){
   const [apiKeys,setApiKeys]=useState([""]); // 初期1つ。+1で追加、最大4
   const [birthday,setBirthday]=useState("");
   const [grade,setGrade]=useState("");
-  // 上位者用モード: タイムアタック / 消去法ライフライン
-  const [advancedMode,setAdvancedMode]=useState(()=>{
-    try{ const v=_safeLS.get(userKey("machigai_lab_advanced_v1")); return v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false}; }catch(e){ return{timeAttack:false,lifeline:false,threeSecCheck:false}; }
-  });
+  // [v28] 旧・上級者モード(タイムアタック/ライフライン)は学習目的に逆行のため廃止。
+  //   3秒見直し(条件再確認)は handleChoice 側で自動発火させるトグルレス化に変更。
+  //   永続値は読まず常にOFF（既存ユーザーの保存設定で急かし/易化が残らないようにする）。
+  const [advancedMode,setAdvancedMode]=useState(()=>({timeAttack:false,lifeline:false,threeSecCheck:false}));
   useEffect(()=>{ _safeLS.set(ADV(),JSON.stringify(advancedMode)); },[advancedMode]);
   // ヒント表示モード（不正解後の挙動）
   const [hintPanelOpen,setHintPanelOpen]=useState(false);
@@ -2781,6 +2935,11 @@ function App(){
   // setLogs を発火するためアプリ側で集中管理。fire 用ガードは問題ごとにリセットする。
   const [bonusPops,setBonusPops]=useState([]);
   const bonusIdR=useRef(0);
+  // [v29] P1「なぜ選んだか」折りたたみパネルは撤去（thought-quote と重複）。state も削除。
+  // P2: 同型問題強制出題フラグ
+  const [forceSameTypeNext,setForceSameTypeNext]=useState(false);
+  const forceSameTypeNextR=useRef(false);
+  useEffect(()=>{forceSameTypeNextR.current=forceSameTypeNext;},[forceSameTypeNext]);
   const bonusTidsR=useRef(new Map());           // id → timeoutId
   const bonusFiredR=useRef({recall:false,whyWrong:false,confidence:false,timeAttack:false,hintShown:false});
   // 同一問題への handleChoice 二重発火ガード（クリック直後のタイマー満了など、
@@ -3164,7 +3323,7 @@ function App(){
   const reloadUserScopedSettings=()=>{
     try{const v=_safeLS.get(REJ());setRejectCount(v?parseInt(v,10)||0:0);}catch(e){setRejectCount(0);}
     try{const v=_safeLS.get(ARFL());setAutoRefill(v==null?true:JSON.parse(v));}catch(e){setAutoRefill(true);}
-    try{const v=_safeLS.get(ADV());setAdvancedMode(v?JSON.parse(v):{timeAttack:false,lifeline:false,threeSecCheck:false});}catch(e){setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false});}
+    setAdvancedMode({timeAttack:false,lifeline:false,threeSecCheck:false}); // [v28] 上級者モード廃止: 永続値を読まず常にOFF
     try{const v=_safeLS.get(ETXT());setEasyTextMode(v==="on"||v==="off"?v:"auto");}catch(e){setEasyTextMode("auto");}
     // 一時フラグ（永続化なし）はユーザー切替で必ずリセット
     setQuotaExhausted(false);
@@ -4119,11 +4278,14 @@ function App(){
       setHintSource("notLearned");
       return;
     }
-    // ⑧ 3秒見直しモード ON & 通常選択 (idx>=0) かつヒント非表示 → 確認ステップへ
-    //   pendingChoice に格納し、CountDown 経過 or 「決定」で本処理へ。
-    if(advancedMode.threeSecCheck && idx>=0 && !pendingChoiceR.current){
+    // 選択後は必ず確認カードを挟み、「本当にそれでいい？→自信度を選んで確定」を1ステップに統合。
+    //   自信度は確認カード内のボタン＝決定なので、ここでは pending にして即 return する。
+    //   [v28系の継続率配慮を踏襲] 危険な瞬間(=復習/苦手狙い撃ち isReview か 直前ミス wrongStreak>=1)は
+    //   recheck=true で問題文を再掲し「条件をもう一度確認」を強調。好調時(recheck=false)は問題再掲を省き軽量に。
+    const _recheckNow = isReviewR.current || ((gs && gs.wrongStreak) || 0) >= 1;
+    if(idx>=0 && !pendingChoiceR.current){
       pendingChoiceR.current=true;
-      setPendingChoice({idx,anchor:clickAnchor});
+      setPendingChoice({idx,anchor:clickAnchor,recheck:_recheckNow});
       return;
     }
     // タイムアウト(idx===-1)は不正解扱い
@@ -4144,11 +4306,7 @@ function App(){
     // ② 正解時はアクティブリコール (RecallQuiz) を先に出す方針へ統一。
     //    why-wrong パネルの自動展開はやめ、ユーザー操作で開く形に戻す。
     if(correct){setShowCorrectBurst(true);setTimeout(()=>setShowCorrectBurst(false),750);}
-    // タイムアタック ON & 時間内に正解 → +1 安定力（同じ問題内で1回）
-    if(correct && !timedOut && advancedMode.timeAttack && !bonusFiredR.current.timeAttack){
-      bonusFiredR.current.timeAttack=true;
-      addBonusPop({icon:"⏱️",name:"タイムアタック",statKey:"stability",amount:1,anchor:clickAnchor});
-    }
+    // [v28] タイムアタック廃止（急かす出題は条件読み落とし＝防ぎたいミスを誘発）。安定力ボーナスも撤去。
     // ⑦ ヒントを見ずに正解 → 単元力 +1（望ましい困難で記憶定着）
     //    hint がそもそも無い問題は対象外。リトライ時は再カウントしない。
     if(correct && !timedOut && !currentWasRetry && !hintUsedR.current && quiz?.hint){
@@ -4254,8 +4412,14 @@ function App(){
     // 全ての確定処理（ボーナス pop / updateLogs / updateAnalysisStats / setGs）の発火が終わったので
     // ここで初めてリトライフラグを下ろす。これより前に下ろすと、再レンダー由来の二重評価や
     // 後続フックから ref を参照したケースで「初回回答」と誤判定されうる。
+    // P2: 不正解（初回）→ 次は同型問題を強制フラグ ON。それ以外はフラグ OFF。
+    if(!correct&&!currentWasRetry&&!timedOut){
+      setForceSameTypeNext(true);forceSameTypeNextR.current=true;
+    }else{
+      setForceSameTypeNext(false);forceSameTypeNextR.current=false;
+    }
     wasRetryR.current=false;
-  },[selectedChoice,quizPhase,quiz,subject,updateLogs,updateAnalysisStats,advancedMode.timeAttack,advancedMode.threeSecCheck,addBonusPop]);
+  },[selectedChoice,quizPhase,quiz,subject,updateLogs,updateAnalysisStats,addBonusPop]);
   useEffect(()=>{handleChoiceR.current=handleChoice;},[handleChoice]);
 
   // ⑧ 見直しカードが表示されたら（画面外のときだけ）瞬時スナップ＋プライマリにフォーカス
@@ -4278,7 +4442,7 @@ function App(){
       try{ isTouch=!!(window.matchMedia&&window.matchMedia("(hover:none)").matches); }catch(_){}
       if(!isTouch){
         // プライマリアクション（これで決定）にフォーカス。やめる ではない。
-        const btn=el.querySelector(".threesec-go")||el.querySelector("button");
+        const btn=el.querySelector(".threesec-conf-row .confidence-btn")||el.querySelector("button");
         if(btn)btn.focus({preventScroll:true});
       }
     });
@@ -4334,16 +4498,13 @@ function App(){
     setHintSource("notLearned");
   },[]);
 
-  // 自信度評価: 回答前に押されるため、ここでは「即時確定する単元力 +1」のみ行う。
+  // 自信度ボーナス記録: 確認カードで自信度を選んだ瞬間（＝確定の直前）に「単元力 +1」を付与。
   // 確認力ボーナスと思い込みアラート（reviewQueue priority）の付与は、
   // 正誤が確定する updateLogs / wrongItem 構築側に集約する。
-  // ※ 旧実装は recentHistory[last] を書き換えていたが、回答前にボタンを押せる仕様では
-  //   「1つ前の問題」を誤って書き換えるバグになるため除去した（confidence は updateLogs の
-  //   recentHistory.push 時に confidenceRatingR.current から正しく記録される）。
-  const handleConfidenceRate=useCallback((rating,e)=>{
+  // confidence 値自体は updateLogs の recentHistory.push 時に confidenceRatingR.current から記録される。
+  const recordConfidenceBonus=useCallback((rating,e)=>{
     // ★ anchor 取得は最優先：setState などで currentTarget が解放される前に固定
     const anchor=popAnchorFromEvent(e);
-    setConfidenceRating(rating);
     // 自信度選択そのものに単元力 +1（同じ問題内で1回）
     // quiz を deps に含めることで常に最新の topic_tag を参照する。
     // subject は subjR.current（ref）で安全に取得。
@@ -4370,6 +4531,16 @@ function App(){
       }
     }
   },[quiz,addBonusPop]);
+
+  // 確認カードの自信度ボタン＝決定。「選択→本当にいい？→自信度を選んで確定」を1タップで閉じる。
+  //   handleChoice は採点時に confidenceRatingR.current を読む（思い込みアラート判定 等）ため、
+  //   非同期な setConfidenceRating の反映を待たず ref を同期更新してから確定経路へ進める。
+  const confirmWithConfidence=useCallback((rating,e)=>{
+    confidenceRatingR.current=rating;   // 同期確定（採点が即座に読めるように）
+    setConfidenceRating(rating);        // UI / 結果画面の _calibNode 用
+    recordConfidenceBonus(rating,e);    // 単元力 +1（問題内1回）
+    confirmPendingChoice();             // pending を確定 → handleChoice で採点
+  },[recordConfidenceBonus,confirmPendingChoice]);
 
   // リトライ（もう一回解く）
   const handleRetry=useCallback(()=>{
@@ -4449,6 +4620,9 @@ function App(){
     // 結果→次へで前の問題の浮遊ポップ(bonusPops)が新しい問題に被るのを防ぐ。
     // タイマーは自然消滅で OK。state を即 [] にすれば描画は1フレームで消える。
     setBonusPops([]);
+    // P2: 同型強制フラグは「次へ」を押した時点でリセット（1問だけ有効）
+    const _forceType=forceSameTypeNextR.current;
+    setForceSameTypeNext(false);forceSameTypeNextR.current=false;
     // 復活バーストが残っていたら早めに片付ける（中央オーバーレイで新問題が見えない事故を防止）
     setRevivalBurst(null);
     // 次の問題が描画される前に上端へスクロール（瞬間移動 = アニメ無し＝軽量）。
@@ -4488,7 +4662,10 @@ function App(){
     }
     // ⑥ 直前が「リトライなし不正解」→ 次は同 mistake_type を即出題（DAM 内に在庫があれば）
     // 無ければ通常の取り出し。生成は走らせない（API ゼロ）。
+    // P2: forceSameTypeNext フラグが ON なら直前の mistake_type / topic_tag を最優先で使う
     const preferMT=(prevAns&&!prevAns.correct&&prevAns.quiz?.mistake_type)?prevAns.quiz.mistake_type:null;
+    const _forceMT=_forceType&&prevAns?.quiz?.mistake_type?prevAns.quiz.mistake_type:null;
+    const _forceTopic=_forceType&&prevAns?.quiz?.topic_tag?prevAns.quiz.topic_tag:null;
     prevAnswerR.current=null;
     // ⑦ handleNext開始時点の学年をスナップショット固定（途中の学年変更を無視）
     const currentGrade=gradeR.current;
@@ -4528,14 +4705,18 @@ function App(){
           const _ws=(gsR.current&&gsR.current.wrongStreak)||0;
           const diff=_ws>=3?"easy":getAutoDifficulty(ns,logsR.current);
           // 復習問題なら復習アイテムの単元/ミス型を最優先で狙い撃ち。
-          // 通常問題は ⑥ 直前ミスの mistake_type を優先（同科目に限る）。
+          // P2: forceSameTypeNext が ON なら _forceMT/_forceTopic を最優先、次に ⑥ preferMT。
           const _rt=resolveReviewTarget(currentReviewItemIdR.current,cur.reviewQueue)||{};
-          const _pmt=_rt.mistakeType||(preferMT&&prevAns&&prevAns.subject===ns?preferMT:null);
-          const fromDam=popFromDam(ns,diff,1,_pmt,_rt.topic||null);setDamStats(getDamStats(subs));
+          const _pmt=_rt.mistakeType||(_forceMT&&prevAns&&prevAns.subject===ns?_forceMT:null)||(preferMT&&prevAns&&prevAns.subject===ns?preferMT:null);
+          const _ptopic=_rt.topic||(_forceTopic&&prevAns&&prevAns.subject===ns?_forceTopic:null)||null;
+          const fromDam=popFromDam(ns,diff,1,_pmt,_ptopic);setDamStats(getDamStats(subs));
           if(fromDam.length){setQuiz(fromDam[0]);return;}
-          // ストックなし → 緊急生成（3問）。復習なら単元を狙って生成。
+          // ストックなし → 緊急生成（3問）。P2: forceSameTypeNext 時は同型を指定。
           {
-            const generated=await generateEmergency(ns,currentGrade,(_rt.topic||_rt.mistakeType)?{topic:_rt.topic||null,mistakeType:_rt.mistakeType||null}:null);
+            const _genTarget=(_forceMT&&prevAns&&prevAns.subject===ns)
+              ?{topic:_forceTopic,mistakeType:_forceMT}
+              :(_rt.topic||_rt.mistakeType)?{topic:_rt.topic||null,mistakeType:_rt.mistakeType||null}:null;
+            const generated=await generateEmergency(ns,currentGrade,_genTarget);
             if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
             else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(ns);}
             return;
@@ -4575,17 +4756,19 @@ function App(){
       // ⑪ フリーモードでも 連続3ミス なら easy を強制
       const _ws2=(gsR.current&&gsR.current.wrongStreak)||0;
       const candDiff=_ws2>=3?"easy":getAutoDifficulty(cand,logsR.current);
-      // ⑥ 同 mistake_type 優先（同科目に限る）
-      const _pmt2=preferMT&&prevAns&&prevAns.subject===cand?preferMT:null;
-      const fromDam=popFromDam(cand,candDiff,1,_pmt2);
+      // ⑥ 同 mistake_type 優先（同科目に限る）。P2: forceSameTypeNext が ON なら _forceMT を最優先。
+      const _pmt2=(_forceMT&&prevAns&&prevAns.subject===cand?_forceMT:null)||(preferMT&&prevAns&&prevAns.subject===cand?preferMT:null);
+      const _ptopic2=_forceTopic&&prevAns&&prevAns.subject===cand?_forceTopic:null;
+      const fromDam=popFromDam(cand,candDiff,1,_pmt2,_ptopic2);
       if(fromDam.length){
         setIsReview(false);setDamStats(getDamStats(subjectsR.current));
         setQuiz(fromDam[0]);return;
       }
       setIsReview(false);
-      // ストック空 → 緊急生成（3問）。他科目へはズレない
+      // ストック空 → 緊急生成（3問）。P2: forceSameTypeNext 時は同型を指定。
       {
-        const generated=await generateEmergency(cand,currentGrade);
+        const _genTarget2=(_forceMT&&prevAns&&prevAns.subject===cand)?{topic:_forceTopic,mistakeType:_forceMT}:null;
+        const generated=await generateEmergency(cand,currentGrade,_genTarget2);
         if(generated){setQuiz(generated);setDamStats(getDamStats(subjectsR.current));}
         else{enteredWaiting=true;pollingCancelRef.current++;setWaitingForStock(cand);}
       }
@@ -4753,7 +4936,7 @@ function App(){
         }
         // 設定・統計の復元
         if(d.advancedMode&&typeof d.advancedMode==="object"){
-          const am={timeAttack:!!d.advancedMode.timeAttack,lifeline:!!d.advancedMode.lifeline,threeSecCheck:!!d.advancedMode.threeSecCheck};
+          const am={timeAttack:false,lifeline:false,threeSecCheck:false}; // [v28] 上級者モード廃止: 旧データを取り込んでも常にOFF
           setAdvancedMode(am);
           try{_safeLS.set(ADV(),JSON.stringify(am));}catch(_){}
         }
@@ -5104,49 +5287,32 @@ function App(){
                   );
                 })()}
 
-                ${!trialMode&&(
-                  html`<div class="quick-mode-row">
-                    <button
-                      class=${`quick-mode-btn${advancedMode.timeAttack?" on":""}`}
-                      onClick=${()=>setAdvancedMode({...advancedMode,timeAttack:!advancedMode.timeAttack})}
-                      title="問題に30秒の制限時間を設定。時間切れは不正解扱い。">
-                      <span class="qm-icon">⏱</span>
-                      <span>タイムアタック</span>
-                      <span class="qm-dot"/>
-                    </button>
-                    <button
-                      class=${`quick-mode-btn${advancedMode.lifeline?" on":""}`}
-                      onClick=${()=>setAdvancedMode({...advancedMode,lifeline:!advancedMode.lifeline})}
-                      title="1問1回、誤答を1つ消せるボタンが表示されます。">
-                      <span class="qm-icon">💡</span>
-                      <span>ライフライン</span>
-                      <span class="qm-dot"/>
-                    </button>
-                    <button
-                      class=${`quick-mode-btn${advancedMode.threeSecCheck?" on":""}`}
-                      onClick=${()=>setAdvancedMode({...advancedMode,threeSecCheck:!advancedMode.threeSecCheck})}
-                      title="選んだ後に「3秒見直す？」が出ます。条件読み落としの大半はここで救える。">
-                      <span class="qm-icon">🧐</span>
-                      <span>3秒見直し</span>
-                      <span class="qm-dot"/>
-                    </button>
-                  </div>`
-                )}
-                
-                ${pendingChoice&&quizPhase==="question"&&quiz&&(
-                  html`<div ref=${threesecCardRef} class="threesec-card">
+                ${/* [v28] クイックモード行(タイムアタック/ライフライン)は機能ごと廃止。
+                       選択後の確認カードは「本当にそれでいい？→自信度を選んで確定」を1ステップに統合。
+                       危険時(復習・直前ミス=recheck)のみ問題文を再掲し条件確認を強調する。 */ ""}
+
+                ${pendingChoice&&quizPhase==="question"&&quiz&&(()=>{
+                  const _low=isLowGrade(grade);
+                  const _t=pickText(grade);
+                  const _recheck=pendingChoice.recheck;
+                  return html`<div ref=${threesecCardRef} class="threesec-card">
                     <div class="threesec-head">
                       <span class="threesec-icon">🧐</span>
-                      <span>${isLowGrade(grade)?html`ほんとうに <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もういちど じょうけんを たしかめよう！`:html`本当に <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？ もう一度だけ条件を確認！`}</span>
+                      <span>${_low
+                        ? html`ほんとうに <b>${CHOICE_LABELS[pendingChoice.idx]}</b> で いい？${_recheck?html` もういちど じょうけんを たしかめよう！`:""}`
+                        : html`本当に <b>${CHOICE_LABELS[pendingChoice.idx]}</b> でいい？${_recheck?html` もう一度だけ条件を確認！`:""}`}</span>
                     </div>
-                    <div class="threesec-q">${quiz.question}</div>
-                    <div class="threesec-pick">→ ${isLowGrade(grade)?"きみの えらんだの":"あなたの選択"}：${CHOICE_LABELS[pendingChoice.idx]}. ${quiz.choices?.[pendingChoice.idx]||""}</div>
-                    <div class="threesec-row">
-                      <button class="threesec-cancel" onClick=${cancelPendingChoice}>${isLowGrade(grade)?"↩ えらびなおす":"↩ やめる（選び直す）"}</button>
-                      <button class="threesec-go" onClick=${confirmPendingChoice}>${isLowGrade(grade)?"これで OK ✓":"これで決定 ✓"}</button>
+                    ${_recheck&&html`<div class="threesec-q">${quiz.question}</div>`}
+                    <div class="threesec-pick">→ ${_low?"きみの えらんだの":"あなたの選択"}：${CHOICE_LABELS[pendingChoice.idx]}. ${quiz.choices?.[pendingChoice.idx]||""}</div>
+                    <div class="threesec-conf-label">${_t.confInCard}</div>
+                    <div class="threesec-conf-row">
+                      <button class="confidence-btn c1" onClick=${(e)=>confirmWithConfidence(1,e)}>🎲<br/>${_t.confKan}</button>
+                      <button class="confidence-btn c2" onClick=${(e)=>confirmWithConfidence(2,e)}>🤔<br/>${_t.confHalf}</button>
+                      <button class="confidence-btn c3" onClick=${(e)=>confirmWithConfidence(3,e)}>✅<br/>${_t.confCan}</button>
                     </div>
-                  </div>`
-                )}
+                    <button class="threesec-cancel-full" onClick=${cancelPendingChoice}>${_low?"↩ えらびなおす":"↩ 選び直す"}</button>
+                  </div>`;
+                })()}
                 ${comebackMode&&(
                   html`<div class="comeback-banner">
                     <div style=${{fontSize:20}}>⏱</div>
@@ -5235,10 +5401,7 @@ function App(){
                     onToggleWhyWrong=${handleToggleWhyWrong}
                     onShowHint=${v=>setHintSource(v)}
                     isReview=${!!currentReviewItemId}
-                    isNorma=${!currentReviewItemId&&!dailyGoalMet&&!trialMode}
-                    todaySess=${todaySessions}
                     confidenceRating=${confidenceRating}
-                    onConfidenceRate=${handleConfidenceRate}
                     timeLimit=${timeLimit}
                     timeLimitMax=${TIME_LIMIT_MAX}
                     hiddenChoice=${hiddenChoice}
@@ -5728,43 +5891,6 @@ function App(){
                   );
                 })()}
 
-                ${/* 🅒 診断(メタ認知) — 手応え(自信度)と正解のズレ。本アプリの主題=過信の検出。[CLO v25] */""}
-                ${(()=>{
-                  const cal=calcCalibration(logs.recentHistory);
-                  if(!cal)return null;
-                  const _low=isLowGrade(grade);
-                  const rows=[
-                    {lv:3,icon:"✅",name:_low?"わかる！":"わかる！",rate:cal.rate3,q:cal.levels[3].q},
-                    {lv:2,icon:"🤔",name:_low?"はんはん":"半々",rate:cal.rate2,q:cal.levels[2].q},
-                    {lv:1,icon:"🎲",name:_low?"カン":"カン",rate:cal.rate1,q:cal.levels[1].q},
-                  ].filter(x=>x.q>0);
-                  // 自信3=高いほど緑(正確)、低いほど赤(過信)。自信1=高いほど緑(過小評価の伸びしろ)。
-                  const barColor=(lv,r)=>r===null?"#e8e3ff":lv===3?(r>=85?"#22c55e":r>=65?"#f59e0b":"#ef4444"):lv===1?(r>=55?"#22c55e":"#a78bfa"):"#a78bfa";
-                  return(
-                    html`<div class="card">
-                      <div class="section-title">${_low?"🎯 てごたえメーター（あたってるかな？）":"🎯 手応えメーターの精度（メタ認知）"}</div>
-                      <div style=${{fontSize:10,color:"#bbb",marginBottom:8}}>${_low?"こたえる まえに えらんだ てごたえ べつの せいかいりつ":"回答前に選んだ手応え別の正解率"}</div>
-                      ${rows.map(x=>(
-                        html`<div key=${x.lv} class="subj-row">
-                          <span class="subj-name" style=${{minWidth:84,flex:"0 0 auto"}}>${x.icon} ${x.name}</span>
-                          <div style=${{flex:1}}><div class="bar-wrap"><div class="bar" style=${{width:x.rate!==null?`${x.rate}%`:"0%",background:barColor(x.lv,x.rate)}}></div></div></div>
-                          <span style=${{fontSize:12,fontWeight:900,color:barColor(x.lv,x.rate),minWidth:40,textAlign:"right"}}>${x.rate!==null?`${x.rate}%`:"—"}</span>
-                          <span style=${{fontSize:11,color:"#bbb",minWidth:34,textAlign:"right"}}>${x.q}${_low?"もん":"問"}</span>
-                        </div>`
-                      ))}
-                      ${cal.verdict&&(
-                        html`<div style=${{marginTop:10,padding:"10px 12px",borderRadius:12,fontSize:12,lineHeight:1.6,fontWeight:700,
-                          background:cal.verdict.kind==="over"?"#fff7ed":cal.verdict.kind==="under"?"#f0fdf4":"#eff6ff",
-                          color:cal.verdict.kind==="over"?"#7c2d12":cal.verdict.kind==="under"?"#166534":"#1e40af",
-                          border:`1.5px solid ${cal.verdict.kind==="over"?"#fed7aa":cal.verdict.kind==="under"?"#86efac":"#bfdbfe"}`}}>
-                          ${cal.verdict.icon} ${_low?cal.verdict.msgLow:cal.verdict.msg}
-                        </div>`
-                      )}
-                      <div style=${{fontSize:10,color:"#bbb",marginTop:8,textAlign:"center"}}>${_low?`さいきん ${cal.total}もんの てごたえから`:`直近 ${cal.total}問の手応え入力から集計`}</div>
-                    </div>`
-                  );
-                })()}
-
                 ${/* 🅒 診断(ミクロ・単元・最重点1件) — 今週の重点単元 */""}
                 ${weakestTopic&&(
                   html`<div class="card" style=${{background:"#fff7f7",border:"1.5px solid #fca5a5",padding:"14px 16px"}}>
@@ -6072,7 +6198,7 @@ function App(){
                 <div class="card">
                   <div class="section-title">${isLowGrade(grade)?"アプリの じょうほう":"アプリについて"}</div>
                   <div style=${{fontSize:13,color:"var(--text-soft)",lineHeight:1.8}}>
-                    <div>📚 まちがいラボ v23 — Conviction Edition</div>
+                    <div>📚 まちがいラボ v31 — Focus Edition</div>
                     <div>🎯 4択問題 × ミス削減エンジン × 思考プロセス強制言語化</div>
                     <div>🌱 やさしい / 📝 ふつう / 🔥 むずかしい の自動難易度</div>
                     <div>👥 マルチユーザー（最大4人） · 各データ独立保存</div>
@@ -6189,13 +6315,4 @@ if ('serviceWorker' in navigator &&
 }
 </script>
 </body>
-<!--
-CLO_LOG
-v25: メタ認知キャリブレーション可視化（記録タブに「手応えメーターの精度」カード）| 理論: メタ認知キャリブレーション | ROIスコア: 5×3÷2=7.5
-  - calcCalibration(history): recentHistory の confidence(1/2/3)別正解率を集計。<6件は null。
-  - verdict 優先: 過信(自信3が65%未満) > 過小評価(自信1が55%以上) > 良好(自信3が85%以上)。
-  - 聖域(confidenceRating/RecallQuiz/getAutoDifficulty/IndexedDBミラー/localStorageキー)は不変。読むだけ。
-チェック済み項目: 間隔反復(SM-2), 検索練習(RecallQuiz), 望ましい困難(getAutoDifficulty), メタ認知キャリブレーション(v25), 有能感の証拠(成長スコア/バッジ), 自律性支援(科目選択/やさしいモード/設定), フロー状態(適応難易度+連続演出+タイムアタック)
-未実装項目: インターリーブ(現状=復習混在のみ・科目/型の意図的混在は未), 精緻化想起(自分の言葉での説明=自由記述は未/RecallQuizで部分代替), 変動報酬(予測不能タイミングの報酬), ナラティブ継続(物語性), 社会的比較(ローカル単独構成のため要サーバ/P2P=構造的に高コスト)
--->
 </html>
